@@ -1,4 +1,4 @@
--- deepmud_farMesh
+-- deepnode_farMesh
 -- Sector meshes: 6x6 tiles each, one pooled mesh object per sector (swapped through
 -- tileMesh.present, so the old mesh disappears one frame after the new one shows).
 -- A sector draws its frozen (rutted) tiles at full resolution and every other mud
@@ -25,7 +25,7 @@ local pts = {}
 local stats = { builds = 0, failed = 0, lastBuildMs = 0, maxBuildFrames = 0, byTier = {},
   urgentWaitLast = 0, urgentWaitMax = 0, urgentWaitSum = 0, urgentWaits = 0 }
 
-local function tm() return extensions and extensions.deepmud_tileMesh or (ctx and ctx.tileMeshForTests) end
+local function tm() return extensions and extensions.deepnode_tileMesh or (ctx and ctx.tileMeshForTests) end
 
 local function newTimer()
   if hptimer then return hptimer() end
@@ -279,7 +279,7 @@ local function buildBody(j)
     drop = -min(main.cfg.sectors.drop, 0.5 * (main.cfg.tiles.terrainFirstLift or 0.006))
   end
   local SEC, KEY = main.sec, main.KEY
-  local dec = extensions and extensions.deepmud_decals
+  local dec = extensions and extensions.deepnode_decals
   local tx0, ty0 = sec.sx * SEC, sec.sy * SEC
   for ty = ty0, ty0 + SEC - 1 do
     for tx = tx0, tx0 + SEC - 1 do
@@ -342,7 +342,7 @@ local function finishBuild(j, meshes, failed)
       if j.urgentSince then sec.urgent = true; sec.urgentSince = sec.urgentSince or j.urgentSince end
       return
     end
-    log('W', 'deepmud', 'sector ' .. sec.sx .. ',' .. sec.sy .. ' failed to build 3 times, dropping its handovers')
+    log('W', 'deepnode', 'sector ' .. sec.sx .. ',' .. sec.sy .. ' failed to build 3 times, dropping its handovers')
   else
     sec.failures = 0
     t_m.present(sec, meshes)
@@ -407,7 +407,7 @@ local function stepBuild(force)
   end
   local ok, res = coroutine.resume(j.co)
   if not ok then
-    log('E', 'deepmud', 'sector build error: ' .. tostring(debug.traceback(j.co, tostring(res))))
+    log('E', 'deepnode', 'sector build error: ' .. tostring(debug.traceback(j.co, tostring(res))))
     finishBuild(j, nil, true)
     return true
   end

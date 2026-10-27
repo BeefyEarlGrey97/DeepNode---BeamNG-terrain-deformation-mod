@@ -1,4 +1,4 @@
--- deepmud_wheelMud
+-- deepnode_wheelMud
 -- Mud on the tyres, and chunks that drop off them.
 --
 -- Rewrite (2026-10-24). The old skin re-uploaded a 36-segment mesh whenever the coat
@@ -9,9 +9,9 @@
 --    axle at ~6 cm steps, lifted off the tyre by a cake thickness that follows the mud
 --    blobs of the texture (thick where mud sticks first);
 --  * which part of that skin shows is decided per pixel by the material's alpha clip:
---    art/deepmud/t_tyremud_o.data.png holds a coverage order (tread first, then
+--    art/deepnode/t_tyremud_o.data.png holds a coverage order (tread first, then
 --    shoulders, then blotches over the sidewalls; histogram-equalised, see
---    art/deepmud/bake_tyremud.py), so alphaRef = 255 - 254 x coverage shows exactly
+--    art/deepnode/bake_tyremud.py), so alphaRef = 255 - 254 x coverage shows exactly
 --    that share. Each wheel has its own material; a change is setField + flush
 --    (~0.4-0.8 ms measured, no lasting engine memory over 600 flushes), at most
 --    clods.flushPerFrame per frame inside the shared upload budget;
@@ -36,10 +36,10 @@ local floor, min, max, sqrt, abs, huge = math.floor, math.min, math.max, math.sq
 local sin, cos, atan2 = math.sin, math.cos, math.atan2 or math.atan
 local sfmt = string.format
 
-local TEX_B = '/art/deepmud/t_tyremud_b.color.png'
-local TEX_O = '/art/deepmud/t_tyremud_o.data.png'
-local ORDER_FILE = '/art/deepmud/tyremud_order.json'
-local MAT = 'deepmud_clod'
+local TEX_B = '/art/deepnode/t_tyremud_b.color.png'
+local TEX_O = '/art/deepnode/t_tyremud_o.data.png'
+local ORDER_FILE = '/art/deepnode/tyremud_order.json'
+local MAT = 'deepnode_clod'
 
 local ctx = nil
 local vehs = {}
@@ -61,7 +61,7 @@ local lumpVariants = nil
 
 local function isFinite(v) return type(v) == 'number' and v == v and v > -1e7 and v < 1e7 end
 local function clamp(v, a, b) if v < a then return a elseif v > b then return b end return v end
-local function tm() return extensions and extensions.deepmud_tileMesh end
+local function tm() return extensions and extensions.deepnode_tileMesh end
 
 local function hash01(a, b, c)
   local t = tm()
@@ -87,7 +87,7 @@ local function newObject(tag)
   local o = createObject('ProceduralMesh')
   if not o then return nil end
   o.canSave = false
-  o:registerObject(sfmt('deepmud_tyre_%d_%s_%d', session, tag, objCounter))
+  o:registerObject(sfmt('deepnode_tyre_%d_%s_%d', session, tag, objCounter))
   local t = tm()
   local grp = t and t.getGroup and t.getGroup() or scenetree.MissionGroup
   if grp then
@@ -118,7 +118,7 @@ local function loadOrder()
     order = d
   else
     order = nil
-    log('W', 'deepmud', 'tyre mud: ' .. ORDER_FILE .. ' missing, flat cake')
+    log('W', 'deepnode', 'tyre mud: ' .. ORDER_FILE .. ' missing, flat cake')
   end
 end
 
@@ -213,7 +213,7 @@ local function acquireMaterial(W)
     W.matName, W.mat = e.name, e.mat
   else
     matCounter = matCounter + 1
-    local name = sfmt('deepmud_tyremat_%d_%d', session, matCounter)
+    local name = sfmt('deepnode_tyremat_%d_%d', session, matCounter)
     local m = ctx.createMaterial(name, {
       { 'version', '1.5' }, { 'castShadows', '0' },
       { 'baseColorMap', tb }, { 'opacityMap', to },
@@ -264,7 +264,7 @@ local function acquireFilm(W)
     W.filmName, W.film = e.name, e.mat
   else
     matCounter = matCounter + 1
-    local name = sfmt('deepmud_tyrefilm_%d_%d', session, matCounter)
+    local name = sfmt('deepnode_tyrefilm_%d_%d', session, matCounter)
     W.film = ctx.createMaterial(name, {
       { 'version', '1.5' }, { 'castShadows', '0' }, { 'translucent', '1' }, { 'translucentZWrite', '0' },
       { 'translucentBlendOp', 'LerpAlpha' }, { 'opacityFactor', op },

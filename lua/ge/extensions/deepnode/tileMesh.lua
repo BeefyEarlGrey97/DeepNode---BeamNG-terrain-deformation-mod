@@ -1,4 +1,4 @@
--- deepmud_tileMesh
+-- deepnode_tileMesh
 -- Patch mesh building and the shared pool of pre-created ProceduralMesh objects.
 --
 -- Engine facts used here (confirmed in the shipped 0.39 Lua):
@@ -37,7 +37,7 @@ local MAX_SUB_VERTS = 60000
 local MAX_SUB_CORNERS = 60000
 local HARD_CORNERS = 65000
 
-local ctx = nil -- deepmud_main, set by setContext
+local ctx = nil -- deepnode_main, set by setContext
 
 local stats = { created = 0, inUse = 0, builds = 0, rejected = 0, peakInUse = 0 }
 
@@ -107,7 +107,7 @@ local function createPooledObject()
   pool.count = pool.count + 1
   pool.serial = (pool.serial or 0) + 1 -- names never repeat, even after trimPool
   o.canSave = false
-  o:registerObject(sfmt('deepmud_pm_%d_%d', pool.session, pool.serial))
+  o:registerObject(sfmt('deepnode_pm_%d_%d', pool.session, pool.serial))
   addToGroup(o)
   o:setPosition(vec3(0, 0, 0))
   o:setHidden(true)
@@ -123,7 +123,7 @@ function M.initPool(n, session)
     local g = createObject('SimGroup')
     if g then
       g.canSave = false
-      g:registerObject(sfmt('deepmud_objects_%d', pool.session))
+      g:registerObject(sfmt('deepnode_objects_%d', pool.session))
       if scenetree.MissionGroup then scenetree.MissionGroup:addObject(g.obj) end
       pool.group = g
     end
@@ -145,7 +145,7 @@ local function acquire()
   local o = table.remove(pool.free)
   if not o then
     -- pool exhausted: grow in a small batch (logged, should not happen with a sized pool)
-    log('W', 'deepmud', 'mesh pool exhausted, growing by ' .. growStep)
+    log('W', 'deepnode', 'mesh pool exhausted, growing by ' .. growStep)
     for _ = 1, growStep do
       local p = createPooledObject()
       if p then pool.free[#pool.free + 1] = p end
@@ -304,8 +304,8 @@ local function padMeshes(chunk, meshes)
     padLen[2 * i - 1], padLen[2 * i] = nv, nc
     local capV, capC
     local maxV, maxC = tileN and (tileN + 1) * (tileN + 1), tileN and 6 * tileN * tileN
-    if m.material:sub(1, 12) == 'deepmud_dec_' then
-      -- decal overlay (deepmud_decals): small, own power-of-two classes
+    if m.material:find('^deepnode_dec_') then
+      -- decal overlay (deepnode_decals): small, own power-of-two classes
       capC = pow2(max(nc, 4 * nv), 384)
       capV = capC / 4
     elseif tileN and nv <= maxV and nc <= maxC then
@@ -450,7 +450,7 @@ function Sub:reset(material)
   restore(self.verts, self.sv); restore(self.normals, self.sn)
   restore(self.uvs, self.su); restore(self.faces, self.sf)
   self.nv, self.nf, self.bad = 0, 0, false
-  self.decalDone = 0 -- faces already given their decal overlay (deepmud_decals)
+  self.decalDone = 0 -- faces already given their decal overlay (deepnode_decals)
 end
 
 -- Add a vertex; returns its 0-based index. Non-finite input marks the whole build
@@ -532,7 +532,7 @@ function Builder:finish()
     local s = self.subs[i]
     if s.bad then return nil end
     if s.nf > HARD_CORNERS or s.nv > HARD_CORNERS then
-      log('E', 'deepmud', sfmt('submesh %s too big (%d verts, %d corners): dropped', s.material, s.nv, s.nf))
+      log('E', 'deepnode', sfmt('submesh %s too big (%d verts, %d corners): dropped', s.material, s.nv, s.nf))
       return nil
     end
   end
@@ -885,8 +885,8 @@ function M.buildTile(t, rule)
   else
     M.emitTilePixels(tileBuilder, t, 0, rule)
   end
-  -- decal roads (deepmud_decals): on the untouched terrain squares of the tile
-  local dec = extensions and extensions.deepmud_decals
+  -- decal roads (deepnode_decals): on the untouched terrain squares of the tile
+  local dec = extensions and extensions.deepnode_decals
   if dec then dec.overlay(tileBuilder, true, t.key) end
   return tileBuilder:finish()
 end

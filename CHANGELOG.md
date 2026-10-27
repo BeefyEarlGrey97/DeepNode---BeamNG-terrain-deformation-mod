@@ -1,6 +1,11 @@
 # Changelog
 
-## [0.1.0] — 2026-10-27 — first release
+## [0.1.0] — 2026-10-28 — first release
+
+### Renamed
+- Mod renamed from "Deep Mud" to **DeepNode**: extensions `deepnode_*`, folders `lua/*/extensions/deepnode`,
+  `art/deepnode`, `settings/deepnode`, `scripts/deepnode`, user settings `<user folder>/settings/deepnode/`,
+  benchmark helpers `dntest*`. Distributed as `DeepNode-v0.1.0.zip`.
 
 ### Added
 - Terrain-first drawing for heavy physics: undug mud is the level terrain (vanilla decal roads,
@@ -8,7 +13,7 @@
 - Predictive stamping (adaptive lead from the measured rut-front latency).
 - Fresh-rut-front scheduler: tiles with a fresh front in the camera view rebuild at up to 40 Hz
   outside the frame-rate governor; uploads coalesced every 2nd frame.
-- `deepmud_main.rutLag().fresh` (rut front latency), `deepmud_main.pointInView`.
+- `deepnode_main.rutLag().fresh` (rut front latency), `deepnode_main.pointInView`.
 - Benchmark tooling (`tools/benchmark`), engine findings, open issues, contributing guide.
 
 ### Changed

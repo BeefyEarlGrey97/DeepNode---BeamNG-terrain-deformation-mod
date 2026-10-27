@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline syntax + global check of the deepmud mod with LuaJIT (same compiler as BeamNG).
+# Offline syntax + global check of the deepnode mod with LuaJIT (same compiler as BeamNG).
 # usage: tools/dev/luacheck.sh [mod_root]   (default: this repository)
 LJ=${LUAJIT:-luajit}   # set LUAJIT=/path/to/luajit if it is not on PATH
 R=${1:-$(cd "$(dirname "$0")/../.." && pwd)}

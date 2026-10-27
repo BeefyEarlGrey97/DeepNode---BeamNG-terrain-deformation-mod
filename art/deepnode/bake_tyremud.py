@@ -1,4 +1,4 @@
-# Bake the tyre mud texture for deepmud.
+# Bake the tyre mud texture for deepnode.
 # RGB: mud_large luminance (game asset), monochrome. A: coverage order, histogram-equalised so that
 # alphaRef = 255 * (1 - coverage) shows exactly that share of the tyre skin.
 # U (width) = across the tyre profile, rim to rim (tread centre at 0.5).

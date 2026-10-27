@@ -1,8 +1,8 @@
--- dmtestCircles: deepmud stress-test helper (not part of the mod).
+-- dntestCircles: deepnode stress-test helper (not part of the mod).
 -- Every vehicle drives its OWN circle (pure pursuit on the circle + speed hold).
--- dmtestCircles.start({ R = 100, kph = 40, cars = { { vid = 1, cx = 0, cy = 0 }, ... } })
--- dmtestCircles.place()  teleports each car onto its circle, heading clockwise
--- dmtestCircles.stop() / dmtestCircles.state()
+-- dntestCircles.start({ R = 100, kph = 40, cars = { { vid = 1, cx = 0, cy = 0 }, ... } })
+-- dntestCircles.place()  teleports each car onto its circle, heading clockwise
+-- dntestCircles.stop() / dntestCircles.state()
 local M = {}
 local S = nil
 

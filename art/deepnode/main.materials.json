@@ -1,7 +1,7 @@
 {
-  "deepmud_fallback": {
-    "name": "deepmud_fallback",
-    "mapTo": "deepmud_fallback",
+  "deepnode_fallback": {
+    "name": "deepnode_fallback",
+    "mapTo": "deepnode_fallback",
     "class": "Material",
     "Stages": [
       {

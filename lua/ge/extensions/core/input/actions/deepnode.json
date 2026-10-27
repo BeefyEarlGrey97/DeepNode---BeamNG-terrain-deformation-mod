@@ -1,0 +1,5 @@
+{
+"deepnode_toggle_gui"  :{"cat":"gameplay", "order": 90, "ctx": "tlua", "onDown": "if extensions.deepnode_gui then extensions.deepnode_gui.toggle() end", "title": "DeepNode: toggle window", "desc": "Open or close the DeepNode window (start/stop, settings, debug)" },
+"deepnode_toggle_mod"  :{"cat":"gameplay", "order": 91, "ctx": "tlua", "onDown": "if deepnode_main then deepnode_main.toggle() end", "title": "DeepNode: start / stop", "desc": "Turn the DeepNode mod on or off" },
+"deepnode_toggle_tyremud":{"cat":"gameplay", "order": 92, "ctx": "tlua", "onDown": "if deepnode_main then deepnode_main.toggleClods() end", "title": "DeepNode: tyre mud on / off", "desc": "Show or hide the mud that builds up on the wheels" }
+}

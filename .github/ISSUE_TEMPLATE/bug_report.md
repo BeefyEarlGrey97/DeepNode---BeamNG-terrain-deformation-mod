@@ -10,6 +10,6 @@ labels: bug
 
 **Steps** (level, vehicle, physics mode `heavy`/`vanilla`, mod settings changed)
 
-**beamng.log lines** (search for `deepmud`)
+**beamng.log lines** (search for `deepnode`)
 
 **Screenshot / video**

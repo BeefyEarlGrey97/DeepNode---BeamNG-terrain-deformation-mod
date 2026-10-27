@@ -1,9 +1,11 @@
-# DeepNode v0.1.0 — first release (2026-10-27)
+# DeepNode v0.1.0 — first release (2026-10-28)
 
 Deep, persistent mud and sand for BeamNG.drive 0.40: 0.2 m tyre ruts, chassis dents, tyre mud,
 optional heavy physics with a terrain rut floor.
 
 ## Highlights
+- **Clean-room build, new name:** the mod is now DeepNode everywhere (extensions `deepnode_*`, files under
+  `deepnode/`, settings in `settings/deepnode/`).
 - **Decal roads fixed (heavy physics):** undug mud is the level terrain itself, so decal roads, grass and
   colours look exactly like vanilla at any distance; mud meshes are drawn only where wheels dug.
 - **Ruts keep up with the wheels:** predictive stamping plus a camera-aware scheduler; rut front reaches
@@ -13,9 +15,13 @@ optional heavy physics with a terrain rut floor.
 - Benchmark tooling for 8 Percherons on gridmap_v2 and johnson_valley, engine findings, contributor docs.
 
 ## Install
-Unzip into `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\` (or clone into `mods/unpacked/deepmud`).
-**Recommended:** in the mod GUI (Run tab) switch *Physics* to **HEAVY**. The shipped default is vanilla physics,
-which keeps the old decal overlay and uses much more memory.
+Download `DeepNode-v0.1.0.zip` and drop it, unextracted, into
+`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\`. Start a level with mud or sand (Grid Map v2, Johnson Valley).
+**Recommended:** in the DeepNode window (Run tab) switch *Physics* to **HEAVY**. The shipped default is vanilla
+physics, which keeps the old decal overlay and uses much more memory.
+
+Upgrading from the pre-release "deepmud" builds: remove `mods/unpacked/deepmud` and any `deepmud*.zip` from
+`mods/`; settings now live in `<user folder>/settings/deepnode/` (copy your old `settings/deepmud/gui.json` there).
 
 ## Benchmark (gridmap_v2, 8 Percherons, 70 m view)
 | physics | fresh mud fps (low1) | repeat fps (low1) | memory fresh / repeat |
@@ -31,4 +37,4 @@ yet; see the open issues list in the README / docs/OPEN_ISSUES.md.
 - Rut deepening behind the front axle can lag seconds under heavy load.
 - Sand and vanilla physics mode still use the full mud mesh and the alpha-clipped decal overlay.
 - Heavy physics slows Percherons to ~3–4 m/s in deep mud.
-- Tyre textures in art/deepmud are baked from BeamNG assets: check redistribution terms.
+- Tyre textures in art/deepnode are baked from BeamNG assets: check redistribution terms.

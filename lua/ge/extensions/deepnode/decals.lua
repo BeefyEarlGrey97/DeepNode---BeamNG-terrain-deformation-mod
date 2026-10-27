@@ -1,4 +1,4 @@
--- deepmud_decals
+-- deepnode_decals
 -- Decal roads on the mud, drawn as part of the mud meshes (roads.mode = 'overlay';
 -- GUI "Decal roads on mud", main.setDecalRoads switches it live).
 --
@@ -55,7 +55,7 @@ local function overlayMaterial(name)
   if have ~= nil then return have or nil end
   local src = scenetree.findObject(name)
   if not src then matOf[name] = false; return nil end
-  local dst = 'deepmud_dec_' .. name
+  local dst = 'deepnode_dec_' .. name
   -- a copy left from an earlier session (GE Lua reload) would be reused with its old
   -- fields by createMaterial: delete it first
   local old = scenetree.findObject(dst)
@@ -343,7 +343,7 @@ function M.overlay(b, squaresOnly, tileKey)
   local dedup = {}
   for si = 1, nsub do
     local s = b.subs[si]
-    if s.nf > 0 and s.material:sub(1, 12) ~= 'deepmud_dec_' then
+    if s.nf > 0 and not s.material:find('^deepnode_dec_') then
       local verts, normals, faces = s.verts, s.normals, s.faces
       ensureStamp(s.nv)
       -- only the faces added since the last call (sector builds call this per tile)
@@ -493,7 +493,7 @@ function M.start(main)
       local okH, hid = pcall(function() return road:isHidden() end)
       if not (okH and hid) then
         local ok, err = pcall(addRoad, road, P)
-        if not ok then log('W', 'deepmud', 'decal overlay: road ' .. tostring(name) .. ': ' .. tostring(err)) end
+        if not ok then log('W', 'deepnode', 'decal overlay: road ' .. tostring(name) .. ': ' .. tostring(err)) end
       end
     end
   end
@@ -533,7 +533,7 @@ function M.start(main)
   end
   stats.roads, stats.hiddenRoads = #roads, #hidden
   stampStep = #roads + 1
-  log('I', 'deepmud', sfmt('decal overlay: %d roads on the mud (%d hidden, %d also off the mud), %d tiles, %.0f ms',
+  log('I', 'deepnode', sfmt('decal overlay: %d roads on the mud (%d hidden, %d also off the mud), %d tiles, %.0f ms',
     #roads, #hidden, stats.partial, stats.tiles, t0 and t0:stop() or 0))
   return #roads
 end

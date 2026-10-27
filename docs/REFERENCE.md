@@ -1,6 +1,6 @@
-# Deep Mud for BeamNG.drive
+# DeepNode for BeamNG.drive
 
-Deep Mud turns the soft terrain of any level (layers whose name or ground model contains
+DeepNode turns the soft terrain of any level (layers whose name or ground model contains
 "mud" or "sand") into deformable mud. Wheels dig ruts that stay, chassis parts carve dents,
 the vehicle is dragged and held by the mud, wet dark mud lines the wheel paths, and lumps of
 mud build up on the tyres and fly off when the wheels spin.
@@ -9,14 +9,14 @@ Target: BeamNG.drive 0.39.x on Windows.
 
 ## Install
 
-Copy `deepmud.zip` into `%LOCALAPPDATA%/BeamNG/BeamNG.drive/current/mods/` and enable it
+Copy `deepnode.zip` into `%LOCALAPPDATA%/BeamNG/BeamNG.drive/current/mods/` and enable it
 in the mod manager. The mod starts by itself when a level loads.
 
 The control window opens when the mod starts (`gui.openOnStart`). To show or hide it
 from the console (`~` key, GE Lua):
 
 ```lua
-deepmud_main.gui.toggle()
+deepnode_main.gui.toggle()
 ```
 
 ## How it works
@@ -36,7 +36,7 @@ deepmud_main.gui.toggle()
   A soft vertex that touches another layer has depth 0, so every mud square is pure soft
   ground.
 * You can add your own mud zones (circles) with the GUI button "Add mud zone here". Zones
-  are saved per level in `settings/deepmud/levels/<level>.json` in your user folder. A zone
+  are saved per level in `settings/deepnode/levels/<level>.json` in your user folder. A zone
   adds depth (the deeper of zone and layer wins). Adding or removing zones rebuilds the mud
   state (ruts are cleared).
 
@@ -196,15 +196,15 @@ tyres carry mud (`clods.dualSlotFactor` x the lumps of a single tyre).
 
 ### Mud on the tyres
 
-Turn it on/off with the key binding **"Deep Mud: tyre mud on / off"** (Options > Controls >
+Turn it on/off with the key binding **"DeepNode: tyre mud on / off"** (Options > Controls >
 Bindings, category Gameplay; no default key), the "Tyre mud" checkbox in the window, or
-`deepmud_main.toggleClods()`. The choice is saved with the other GUI settings.
+`deepnode_main.toggleClods()`. The choice is saved with the other GUI settings.
 
 * One skin mesh per wheel, built once per wheel shape; which part shows is decided per
   pixel by its material's alpha clip (coverage order texture: tread first, then
   shoulders, then the sidewalls). A coat above 1 makes the cake thicker.
 * Kinds (`clods.kinds`, by the `softMatch` text of the layer): mud sticks and cakes;
-  sand has its own fine-grain textures (`art/deepmud/bake_tyresand.py`): it packs into
+  sand has its own fine-grain textures (`art/deepnode/bake_tyresand.py`): it packs into
   the tread grooves and dusts the sidewalls, never cakes and falls off fast. The colour
   is the kind's `color` (GUI colour pickers), mixed by mass when the kind changes.
 * Build-up: per metre rolled in mud (`buildPerMeter` x `stick`), more when deep or
@@ -338,7 +338,7 @@ process commit did not change at all; the engine and the Lua allocator keep free
 for their own reuse until the game closes. BeamNG sandboxes the FFI (`ffi.load` denied, no
 new `ffi.cdef`), so a mod cannot call the Windows working-set functions either. The only
 lever is to upload less (the limits above, 'pair' mode). "Lua cleanup" in the Debug tab
-(console `deepmud_main.flushMemory()`) runs a full Lua GC in the game engine and every
+(console `deepnode_main.flushMemory()`) runs a full Lua GC in the game engine and every
 vehicle VM and drops the mod's caches (hidden tyre meshes, landed lumps, debug outlines);
 it keeps the Lua heap from swelling but does not shrink the process. `memory.gcStepKB`
 adds a small Lua GC step every frame.
@@ -388,27 +388,27 @@ Three tabs:
 
 | Command | Effect |
 |---|---|
-| `deepmud_main.stats()` | Table with all status values and timings |
-| `deepmud_main.setFlipV(true/false)` | Flip the terrain texture V (no argument = toggle) |
-| `deepmud_main.cleanWheels()` | Remove all mud from the tyres |
-| `deepmud_main.reloadLevelData()` | Restore everything and start again from the level files |
-| `deepmud_main.gui.toggle()` | Show/hide the window (also `deepmud_gui.toggle()`) |
-| `deepmud_main.start()` / `stop()` / `toggle()` | Start or stop the mod |
-| `deepmud_main.setBoxMargin(m)` | Active tiles within this many metres of a footprint box |
-| `deepmud_main.clearRuts()` | Flatten all ruts |
-| `deepmud_main.setDebugChunks(true/false)` | Chunk border overlay |
-| `deepmud_main.setMaxVehicles(n)` | Vehicles with full-rate mud |
-| `deepmud_main.setMeshBuildsPerSec(n)` | Cap on chunk mesh rebuilds per second |
-| `deepmud_main.setClodsEnabled(true/false)` | Mud on tyres on/off |
-| `deepmud_main.toggleClods()` | Mud on tyres on/off, with an on-screen message, saved to gui.json |
-| `deepmud_main.rutLag(reset)` | Rut lag readout: time from a visible rut change to its mesh (near / far camera), lost writes |
-| `deepmud_main.gui.selectTab('Debug')` | Open the window on a tab |
-| `deepmud_main.flushMemory()` | Lua cleanup (see Engine memory) |
+| `deepnode_main.stats()` | Table with all status values and timings |
+| `deepnode_main.setFlipV(true/false)` | Flip the terrain texture V (no argument = toggle) |
+| `deepnode_main.cleanWheels()` | Remove all mud from the tyres |
+| `deepnode_main.reloadLevelData()` | Restore everything and start again from the level files |
+| `deepnode_main.gui.toggle()` | Show/hide the window (also `deepnode_gui.toggle()`) |
+| `deepnode_main.start()` / `stop()` / `toggle()` | Start or stop the mod |
+| `deepnode_main.setBoxMargin(m)` | Active tiles within this many metres of a footprint box |
+| `deepnode_main.clearRuts()` | Flatten all ruts |
+| `deepnode_main.setDebugChunks(true/false)` | Chunk border overlay |
+| `deepnode_main.setMaxVehicles(n)` | Vehicles with full-rate mud |
+| `deepnode_main.setMeshBuildsPerSec(n)` | Cap on chunk mesh rebuilds per second |
+| `deepnode_main.setClodsEnabled(true/false)` | Mud on tyres on/off |
+| `deepnode_main.toggleClods()` | Mud on tyres on/off, with an on-screen message, saved to gui.json |
+| `deepnode_main.rutLag(reset)` | Rut lag readout: time from a visible rut change to its mesh (near / far camera), lost writes |
+| `deepnode_main.gui.selectTab('Debug')` | Open the window on a tab |
+| `deepnode_main.flushMemory()` | Lua cleanup (see Engine memory) |
 
 ## Configuration
 
-Every tunable value lives in `settings/deepmud/config.json`. To change values, copy that
-file to `%LOCALAPPDATA%/BeamNG/BeamNG.drive/current/settings/deepmud/config.json` and edit
+Every tunable value lives in `settings/deepnode/config.json`. To change values, copy that
+file to `%LOCALAPPDATA%/BeamNG/BeamNG.drive/current/settings/deepnode/config.json` and edit
 the copy (it overrides the one in the zip). The file is merged over the built-in defaults:
 nested tables merge, lists replace. Changes apply on the next start (Stop/Start in the GUI).
 Lengths are metres, speeds m/s, times seconds.
@@ -666,7 +666,7 @@ Lengths are metres, speeds m/s, times seconds.
 * **Patch colour.** BeamNG's terrain shader reads the base colour map as linear data, so
   the patch uses the original file too (`materials.srgbMethod = "off"`). In-game
   measurement on hw550: an sRGB copy came out much darker and yellower than the terrain.
-  For levels that need it, `"copy"` writes a `.color.` copy to `/temp/deepmud/<level>/`
+  For levels that need it, `"copy"` writes a `.color.` copy to `/temp/deepnode/<level>/`
   (file copy, then byte copy, then a small BeamNG link file); the log says which worked.
   The terrain's roughness map looks glossy on an object material, so the patch uses a
   fixed matte roughness (`materials.roughness`), and `materials.tint` matches brightness.
@@ -689,7 +689,7 @@ Lengths are metres, speeds m/s, times seconds.
 
 * Check once on a mud level that the patch is visible from above (face winding) and that
   the terrain texture lines up; if it is mirrored, use "Terrain UV flip".
-* `beamng.log` lines tagged `deepmud` report the layer map check, the height frame, the
+* `beamng.log` lines tagged `deepnode` report the layer map check, the height frame, the
   sink pass and any slow call (over 20 ms).
 
 

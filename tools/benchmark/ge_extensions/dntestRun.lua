@@ -1,10 +1,10 @@
--- dmtestRun: deepmud benchmark helper (not part of the mod).
+-- dntestRun: deepnode benchmark helper (not part of the mod).
 -- Every vehicle drives straight ahead from its spawn (captured once) at a set speed through
 -- the pits, then all are reset to the spawn. Frame times are logged while driving.
--- dmtestRun.capture() / dmtestRun.start{runs=3, speed=13.41, dist=125, timeout=30}
--- dmtestRun.result() / dmtestRun.stop()
+-- dntestRun.capture() / dntestRun.start{runs=3, speed=13.41, dist=125, timeout=30}
+-- dntestRun.result() / dntestRun.stop()
 local M = {}
-local FILE = '/settings/deepmud/bench_spawn.json'
+local FILE = '/settings/deepnode/bench_spawn.json'
 local S = nil
 local spawn = nil
 
@@ -95,15 +95,15 @@ local function onUpdate(dtReal, dtSim)
   if S.step == 'reset' then
     if not S.didReset then
       S.didReset = true; resetAll()
-      if S.clear and deepmud_main and deepmud_main.isRunning() then deepmud_main.clearRuts() end
+      if S.clear and deepnode_main and deepnode_main.isRunning() then deepnode_main.clearRuts() end
     end
     if S.t >= S.settle then
       S.run = S.run + 1
       local c, p = mem()
       S.cur = { run = S.run, dts = {}, c0 = c, p0 = p, t = 0, maxSpeed = 0, done = 0 }
       S.step, S.t, S.didReset = 'drive', 0, false
-      if deepmud_main and deepmud_main.isRunning() and deepmud_main.perf then
-        local pf = deepmud_main.perf()
+      if deepnode_main and deepnode_main.isRunning() and deepnode_main.perf then
+        local pf = deepnode_main.perf()
         S.cur.ups0 = pf and pf.uploads
       end
     end
@@ -159,8 +159,8 @@ local function onUpdate(dtReal, dtSim)
       R.dCommit, R.dPhys = c - R.c0, p - R.p0
       R.c0, R.p0 = nil, nil
       summary(R)
-      if deepmud_main and deepmud_main.isRunning() and deepmud_main.perf then
-        local pf = deepmud_main.perf()
+      if deepnode_main and deepnode_main.isRunning() and deepnode_main.perf then
+        local pf = deepnode_main.perf()
         R.modMs = pf and pf.frameAvg
       end
       S.out[#S.out + 1] = R

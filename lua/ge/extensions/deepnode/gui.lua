@@ -1,10 +1,10 @@
--- deepmud_gui
+-- deepnode_gui
 -- Small ImGui window with three tabs: Run, Config, Debug.
 -- Cost rules (the old window made Lua garbage every frame):
 --  * nothing runs while the window is closed;
 --  * readouts are formatted twice a second into a line list; a frame only draws them;
---  * config sliders write straight into deepmud_main.cfg and are saved to
---    /settings/deepmud/gui.json one second after the last change (main merges that file
+--  * config sliders write straight into deepnode_main.cfg and are saved to
+--    /settings/deepnode/gui.json one second after the last change (main merges that file
 --    over config.json at every start, so changes survive restarts).
 -- ui_imgui (lua/common/extensions/ui/imgui_luaintf.lua): Begin/End, BeginTabBar/Item,
 -- Button, Checkbox, SliderFloat, SliderInt, TextUnformatted, PushStyleColor2, PlotLines1.
@@ -67,7 +67,7 @@ local st = {
 local ptr = {}           -- path -> FloatPtr / IntPtr / BoolPtr
 local col = nil
 
-local function main() return extensions and extensions.deepmud_main end
+local function main() return extensions and extensions.deepnode_main end
 
 local function split(path)
   local a, b = path:match('^(%w+)%.(%w+)$')
@@ -298,9 +298,9 @@ local function tabRun(m)
     im.SetTooltip('Decal roads (mud furrows, dirt tracks) drawn on the mud surface.\n' ..
       'Off: the mud shows only its terrain material (cheaper).')
   end
-  -- physics option (deepmud_physics): restarts the mod; the terrain under the mud changes,
+  -- physics option (deepnode_physics): restarts the mod; the terrain under the mud changes,
   -- so switch with no vehicle sunk in it
-  local ph = extensions and extensions.deepmud_physics
+  local ph = extensions and extensions.deepnode_physics
   if ph then
     local heavy = ph.mode() == 'heavy'
     if im.Button(heavy and 'Physics: HEAVY###phys' or 'Physics: vanilla###phys', im.ImVec2(186, 0)) then
@@ -357,16 +357,16 @@ local function tabConfig(m)
       if hit then
         setv(cfg, s[1], p[0]); changed()
         if s[1] == 'clods.tyreBrightness' then
-          local wm = extensions and extensions.deepmud_wheelMud
+          local wm = extensions and extensions.deepnode_wheelMud
           if wm and wm.refreshColors then wm.refreshColors() end
         elseif s[1] == 'perf.uploadEvery' then
-          local tmm = extensions and extensions.deepmud_tileMesh
+          local tmm = extensions and extensions.deepnode_tileMesh
           if tmm and tmm.setUploadEvery then tmm.setUploadEvery(p[0]) end
         end
       end
     end
     if s[1] == 'clods.tyreBrightness' then
-      local wm = extensions and extensions.deepmud_wheelMud
+      local wm = extensions and extensions.deepnode_wheelMud
       for _, kc in ipairs(KIND_COLORS) do
         local a = ptr['col_' .. kc[1]]
         -- 32 = ImGuiColorEditFlags_NoInputs (swatch + picker only)
@@ -411,12 +411,12 @@ end
 
 local TABS = { { 'Run', tabRun }, { 'Config', tabConfig }, { 'Debug', tabDebug } }
 local selectTab = nil
--- console: deepmud_main.gui.selectTab('Debug')
+-- console: deepnode_main.gui.selectTab('Debug')
 function M.selectTab(name) selectTab = name; M.open() end
 
 local function body(m)
   local err = nil
-  if im.BeginTabBar('deepmudTabs') then
+  if im.BeginTabBar('deepnodeTabs') then
     local sel = selectTab
     selectTab = nil
     for _, tb in ipairs(TABS) do
@@ -452,10 +452,10 @@ local function onUpdate(dtReal)
 
   im.SetNextWindowSize(im.ImVec2(360, 520), im.Cond_FirstUseEver)
   -- Begin/End stay balanced even when the body fails
-  if im.Begin('Deep Mud', open) then
+  if im.Begin('DeepNode', open) then
     local ok, err = pcall(body, m)
     if not ok then
-      log('E', 'deepmud', 'gui error: ' .. tostring(err))
+      log('E', 'deepnode', 'gui error: ' .. tostring(err))
       open[0] = false
     end
   end

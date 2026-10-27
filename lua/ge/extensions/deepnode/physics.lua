@@ -1,4 +1,4 @@
--- deepmud_physics
+-- deepnode_physics
 -- Physics option 'heavy' (cfg.physics.mode). Everything stays BeamNG's own physics:
 --  * ground models: the soft kinds' ground models get thicker values
 --    (cfg.physics.heavy.groundModels, e.g. a deeper soft layer `defaultDepth` and a more
@@ -96,7 +96,7 @@ local function applyGroundModels(layers)
         end
       end
       be:setGroundModel(name, e.cdata)
-      log('I', 'deepmud', sfmt('heavy physics: ground model %s (%s): %s', name, tostring(L.kind), table.concat(list, ', ')))
+      log('I', 'deepnode', sfmt('heavy physics: ground model %s (%s): %s', name, tostring(L.kind), table.concat(list, ', ')))
     end
   end
 end
@@ -110,7 +110,7 @@ local function restoreGroundModels()
       pcall(function() be:setGroundModel(name, e.cdata) end)
     end
   end
-  if next(saved) then log('I', 'deepmud', 'ground models restored') end
+  if next(saved) then log('I', 'deepnode', 'ground models restored') end
   saved = {}
 end
 
@@ -218,7 +218,7 @@ end
 
 -- write queued vertices: one updateGrid per frame, inside the upload budget
 local function write(h)
-  local tm = extensions and extensions.deepmud_tileMesh
+  local tm = extensions and extensions.deepnode_tileMesh
   if tm and tm.canUpload and not tm.canUpload('F', 0) then
     stats.held = stats.held + 1
     return
@@ -286,11 +286,11 @@ end
 -- the terrain under it changes.
 function M.setMode(mode)
   if mode ~= 'heavy' then mode = 'vanilla' end
-  local main = ctx or deepmud_main
+  local main = ctx or deepnode_main
   if not main then return end
   main.cfg.physics.mode = mode
   -- keep the other GUI values: merge into the GUI file (start reads it)
-  local path = main.private and main.private.GUI_CFG or '/settings/deepmud/gui.json'
+  local path = main.private and main.private.GUI_CFG or '/settings/deepnode/gui.json'
   local g = (FS and FS:fileExists(path) and jsonReadFile(path)) or {}
   if type(g) ~= 'table' then g = {} end
   g.physics = type(g.physics) == 'table' and g.physics or {}

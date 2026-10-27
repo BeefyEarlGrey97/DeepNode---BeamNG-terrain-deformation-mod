@@ -1,6 +1,6 @@
 # BeamNG engine findings (measured)
 
-Facts measured in game while developing Deep Mud (BeamNG.drive 0.40, gridmap_v2 / johnson_valley).
+Facts measured in game while developing DeepNode (BeamNG.drive 0.40, gridmap_v2 / johnson_valley).
 They explain most design decisions; please extend this file when you measure something new.
 
 ## ProceduralMesh

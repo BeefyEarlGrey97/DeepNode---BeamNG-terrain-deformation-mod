@@ -1,4 +1,4 @@
--- deepmud_vehicle (vehicle Lua VM)
+-- deepnode_vehicle (vehicle Lua VM)
 -- Wheel/body reports and the vehicle's ground footprint (bounding box) to GE.
 -- Physics is BeamNG's own: the mod applies no forces, except the heavy-physics rut guide
 -- (physics.heavy.rutGuide, setGuide below: the lateral push of rut walls on the hubs).
@@ -360,7 +360,7 @@ local function sendBox(force)
   end
   lastBox = { cx, cy, fx, fy, hl, hw }
   -- with the vehicle position it was measured at: GE moves the box with the vehicle
-  obj:queueGameEngineLua(sfmt('if deepmud_main then deepmud_main.onVehicleBox(%d,%.3f,%.3f,%.4f,%.4f,%.3f,%.3f,%.3f,%.3f) end',
+  obj:queueGameEngineLua(sfmt('if deepnode_main then deepnode_main.onVehicleBox(%d,%.3f,%.3f,%.4f,%.4f,%.3f,%.3f,%.3f,%.3f) end',
     vid, cx, cy, fx, fy, hl, hw, px, py))
 end
 
@@ -407,7 +407,7 @@ local function sendWheelDefs()
         #w.tyres, t1.o, t1.w, t2.o, t2.w, rim, t1.vis and 1 or 0)
     end
   end
-  obj:queueGameEngineLua(sfmt('if deepmud_main then deepmud_main.onWheelDefs(%d,{%s}) end', vid, table.concat(parts, ',')))
+  obj:queueGameEngineLua(sfmt('if deepnode_main then deepnode_main.onWheelDefs(%d,{%s}) end', vid, table.concat(parts, ',')))
 end
 
 -- wheel state for the reports; returns nil when not in mud
@@ -527,7 +527,7 @@ local function sendReport()
     nparts[#nparts + 1] = sfmt('%d,%s,%s,%s', d.cid, fmtNum(d.x), fmtNum(d.y), fmtNum(d.z))
   end
   if #wparts == 0 and #nparts == 0 then return end
-  obj:queueGameEngineLua(sfmt('if deepmud_main then deepmud_main.onMudReport(%d,{%s},{%s}) end',
+  obj:queueGameEngineLua(sfmt('if deepnode_main then deepnode_main.onMudReport(%d,{%s},{%s}) end',
     vid, table.concat(wparts, ','), table.concat(nparts, ',')))
 end
 
@@ -564,12 +564,12 @@ local function checkWater()
     end
   end
   if parts then
-    obj:queueGameEngineLua(sfmt('if deepmud_main then deepmud_main.onWheelWater(%d,{%s}) end', vid, table.concat(parts, ',')))
+    obj:queueGameEngineLua(sfmt('if deepnode_main then deepnode_main.onWheelWater(%d,{%s}) end', vid, table.concat(parts, ',')))
   end
 end
 
 local function sendStats()
-  obj:queueGameEngineLua(sfmt('if deepmud_main then deepmud_main.onVehicleStats(%d,%d,%d,%d,%.0f,%d,%d) end',
+  obj:queueGameEngineLua(sfmt('if deepnode_main then deepnode_main.onVehicleStats(%d,%d,%d,%d,%.0f,%d,%d) end',
     vid, wheelsInMud, ncand, tileCount, collectgarbage('count'), lod, #hullNodes))
 end
 

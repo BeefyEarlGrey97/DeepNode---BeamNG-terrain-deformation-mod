@@ -1,4 +1,4 @@
--- deepmud_main
+-- deepnode_main
 -- Lifecycle, terrain (layer map, sink pass), tiles, stamping, materials, config,
 -- vehicle data streaming and the castRayStatic wrapper.
 --
@@ -34,7 +34,7 @@ local ffi = require('ffi')
 local floor, ceil, min, max, abs, sqrt, huge = math.floor, math.ceil, math.min, math.max, math.abs, math.sqrt, math.huge
 local byte = string.byte
 local sfmt = string.format
-local logTag = 'deepmud'
+local logTag = 'deepnode'
 
 local tclear = table.clear
 if not tclear then
@@ -65,7 +65,7 @@ end
 -------------------------------------------------------------------------------
 -- configuration
 -------------------------------------------------------------------------------
--- Code defaults. settings/deepmud/config.json is merged over these: nested tables
+-- Code defaults. settings/deepnode/config.json is merged over these: nested tables
 -- merge, arrays replace. Every value is explained in docs/REFERENCE.md.
 local defaults = {
   autoStart = true,
@@ -105,7 +105,7 @@ local defaults = {
     drapeWait = 0.5,        -- s between creating the proxies and the reload (collision build)
     drapeTries = 3,         -- reloads at most while the proxies' collision is not ready
     drapeFrames = 30,       -- frames between laying the roads and removing the proxies (3 was too few)
-    -- mode: 'overlay' = decal roads drawn into the mud meshes (deepmud_decals, follows the
+    -- mode: 'overlay' = decal roads drawn into the mud meshes (deepnode_decals, follows the
     -- mud, left out on rut cells), 'drape' = the engine's decals laid once onto the
     -- undisturbed mud (above), 'off' = no decal roads on the mud (GUI "Decal roads on mud")
     mode = 'overlay',
@@ -367,12 +367,12 @@ local defaults = {
       -- color: factor on the monochrome tyre mud texture (mean grey 0.72)
       mud = { stick = 1.0, coatMax = 3.0, shed = 1.0, wet = 0.85, roughness = 0.55, size = 1.0,
               color = { 0.55, 0.45, 0.35 } },
-      -- sand: own fine-grain tyre textures (art/deepmud/bake_tyresand.py): packs into
+      -- sand: own fine-grain tyre textures (art/deepnode/bake_tyresand.py): packs into
       -- the tread, dusts the sidewalls; no caking (coatMax 1), falls off fast (shed)
       sand = { stick = 0.9, coatMax = 1.0, shed = 2.0, wet = 0.88, roughness = 0.9, size = 0.6, looseShare = 0.4, brightness = 1.45,
                color = { 1.0, 0.88, 0.68 },
-               texB = '/art/deepmud/t_tyresand_b.color.png', texO = '/art/deepmud/t_tyresand_o.data.png',
-               texN = '/art/deepmud/t_tyresand_nm.normal.png' },
+               texB = '/art/deepnode/t_tyresand_b.color.png', texO = '/art/deepnode/t_tyresand_o.data.png',
+               texN = '/art/deepnode/t_tyresand_nm.normal.png' },
     },
   },
   memory = {
@@ -416,7 +416,7 @@ local defaults = {
     roughness = -1,            -- >= 0 overrides the patch roughness (no roughness map then)
     -- 'layer' (spinMud): base UVs span the layer's baseColorBaseTexSize; a layer with only a
     -- detail texture tiles that texture every baseColorDetailTexSize metres.
-    -- 'terrain': base UVs span the terrain world size (old deepmud mapping).
+    -- 'terrain': base UVs span the terrain world size (old deepnode mapping).
     baseSizeFrom = 'layer',
     defaultDetailStrength = 0.5,       -- when the layer gives no baseColorDetailStrength
     defaultNormalDetailStrength = 0.8, -- when the layer gives no normalDetailStrength
@@ -429,7 +429,7 @@ local defaults = {
   reset = {
     idleSeconds = 120,
   },
-  -- Physics (deepmud_physics). 'vanilla': BeamNG's own ground models, the terrain under
+  -- Physics (deepnode_physics). 'vanilla': BeamNG's own ground models, the terrain under
   -- the mud is lowered by the full sink depth. 'heavy': still the engine's own physics,
   -- but the soft ground models are made thicker (deeper soft layer, more viscous: mud
   -- slows a truck to ~30 km/h, sand ~13 % slower than vanilla), and the hard floor under
@@ -518,11 +518,11 @@ M.cfg = cfg
 
 -- GUI changes live in their own file (user folder), merged over config.json, so the
 -- mod's config.json stays the reference and "Defaults" only has to delete this file.
-P.GUI_CFG = '/settings/deepmud/gui.json'
+P.GUI_CFG = '/settings/deepnode/gui.json'
 
 function P.loadConfig()
   local c = P.copy(defaults)
-  local file = jsonReadFile and jsonReadFile('/settings/deepmud/config.json')
+  local file = jsonReadFile and jsonReadFile('/settings/deepnode/config.json')
   if type(file) == 'table' then P.mergeConfig(c, file) end
   local g = jsonReadFile and FS and FS:fileExists(P.GUI_CFG) and jsonReadFile(P.GUI_CFG)
   if type(g) == 'table' then P.mergeConfig(c, g) end
@@ -601,7 +601,7 @@ P.liftOn = false
 P.vehs = {}
 P.matNames = {}
 P.ownedMaterials = {}
-P.FALLBACK_MAT = 'deepmud_fallback'
+P.FALLBACK_MAT = 'deepnode_fallback'
 P.preloadObj = nil
 P.preloadTimer = 0
 
@@ -617,10 +617,10 @@ P.stats = {
 }
 M.statsTable = P.stats
 
-P.mods = {}  -- other deepmud extensions
+P.mods = {}  -- other deepnode extensions
 
 function P.mod(name)
-  return extensions and extensions['deepmud_' .. name] or P.mods[name]
+  return extensions and extensions['deepnode_' .. name] or P.mods[name]
 end
 M.setModuleForTests = function(name, m) P.mods[name] = m end
 
@@ -1152,7 +1152,7 @@ end
 -- logs "packed position exceeded ... (id=N)" for the road's material batch. Measured on
 -- Johnson Valley: it happens with the mod stopped too and a mesh under the whole road
 -- does not help, so it cannot be predicted. The log is read once a second; a road
--- named there is put back and remembered per level (settings/deepmud/levels/
+-- named there is put back and remembered per level (settings/deepnode/levels/
 -- <level>.roads.json, by persistentId), so the next start skips it.
 -- The old values are restored on stop.
 P.roadsChanged = {}
@@ -1192,7 +1192,7 @@ function P.noteMudSector(x, y, keys)
   if P.squarePatched(gx, gy) then keys[P.sectorKeyOfTile(floor(gx / TS), floor(gy / TS))] = true end
 end
 
--- 'overlay' (decals drawn into the mud meshes, deepmud_decals), 'drape' (engine decals
+-- 'overlay' (decals drawn into the mud meshes, deepnode_decals), 'drape' (engine decals
 -- switched to overObjects and draped by a collision reload) or 'off'
 function P.roadMode()
   local r = cfg.roads
@@ -1202,7 +1202,7 @@ function P.roadMode()
   return 'overlay'
 end
 
-function P.roadsCachePath() return '/settings/deepmud/levels/' .. tostring(P.levelName) .. '.roads.json' end
+function P.roadsCachePath() return '/settings/deepnode/levels/' .. tostring(P.levelName) .. '.roads.json' end
 
 function P.loadBadRoads()
   P.roadsBad = {}
@@ -1467,7 +1467,7 @@ end
 function P.mudObjects()
   local out = {}
   for _, n in ipairs(scenetree.findClassObjects('SimGroup') or {}) do
-    if n:find('^deepmud_objects_') then
+    if n:find('^deepnode_objects_') then
       local g = scenetree.findObject(n)
       for i = 0, (g and g:getCount() or 0) - 1 do
         local o = g:getObject(i)
@@ -1774,7 +1774,7 @@ function P.liftGroundCover()
             if gdef.depth then keep = ty.L and ty.dv == gdef.depth else keep = not ty.L end
             if not keep then set[#set + 1] = { 'minElevation', i, P.OFF_ELEV } end
           end
-          local c = P.copyCover(gc, sfmt('deepmud_cover_%s_%d_%d', tostring(name), k, P.session), set)
+          local c = P.copyCover(gc, sfmt('deepnode_cover_%s_%d_%d', tostring(name), k, P.session), set)
           if c then
             made[#made + 1] = c
             P.coverCopies[#P.coverCopies + 1] = c
@@ -1811,7 +1811,7 @@ end
 -------------------------------------------------------------------------------
 -- zones (per level file)
 -------------------------------------------------------------------------------
-function P.zonesPath() return '/settings/deepmud/levels/' .. tostring(P.levelName) .. '.json' end
+function P.zonesPath() return '/settings/deepnode/levels/' .. tostring(P.levelName) .. '.json' end
 
 function P.loadZones()
   zones = {}
@@ -2126,7 +2126,7 @@ function M.onFloorChanged(gx0, gy0, gx1, gy1)
   end
 end
 
--- a tile whose ruts changed: the heavy rut floor under it is redone (deepmud_physics);
+-- a tile whose ruts changed: the heavy rut floor under it is redone (deepnode_physics);
 -- 'reset' (ruts gone) may raise the terrain again, 'lower' only lowers it
 function P.markFloor(t, mode)
   local e = P.floorTiles[t.key]
@@ -2276,7 +2276,7 @@ function P.srgbCopy(path)
   if method == 'off' or path:lower():find('.color.', 1, true) then return path end
   local base, ext = path:match('([^/\\]+)%.([^%./\\]+)$')
   if not base then return path end
-  local dir = '/temp/deepmud/' .. tostring(P.levelName)
+  local dir = '/temp/deepnode/' .. tostring(P.levelName)
   local dst = dir .. '/' .. base .. '.color.' .. ext
   local srcSize = FS.fileSize and FS:fileSize(path) or nil
   local function good()
@@ -2363,7 +2363,7 @@ function P.createClodMaterial(e, L, fields, tint)
   if not hasBase then return end -- no texture: the lumps keep the generic clod material
   cf[#cf + 1] = { 'baseColorFactor', sfmt('%g %g %g 1', (tint[1] or 1) * wet, (tint[2] or 1) * wet, (tint[3] or 1) * wet) }
   cf[#cf + 1] = { 'roughnessFactor', sfmt('%g', tonumber(K.roughness) or 0.4) }
-  local name = sfmt('deepmud_clod_%s_L%d', tostring(P.levelName), e)
+  local name = sfmt('deepnode_clod_%s_L%d', tostring(P.levelName), e)
   if M.createMaterial(name, cf) then P.clodMatNames[e] = name end
 end
 
@@ -2431,7 +2431,7 @@ function P.createLayerMaterials()
   for e, L in pairs(layers) do
     if L.soft then
       local m = L.mtl
-      local name = sfmt('deepmud_%s_L%d', tostring(P.levelName), e)
+      local name = sfmt('deepnode_%s_L%d', tostring(P.levelName), e)
       local t = P.terrainLayerMaps(m)
       -- The terrain shader's *TexSize values count heightmap squares, not metres
       -- (terrainImpl.hlsl: uv = terrainUv * layerSize, then uv / size): on Johnson Valley
@@ -2569,7 +2569,7 @@ function P.createPreload()
   local o = createObject('ProceduralMesh')
   if not o then return end
   o.canSave = false
-  o:registerObject(sfmt('deepmud_preload_%d', P.session))
+  o:registerObject(sfmt('deepnode_preload_%d', P.session))
   local tm = P.mod('tileMesh')
   local grp = tm and tm.getGroup and tm.getGroup() or scenetree.MissionGroup
   if grp then
@@ -2805,7 +2805,7 @@ function P.notifyVehiclesDrop(key)
     if vs.sent[key] then
       vs.sent[key] = nil
       local veh = getObjectByID(vid)
-      if veh then veh:queueLuaCommand(sfmt('if deepmud_vehicle then deepmud_vehicle.dropTile(%d) end', key)) end
+      if veh then veh:queueLuaCommand(sfmt('if deepnode_vehicle then deepnode_vehicle.dropTile(%d) end', key)) end
     end
   end
 end
@@ -3133,7 +3133,7 @@ end
 -- tyres as the ground would: a tyre resting across a slope s of the rut relief gets the
 -- lateral part of its ground force, -load x s along its axle (gain x, |s| <= maxSlope).
 -- Sampled across the tyre at the contact point before the wheel's own stamp; sent to the
--- vehicle, which applies it to the hub nodes (deepmud_vehicle.setGuide).
+-- vehicle, which applies it to the hub nodes (deepnode_vehicle.setGuide).
 P.guideS = { -1, -0.5, 0, 0.5, 1 }
 function P.rutGuide(px, py, axx, axy, Wt, load)
   local g = cfg.physics.heavy and cfg.physics.heavy.rutGuide
@@ -3173,7 +3173,7 @@ end
 
 -- Rut lag: time from the first vertex write into a tile until the tile's new mesh is
 -- shown, split by camera distance (near = within 50 m). At 40 km/h a
--- wheel covers 1.1 m per 0.1 s. Read and reset with deepmud_main.rutLag(true).
+-- wheel covers 1.1 m per 0.1 s. Read and reset with deepnode_main.rutLag(true).
 P.LAG_EDGES = { 0.05, 0.1, 0.2, 0.35, 0.5, 1, huge }
 function P.newLag()
   local function part() return { n = 0, sum = 0, max = 0, hist = { 0, 0, 0, 0, 0, 0, 0 } } end
@@ -3747,8 +3747,8 @@ function P.configureVehicle(vid)
     dually = cfg.dually,
     lod = vs.lod or 1,
   }
-  veh:queueLuaCommand('extensions.load("deepmud_vehicle")')
-  veh:queueLuaCommand('if deepmud_vehicle then deepmud_vehicle.configure(' .. serialize(payload) .. ') end')
+  veh:queueLuaCommand('extensions.load("deepnode_vehicle")')
+  veh:queueLuaCommand('if deepnode_vehicle then deepnode_vehicle.configure(' .. serialize(payload) .. ') end')
   vs.sent = {}
   vs.lastWheel = {}
   vs.lastNode = {}
@@ -3768,7 +3768,7 @@ function P.tilePayload(t)
     local dep = rest - flo
     d[k + 1] = sfmt('%.3f', (t.vMem[k] ~= 0 and dep > 0) and dep or 0)
   end
-  t.payload = sfmt('if deepmud_vehicle then deepmud_vehicle.setTile(%d,%d,%d,{%s},{%s}) end',
+  t.payload = sfmt('if deepnode_vehicle then deepnode_vehicle.setTile(%d,%d,%d,{%s},{%s}) end',
     t.key, t.gx0, t.gy0, table.concat(r, ','), table.concat(d, ','))
   return t.payload
 end
@@ -3817,7 +3817,7 @@ function P.streamTiles()
           for key in pairs(vs.sent) do
             if not want[key] then
               vs.sent[key] = nil
-              veh:queueLuaCommand(sfmt('if deepmud_vehicle then deepmud_vehicle.dropTile(%d) end', key))
+              veh:queueLuaCommand(sfmt('if deepnode_vehicle then deepnode_vehicle.dropTile(%d) end', key))
             end
           end
         end
@@ -4007,7 +4007,7 @@ function M.onMudReport(vid, w, nodes)
   if guide or vs.guided then
     local veh = getObjectByID(vid)
     if veh then
-      veh:queueLuaCommand('if deepmud_vehicle then deepmud_vehicle.setGuide({' .. (guide and table.concat(guide, ',') or '') .. '}) end')
+      veh:queueLuaCommand('if deepnode_vehicle then deepnode_vehicle.setGuide({' .. (guide and table.concat(guide, ',') or '') .. '}) end')
     end
     vs.guided = guide ~= nil
   end
@@ -4159,7 +4159,7 @@ function P.updateLods()
     if vs.configured and vs.lod ~= want then
       vs.lod = want
       local veh = getObjectByID(vid)
-      if veh then veh:queueLuaCommand('if deepmud_vehicle then deepmud_vehicle.setLod(' .. want .. ') end') end
+      if veh then veh:queueLuaCommand('if deepnode_vehicle then deepnode_vehicle.setLod(' .. want .. ') end') end
     end
   end
 end
@@ -4915,7 +4915,7 @@ function P.samplePerf(dtReal)
   end
 end
 
--- Lua cleanup (GUI button, console deepmud_main.flushMemory()):
+-- Lua cleanup (GUI button, console deepnode_main.flushMemory()):
 --  * full Lua garbage collection in the game engine VM and in every vehicle VM (the GE
 --    heap swings by 30-50 MB between collections while the mod builds meshes);
 --  * hidden tyre meshes, landed lumps, cached ground sources and the mod's per-level
@@ -5025,13 +5025,13 @@ function M.setClodsEnabled(on)
   return cfg.clods.enabled
 end
 
--- Key binding "Deep Mud: tyre mud on / off": flips tyre mud, says so on screen and
+-- Key binding "DeepNode: tyre mud on / off": flips tyre mud, says so on screen and
 -- saves the choice with the other GUI settings (gui.json).
 function M.toggleClods()
   local on = M.setClodsEnabled(not cfg.clods.enabled)
   local g = P.mod('gui')
   if g and g.markChanged then g.markChanged() end
-  if ui_message then ui_message('Deep Mud: tyre mud ' .. (on and 'ON' or 'OFF'), 2, 'deepmud_clods') end
+  if ui_message then ui_message('DeepNode: tyre mud ' .. (on and 'ON' or 'OFF'), 2, 'deepnode_clods') end
   return on
 end
 
@@ -5040,7 +5040,7 @@ end
 -------------------------------------------------------------------------------
 function P.loadSubModules()
   for _, n in ipairs({ 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'gui' }) do
-    local name = 'deepmud_' .. n
+    local name = 'deepnode_' .. n
     if extensions and not extensions[name] then
       extensions.load(name)
     end
@@ -5202,7 +5202,7 @@ function P.stop(objectsAlive)
     P.restoreTerrain()
     for vid in pairs(P.vehs) do
       local veh = getObjectByID(vid)
-      if veh then veh:queueLuaCommand('extensions.unload("deepmud_vehicle")') end
+      if veh then veh:queueLuaCommand('extensions.unload("deepnode_vehicle")') end
     end
   else
     sinkApplied, P.sinkCount, P.shortfall, P.sinkBox = false, 0, {}, nil
@@ -5526,12 +5526,12 @@ M.onVehicleDestroyed = P.onVehicleDestroyed
 M.onExtensionLoaded = P.onExtensionLoaded
 M.onExtensionUnloaded = P.onExtensionUnloaded
 
--- private state for console debugging (deepmud_main.private.stats ...)
+-- private state for console debugging (deepnode_main.private.stats ...)
 M.private = P
 
--- console helper: deepmud_main.gui.toggle()
+-- console helper: deepnode_main.gui.toggle()
 M.gui = setmetatable({}, { __index = function(_, k)
-  local g = extensions and extensions.deepmud_gui
+  local g = extensions and extensions.deepnode_gui
   return g and g[k]
 end })
 

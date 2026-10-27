@@ -1,5 +1,5 @@
--- dmtestProf: wraps deepmud functions that are looked up per call and sums their time.
--- dmtestProf.install() / dmtestProf.report(frames) / dmtestProf.uninstall()
+-- dntestProf: wraps deepnode functions that are looked up per call and sums their time.
+-- dntestProf.install() / dntestProf.report(frames) / dntestProf.uninstall()
 local M = {}
 local acc, orig = {}, {}
 
@@ -21,7 +21,7 @@ end
 
 function M.install()
   M.uninstall()
-  local m = deepmud_main
+  local m = deepnode_main
   local P = m.private
   wrap(m, 'onMudReport', 'report')
   wrap(m, 'onVehicleBox', 'box')
@@ -41,7 +41,7 @@ function M.install()
   wrap(P, 'updateIdleReset', 'idleReset')
   wrap(P, 'updatePreload', 'preload')
   wrap(P, 'updateMudBounds', 'mudBounds')
-  local tm = extensions.deepmud_tileMesh
+  local tm = extensions.deepnode_tileMesh
   wrap(tm, 'buildTile', 'buildTile')
   wrap(tm, 'present', 'present')
   -- uploads by kind: count, verts, ms
@@ -54,7 +54,7 @@ function M.install()
       local cx, cy = core_camera.getPositionXYZ()
       local d = math.sqrt((chunk.x0 + 1.9 - cx) ^ 2 + (chunk.y0 + 1.9 - cy) ^ 2)
       k = d < 30 and 'T<30' or (d < 60 and 'T<60' or 'T>60')
-      if chunk.rutted and chunk.lastStamp and deepmud_main.simTime() - chunk.lastStamp < 0.3 then k = k .. 'dig'
+      if chunk.rutted and chunk.lastStamp and deepnode_main.simTime() - chunk.lastStamp < 0.3 then k = k .. 'dig'
       elseif not chunk.rutted then k = k .. (chunk.obj and 'U-re' or 'U-first')
       else k = k .. (chunk.relaxing and 'R-relax' or 'R-other') .. (chunk.state == 'frozen' and 'F' or '') end
     end
@@ -68,7 +68,7 @@ function M.install()
   end
   orig[#orig][3] = orgPresent
   wrap(tm, 'processDeferred', 'deferred')
-  local fm = extensions.deepmud_farMesh
+  local fm = extensions.deepnode_farMesh
   wrap(fm, 'update', 'sectors')
   M.why = {}
   for _, fn in ipairs({ 'markDirty', 'handover' }) do
@@ -81,7 +81,7 @@ function M.install()
       return f0(sk, a, b)
     end
   end
-  local wm = extensions.deepmud_wheelMud
+  local wm = extensions.deepnode_wheelMud
   wrap(wm, 'update', 'clods')
   wrap(wm, 'preRender', 'clodsPre')
   wrap(wm, 'onWheelMud', 'onWheelMud')

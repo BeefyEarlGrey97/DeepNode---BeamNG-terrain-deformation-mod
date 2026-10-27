@@ -1,5 +1,0 @@
-{
-"deepmud_toggle_gui"  :{"cat":"gameplay", "order": 90, "ctx": "tlua", "onDown": "if extensions.deepmud_gui then extensions.deepmud_gui.toggle() end", "title": "Deep Mud: toggle window", "desc": "Open or close the Deep Mud window (start/stop, settings, debug)" },
-"deepmud_toggle_mod"  :{"cat":"gameplay", "order": 91, "ctx": "tlua", "onDown": "if deepmud_main then deepmud_main.toggle() end", "title": "Deep Mud: start / stop", "desc": "Turn the Deep Mud mod on or off" },
-"deepmud_toggle_tyremud":{"cat":"gameplay", "order": 92, "ctx": "tlua", "onDown": "if deepmud_main then deepmud_main.toggleClods() end", "title": "Deep Mud: tyre mud on / off", "desc": "Show or hide the mud that builds up on the wheels" }
-}

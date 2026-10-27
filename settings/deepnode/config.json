@@ -202,9 +202,9 @@
           0.92,
           0.765
         ],
-        "texB": "/art/deepmud/t_tyresand_b.color.png",
-        "texO": "/art/deepmud/t_tyresand_o.data.png",
-        "texN": "/art/deepmud/t_tyresand_nm.normal.png",
+        "texB": "/art/deepnode/t_tyresand_b.color.png",
+        "texO": "/art/deepnode/t_tyresand_o.data.png",
+        "texN": "/art/deepnode/t_tyresand_nm.normal.png",
         "looseShare": 0.4,
         "brightness": 1.45
       }

@@ -11,13 +11,13 @@ issues, or open an issue first for larger changes.
 
 ## Workflow
 
-1. Clone into `<user folder>/mods/unpacked/deepmud` so the game loads your working copy.
+1. Clone into `<user folder>/mods/unpacked/deepnode` so the game loads your working copy.
 2. Branch from `test`, make the change, keep the style of the file (comments explain *why*, with
    the measurement that justified a value).
 3. Offline check: `bash tools/dev/luacheck.sh` (LuaJIT `-b` on every file; the only global write
    allowed is `castRayStatic`).
-4. In game: reload Lua (Ctrl+L), then `deepmud_main.reloadLevelData()`. Vehicle-side edits need a
-   vehicle extension reload (`extensions.reload('deepmud_vehicle')` in each vehicle).
+4. In game: reload Lua (Ctrl+L), then `deepnode_main.reloadLevelData()`. Vehicle-side edits need a
+   vehicle extension reload (`extensions.reload('deepnode_vehicle')` in each vehicle).
 5. Performance or rut-timing changes: run the gridmap_v2 benchmark
    ([docs/BENCHMARK.md](docs/BENCHMARK.md)) before and after, one warm-up run discarded, put both
    results in the pull request and add them to the result log.
@@ -26,7 +26,7 @@ issues, or open an issue first for larger changes.
 ## Rules learned the hard way
 
 - Never pass incomplete face tables to `createMesh`; never create TerrainBlocks at runtime.
-- Do not `deepmud_main.stop()` with trucks sunk in the mud.
+- Do not `deepnode_main.stop()` with trucks sunk in the mud.
 - Physics stays BeamNG's own (the heavy-mode rut guide is the only mod force).
 - Measure first, then change. State plainly in the PR what is not fixed.
 

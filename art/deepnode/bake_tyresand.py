@@ -1,4 +1,4 @@
-# Bake the tyre SAND textures for deepmud (same layout as bake_tyremud.py).
+# Bake the tyre SAND textures for deepnode (same layout as bake_tyremud.py).
 # Sand does not cake in blobs like mud: it packs into the tread grooves first, then dusts
 # the shoulders and sidewalls as fine grains. So:
 # A (coverage order, histogram-equalised: alphaRef = 255 * (1 - coverage) shows exactly

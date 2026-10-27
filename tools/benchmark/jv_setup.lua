@@ -1,14 +1,14 @@
--- Deep Mud benchmark setup, johnson_valley: 8 Percherons, each driving its own 100 m circle at
+-- DeepNode benchmark setup, johnson_valley: 8 Percherons, each driving its own 100 m circle at
 -- 40 km/h inside flat mud zones (the JV sand dunes are too steep: trucks bog down).
 -- 1. Copy tools/benchmark/data/johnson_valley/zones.json to
---    <user folder>/settings/deepmud/levels/johnson_valley.json (7 circle zones, r 108 m, 0.35 m
---    deep, hex around (-418, -994)) and restart the mod (deepmud_main.reloadLevelData()).
+--    <user folder>/settings/deepnode/levels/johnson_valley.json (7 circle zones, r 108 m, 0.35 m
+--    deep, hex around (-418, -994)) and restart the mod (deepnode_main.reloadLevelData()).
 -- 2. Spawn 8 Percherons anywhere (s450_8x8_flatbed_A), then in the GE Lua console:
 --      python lua.py jv_setup.lua   (or paste into the GE Lua console)
---    Needs tools/benchmark/ge_extensions/dmtestCircles.lua in <user folder>/lua/ge/extensions/.
+--    Needs tools/benchmark/ge_extensions/dntestCircles.lua in <user folder>/lua/ge/extensions/.
 --    Truck 8 shares the centre circle with truck 1, half a lap behind.
--- 3. Measure with get_performance_metrics / deepmud_main.perf() / deepmud_main.rutLag(true);
---    dmtestCircles.state() reports laps, speed and recoveries. Trucks reset every 240 s.
+-- 3. Measure with get_performance_metrics / deepnode_main.perf() / deepnode_main.rutLag(true);
+--    dntestCircles.state() reports laps, speed and recoveries. Trucks reset every 240 s.
 
 local CENTRES = {
   { -418.0, -994.0 }, { -215.2, -939.6 }, { -363.6, -791.2 }, { -566.5, -845.5 },
@@ -25,7 +25,7 @@ for i = 0, be:getObjectCount() - 1 do
   end
 end
 settings.setValue('fpsLimitBackgroundEnabled', false)
-if not dmtestCircles then extensions.load('dmtestCircles') end
-dmtestCircles.start({ R = 100, kph = 40, cars = cars, resetEvery = 240 })
-dmtestCircles.place()
+if not dntestCircles then extensions.load('dntestCircles') end
+dntestCircles.start({ R = 100, kph = 40, cars = cars, resetEvery = 240 })
+dntestCircles.place()
 return #cars .. ' Percherons placed on their circles'
