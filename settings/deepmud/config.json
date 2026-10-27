@@ -1,0 +1,333 @@
+{
+  "autoStart": true,
+  "softMatch": [
+    "mud",
+    "sand"
+  ],
+  "layers": {
+    "defaultSinkDepth": 0.3,
+    "sinkDepthByMatch": {
+      "mud": 0.35,
+      "sand": 0.2
+    },
+    "featherVerts": 4,
+    "edgeDip": 0.04,
+    "depthScale": 1
+  },
+  "roads": {
+    "enabled": true,
+    "mode": "overlay",
+    "overlayLift": 0.004,
+    "insideShare": 0.9,
+    "margin": 0.5,
+    "skipMatch": [
+      "invisible",
+      "dirt"
+    ],
+    "overObjects": true,
+    "overSkipMatch": [
+      "invisible"
+    ],
+    "perFrame": 4,
+    "drape": true,
+    "drapeWait": 0.5,
+    "drapeTries": 3,
+    "drapeFrames": 30,
+    "overlayRoughness": 0.85,
+    "overlayRoughnessByMatch": {
+      "furrows": 1,
+      "tiretracks": 1
+    },
+    "overlaySkipMatch": [
+      "water"
+    ],
+    "overlayLiftStep": 0.001,
+    "overlayAlphaRef": 110
+  },
+  "grass": {
+    "lift": true
+  },
+  "tiles": {
+    "targetSize": 5,
+    "cellSize": 0.2,
+    "mergePlain": true,
+    "terrainFirstLift": 0.006
+  },
+  "ring": {
+    "boxMargin": 1.5,
+    "freezeDelay": 2.5,
+    "lookaheadTime": 2.0,
+    "maxLookaheadPoints": 6,
+    "prepBudgetMs": 2,
+    "maxPreparePerUpdate": 8,
+    "meshBudgetMs": 2,
+    "tileRebuildHz": 40,
+    "maxTileBuildsPerFrame": 2,
+    "maxMeshBuildsPerSec": 120,
+    "ownMeshRadius": -1,
+    "meshBuildBurst": 24,
+    "maxVehicles": 8,
+    "vehicleRange": 400,
+    "frozenLimit": 1500,
+    "streamInterval": 0.2,
+    "maxTilesPerStream": 12,
+    "minLookahead": 10,
+    "prebuildReserve": 8,
+    "farLod": 3,
+    "camNearDist": 50,
+    "camFarDist": 90,
+    "farRebuildHz": 10,
+    "frozenOwnMeshRadius": 100,
+    "frozenOwnMeshMax": 80,
+    "lodNearDist": 40,
+    "bodyMaxWait": 0.1,
+    "smallChangeWait": 0.1,
+    "digNearDist": 40,
+    "digMaxPerFrame": 16,
+    "digEvery": 2,
+    "deepenRebuildHz": 8,
+    "freshWindow": 0.25
+  },
+  "sectors": {
+    "tiles": 2,
+    "loadRadius": 50,
+    "unloadMargin": 40,
+    "buildBudgetMs": 2,
+    "syncRadius": 90,
+    "drop": 0.015,
+    "refreshInterval": 0.25,
+    "minRebuildGap": 4,
+    "frozenCellStride": 2,
+    "catchUpBudgetMs": 3.0,
+    "nearRadius": 40
+  },
+  "stamp": {
+    "flowBack": 0.22,
+    "bermFraction": 0.4,
+    "bermWidthFactor": 0.6,
+    "bermMax": 0.1,
+    "rimCells": 1,
+    "rimDepth": 0.45,
+    "maxSlope": 1.2,
+    "slumpRate": 0.35,
+    "slumpPasses": 1,
+    "relaxHz": 5,
+    "relaxTime": 3,
+    "relaxWindow": 0.3,
+    "relaxKeep": 0.75,
+    "relaxKeepBerm": 0.8,
+    "shoulderFactor": 0.25,
+    "maxSweep": 3,
+    "bodyRadius": 0.16,
+    "bodySkin": 0.03,
+    "bodyBermWidth": 0.12,
+    "bodyBermFraction": 0.3,
+    "trackBase": 0.25,
+    "trackSpinGain": 0.08,
+    "trackDepthGain": 2,
+    "spinDigRate": 0.012,
+    "spinDigMax": 0.12,
+    "refWheelLoad": 3500,
+    "jitterZ": 0.015,
+    "jitterXY": 0.03,
+    "leadTime": -1,
+    "leadMin": 0.015,
+    "leadMax": 0.06
+  },
+  "report": {
+    "rateHz": 20,
+    "maxBodyNodes": 48,
+    "waterHz": 5,
+    "boxHz": 10,
+    "candidateHz": 10,
+    "candidateMargin": 0.15,
+    "maxCandidates": 48,
+    "bodyEvery": 2
+  },
+  "dually": {
+    "enabled": true,
+    "autoRatio": 1.05,
+    "gap": 0.04,
+    "ridge": 0.6
+  },
+  "clods": {
+    "enabled": true,
+    "texDir": "/assets/materials/decalroad/mud/mud_large/",
+    "texBase": "t_mud_large",
+    "drawDist": 70,
+    "coatMax": 3,
+    "buildPerMeter": 0.03,
+    "buildSpinGain": 0.5,
+    "looseShare": 0.55,
+    "packTime": 6,
+    "looseShedPerMeter": 0.03,
+    "cleanDelay": 2.0,
+    "cleanPerMeter": 0.002,
+    "colorMix": 3,
+    "colorStep": 0.03,
+    "flingSpeed": 6.0,
+    "flingRate": 0.12,
+    "washRate": 0.2,
+    "washSpeedGain": 0.05,
+    "surfaceOffset": 0.04,
+    "lodNearDist": 20,
+    "roughness": 0.35,
+    "kinds": {
+      "mud": {
+        "stick": 1.0,
+        "coatMax": 3.0,
+        "shed": 1.0,
+        "wet": 0.85,
+        "roughness": 0.55,
+        "size": 1.0,
+        "color": [
+          0.55,
+          0.45,
+          0.35
+        ]
+      },
+      "sand": {
+        "stick": 0.9,
+        "coatMax": 1.0,
+        "shed": 2.0,
+        "wet": 0.88,
+        "roughness": 0.9,
+        "size": 0.6,
+        "color": [
+          1.0,
+          0.92,
+          0.765
+        ],
+        "texB": "/art/deepmud/t_tyresand_b.color.png",
+        "texO": "/art/deepmud/t_tyresand_o.data.png",
+        "texN": "/art/deepmud/t_tyresand_nm.normal.png",
+        "looseShare": 0.4,
+        "brightness": 1.45
+      }
+    },
+    "buildRate": 1,
+    "wearRate": 1,
+    "coverExp": 1.1,
+    "segLen": 0.06,
+    "maxSegments": 112,
+    "thickness": 0.012,
+    "thicknessMax": 0.035,
+    "lift": 0.003,
+    "widthScale": 1.12,
+    "tyreBrightness": 0.65,
+    "flushPerFrame": 1,
+    "refStepNear": 8,
+    "refStepFar": 40,
+    "chunkRate": 10,
+    "chunkMax": 24,
+    "chunkLife": 3,
+    "chunkSize": 0.035,
+    "chunkFling": 0.5,
+    "coverMax": 0.92,
+    "flushWait": 0.5,
+    "flushGap": 0.5,
+    "flingPackedSpeed": 18.0,
+    "flingPackedRate": 0.01,
+    "washLooseFactor": 3,
+    "wetRate": 3,
+    "dryTime": 45,
+    "drySpeedRef": 8,
+    "wetRoughness": 0.22,
+    "wetDarken": 0.25,
+    "wetStep": 0.1,
+    "wetFilm": true,
+    "filmOpacity": 0.25,
+    "filmRoughness": 0.05,
+    "filmColor": 0.03,
+    "filmLift": 0.0015
+  },
+  "camera": {
+    "enabled": true,
+    "maxDist": 60,
+    "step": 0.25,
+    "maxIter": 300
+  },
+  "materials": {
+    "roughness": -1,
+    "flipV": true,
+    "useDetail": true,
+    "detailStrength": 1,
+    "defaultDetailSize": 2,
+    "srgbMethod": "copy",
+    "tint": [
+      1,
+      1,
+      1
+    ],
+    "baseSizeFrom": "layer",
+    "defaultDetailStrength": 0.5,
+    "defaultNormalDetailStrength": 0.8,
+    "fallbackTexSize": 4
+  },
+  "reset": {
+    "idleSeconds": 120
+  },
+  "perf": {
+    "targetFps": 70,
+    "uploadMsStart": 3,
+    "uploadMsMin": 2,
+    "uploadMsMax": 6,
+    "uploadEvery": 2
+  },
+  "render": {
+    "disableSSS": true
+  },
+  "pool": {
+    "initial": 200,
+    "growStep": 16,
+    "mode": "pair"
+  },
+  "gui": {
+    "openOnStart": true
+  },
+  "memory": {
+    "gcStepKB": 0
+  },
+  "debug": {
+    "chunks": false,
+    "tiles": false,
+    "sectors": false,
+    "boxes": false,
+    "drawRadius": 80,
+    "lift": 0.12
+  },
+  "physics": {
+    "mode": "vanilla",
+    "heavy": {
+      "groundModels": {
+        "mud": {
+          "defaultDepth": 0.25,
+          "flowConsistencyIndex": 17000,
+          "fluidDensity": 20000,
+          "staticFrictionCoefficient": 0.35,
+          "slidingFrictionCoefficient": 0.32
+        },
+        "sand": {
+          "defaultDepth": 0.14,
+          "flowConsistencyIndex": 7500,
+          "fluidDensity": 30000
+        }
+      },
+      "floorLift": {
+        "mud": 1.0,
+        "sand": 0
+      },
+      "floorReach": 0.3,
+      "floorMargin": 0.03,
+      "floorHz": 5,
+      "floorMaxVerts": 600,
+      "raiseClear": 8,
+      "rutGuide": {
+        "enabled": true,
+        "gain": 1.0,
+        "maxSlope": 1.0,
+        "edge": 0.05
+      }
+    }
+  }
+}

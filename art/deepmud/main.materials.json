@@ -1,0 +1,20 @@
+{
+  "deepmud_fallback": {
+    "name": "deepmud_fallback",
+    "mapTo": "deepmud_fallback",
+    "class": "Material",
+    "Stages": [
+      {
+        "baseColorFactor": [0.23, 0.17, 0.11, 1],
+        "roughnessFactor": 0.85,
+        "metallicFactor": 0
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": false,
+    "translucent": false,
+    "version": 1.5
+  }
+}

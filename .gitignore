@@ -1,0 +1,14 @@
+# OS / editors
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp
+# Python
+__pycache__/
+*.pyc
+# local test output
+*.log
+tools/benchmark/out/
+tools/benchmark/metrics_*.json

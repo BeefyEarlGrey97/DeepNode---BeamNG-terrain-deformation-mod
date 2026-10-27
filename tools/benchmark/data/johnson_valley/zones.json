@@ -1,0 +1,60 @@
+{
+ "zones": [
+  {
+   "kind": "circle",
+   "x": -418,
+   "y": -994,
+   "r": 108,
+   "feather": 2,
+   "depth": 0.35
+  },
+  {
+   "kind": "circle",
+   "x": -215.2,
+   "y": -939.6,
+   "r": 108,
+   "feather": 2,
+   "depth": 0.35
+  },
+  {
+   "kind": "circle",
+   "x": -363.6,
+   "y": -791.2,
+   "r": 108,
+   "feather": 2,
+   "depth": 0.35
+  },
+  {
+   "kind": "circle",
+   "x": -566.5,
+   "y": -845.5,
+   "r": 108,
+   "feather": 2,
+   "depth": 0.35
+  },
+  {
+   "kind": "circle",
+   "x": -620.8,
+   "y": -1048.4,
+   "r": 108,
+   "feather": 2,
+   "depth": 0.35
+  },
+  {
+   "kind": "circle",
+   "x": -472.4,
+   "y": -1196.8,
+   "r": 108,
+   "feather": 2,
+   "depth": 0.35
+  },
+  {
+   "kind": "circle",
+   "x": -269.5,
+   "y": -1142.5,
+   "r": 108,
+   "feather": 2,
+   "depth": 0.35
+  }
+ ]
+}
