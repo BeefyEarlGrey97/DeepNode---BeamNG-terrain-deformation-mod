@@ -77,7 +77,7 @@
     "camNearDist": 50,
     "camFarDist": 90,
     "farRebuildHz": 10,
-    "frozenOwnMeshRadius": 150,
+    "frozenOwnMeshRadius": 70,
     "frozenOwnMeshMax": 200,
     "lodNearDist": 40,
     "bodyMaxWait": 0.1,
@@ -87,11 +87,11 @@
     "digEvery": 2,
     "deepenRebuildHz": 8,
     "freshWindow": 0.25,
-    "meshRange": 150
+    "meshRange": 70
   },
   "sectors": {
     "tiles": 2,
-    "loadRadius": 150,
+    "loadRadius": 70,
     "unloadMargin": 40,
     "buildBudgetMs": 2,
     "syncRadius": 90,

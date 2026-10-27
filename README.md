@@ -36,6 +36,9 @@ visuals and the bookkeeping.
    (or zip the repository content — `lua/`, `art/`, `settings/`, `scripts/` at the zip root — into `mods/`).
 2. Start BeamNG.drive and load a level with mud or sand layers (e.g. *Grid Map v2*, *Johnson Valley*).
    The mod starts automatically; the GUI opens with it.
+3. **Recommended:** click the *Physics* button in the GUI Run tab until it shows **HEAVY**. Heavy mode enables terrain-first
+   drawing (vanilla-identical decal roads, unlimited mud view distance) and is much lighter on memory;
+   the shipped default is `vanilla` physics.
 
 Configuration: [`settings/deepmud/config.json`](settings/deepmud/config.json) (every value is
 explained in [docs/REFERENCE.md](docs/REFERENCE.md)). GUI changes are saved to
@@ -71,6 +74,8 @@ Latest gridmap_v2 results (BeamNG 0.40.3, i7-12700K, heavy physics):
 | before the 2026-10 overhaul | 53 (42) | 0.40–0.54 s avg, max 4.2 s | +199 MB/min |
 | current, fresh mud every run | 54–56 (36–40) | 0.10 s avg, max 0.15 s (+ predictive lead) | ~15 MB/min |
 | current, repeat runs in existing ruts | 50–55 (39–42) | deepening 0.15–0.18 s avg | flat–25 MB/min |
+| v0.1.0, 70 m view, heavy, fresh / repeat | 45–47 / 47.5–49 | front 0.10 s | 63 / 25 MB/min |
+| v0.1.0, 70 m view, vanilla, fresh / repeat | 39–41 / 34–48 | front 0.10–0.11 s | 253 / 132 MB/min |
 
 ## Open issues
 
@@ -83,7 +88,8 @@ Detailed write-ups with measurements and ideas: [docs/OPEN_ISSUES.md](docs/OPEN_
 3. **Rut deepening goal of ≥ 40 Hz everywhere** not met for 8 trucks (engine limit, see 1).
 4. **Sand is still fully meshed** (heavy `floorLift.sand = 0`): no terrain-first decals/distance
    for sand; moving it needs a deeper sand ground model to keep the same feel.
-5. **Vanilla physics mode decals:** still the alpha-clipped overlay copies (matte, dark fringes).
+5. **Vanilla physics mode:** still the alpha-clipped decal overlay (matte, dark fringes) and the full mud mesh —
+   memory growth 130–250 MB/min with 8 trucks (heavy: 25–63 MB/min).
 6. **Rut mesh vs decal look:** dug areas use the terrain-matched mud material without the
    decal pattern; the change at rut edges is visible up close.
 7. **Tyre mud cost:** ~1.6 ms/frame with 8 trucks, mostly engine shadow pass.

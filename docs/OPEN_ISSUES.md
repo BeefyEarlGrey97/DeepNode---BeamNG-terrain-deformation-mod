@@ -35,7 +35,10 @@ Heavy `floorLift.sand = 0` lowers the terrain under sand, so sand keeps the old 
 (no terrain-first decals, limited view distance through `sectors.loadRadius`). Setting it to 1
 needs a deeper sand ground model (`defaultDepth`) to keep the same sinking.
 
-## 5. Decals in vanilla physics mode
+## 5. Vanilla physics mode: decals and memory
+
+v0.1.0 benchmark: vanilla mode grows memory 132–253 MB/min with 8 trucks (heavy 25–63 MB/min) because every
+soft square is meshed and rebuilt.
 
 Terrain-first needs the heavy rut floor. Vanilla mode still copies decal roads into the mud meshes
 as alpha-clipped materials (matte, dark fringes at `overlayAlphaRef 110`). Ideas: higher alphaRef,

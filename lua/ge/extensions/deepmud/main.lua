@@ -173,7 +173,7 @@ local defaults = {
     meshBuildBurst = 24,
     maxVehicles = 8,        -- vehicles that get an active ring (nearest to the camera)
     vehicleRange = 400,     -- vehicles further than this from the camera are ignored
-    meshRange = 60,         -- m: vehicles further from the camera dig without meshes (beyond
+    meshRange = 70,         -- m: vehicles further from the camera dig without meshes (beyond
                             -- sectors.loadRadius the mud is drawn as lowered terrain anyway)
     settleRebuildHz = 2,    -- rebuild rate of a tile that only settles (no tyre on it)
     bodyMaxWait = 0.6,      -- s a tile may wait while all its new ruts are under a vehicle
@@ -198,7 +198,7 @@ local defaults = {
     -- cascade (about 1.9 us per object per frame measured: +1.7 ms with 900 objects,
     -- though they cast no shadow). The lowered terrain (0.2-0.35 m) beyond 100 m does
     -- not show.
-    loadRadius = 100,
+    loadRadius = 70,
     vehLoadRadius = 20,     -- m round vehicles (look-ahead points); the camera keeps loadRadius
     cacheMax = 600,         -- sectors kept hidden after leaving the radius (no rebuild on return)
     urgentBatch = 0.25,     -- s an urgent sector rebuild waits to take in more fresh ruts

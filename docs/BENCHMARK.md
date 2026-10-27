@@ -71,3 +71,10 @@ mod 75–83 fps, rut lag 0.10–0.13 s, 7–20 MB/min. Needs re-measurement with
 | 2026-10-27 | gridmap_v2 | heavy | current, repeat | 50–55 (39–42) | deepening 0.15–0.18 s | flat–25 MB/min |
 | 2026-10-27 | gridmap_v2 | vanilla | 150 m view, fresh mud | 34–39 (25–30) | front 0.11–0.13 s | 162 MB/min (incl. warm-up growth) |
 | 2026-10-27 | gridmap_v2 | vanilla | 150 m view, repeat (5 runs) | 46–51 (39–44) | deepening 0.24–0.77 s | 23 MB/min |
+| 2026-10-27 | gridmap_v2 | vanilla | v0.1.0, 70 m view, fresh mud | 39–41 (25–31) | front 0.10–0.11 s | 253 MB/min |
+| 2026-10-27 | gridmap_v2 | vanilla | v0.1.0, 70 m view, repeat | 34–48 (24–36) | deepening 0.11–0.22 s | 132 MB/min |
+| 2026-10-27 | gridmap_v2 | heavy | v0.1.0, 70 m view, fresh mud | 45–47 (32–35) | front 0.10 s | 63 MB/min |
+| 2026-10-27 | gridmap_v2 | heavy | v0.1.0, 70 m view, repeat | 47.5–49 (37–39) | deepening 0.14–0.21 s | 25 MB/min |
+
+The v0.1.0 session ran slower overall than the earlier ones (frame limiter visible in the metrics); compare
+against a mod-off run from the same session before drawing conclusions.

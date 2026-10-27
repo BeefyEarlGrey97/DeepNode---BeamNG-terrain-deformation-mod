@@ -12,3 +12,5 @@ __pycache__/
 *.log
 tools/benchmark/out/
 tools/benchmark/metrics_*.json
+# release packages
+dist/
