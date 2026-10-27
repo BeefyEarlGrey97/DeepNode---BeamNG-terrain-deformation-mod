@@ -691,3 +691,8 @@ Lengths are metres, speeds m/s, times seconds.
   the terrain texture lines up; if it is mirrored, use "Terrain UV flip".
 * `beamng.log` lines tagged `deepmud` report the layer map check, the height frame, the
   sink pass and any slow call (over 20 ms).
+
+
+## Sector auto size (2026-10-27)
+
+- `sectors.autoSize` (true): choose the sector size at start from the map's meshed soft area (soft kinds whose heavy floor lift is below their sink depth, plus zones in vanilla mode), so that a camera in the biggest region sees at most `sectors.autoMaxObjects` (200) sectors within `sectors.loadRadius`. Clamped between `sectors.tiles` (minimum, GUI "Sector size") and `sectors.autoMaxTiles` (8). The choice is logged (`sector size: ...`).

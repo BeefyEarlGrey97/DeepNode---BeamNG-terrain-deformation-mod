@@ -69,3 +69,5 @@ mod 75–83 fps, rut lag 0.10–0.13 s, 7–20 MB/min. Needs re-measurement with
 | 2026-10-27 | gridmap_v2 | heavy | before overhaul | 53 (42) | 0.40–0.54 s | +199 MB/min |
 | 2026-10-27 | gridmap_v2 | heavy | current, fresh mud | 54–56 (36–40) | front 0.10 s, max 0.15 s | ~15 MB/min |
 | 2026-10-27 | gridmap_v2 | heavy | current, repeat | 50–55 (39–42) | deepening 0.15–0.18 s | flat–25 MB/min |
+| 2026-10-27 | gridmap_v2 | vanilla | 150 m view, fresh mud | 34–39 (25–30) | front 0.11–0.13 s | 162 MB/min (incl. warm-up growth) |
+| 2026-10-27 | gridmap_v2 | vanilla | 150 m view, repeat (5 runs) | 46–51 (39–44) | deepening 0.24–0.77 s | 23 MB/min |

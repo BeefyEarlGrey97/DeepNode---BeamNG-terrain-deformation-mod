@@ -1843,6 +1843,59 @@ end
 -------------------------------------------------------------------------------
 -- terrain init, sink pass, restore
 -------------------------------------------------------------------------------
+-- Meshed soft area of the map (m2): soft ground the mod draws a surface over. With the heavy
+-- rut floor at full lift (terrain-first) undisturbed ground is the terrain itself and needs no
+-- sector mesh, so only kinds whose floor lift is below their sink depth count (sand by default;
+-- every kind with vanilla physics). Sampled on a grid of at most 1024 x 1024 vertices.
+function P.meshedSoftArea()
+  local S, sq = ter.size, ter.sq
+  local h = cfg.physics and cfg.physics.mode == 'heavy' and cfg.physics.heavy
+  local function meshed(kind, depth)
+    if not h then return true end
+    local l = tonumber(h.floorLift and h.floorLift[kind]) or 0
+    return l < depth - 1e-3
+  end
+  local meshedIdx = {}
+  for e, L in pairs(layers) do
+    if L.soft and meshed(L.kind, L.sinkDepth or 0) then meshedIdx[e] = true end
+  end
+  local step = max(1, floor(S / 1024))
+  local n = 0
+  if next(meshedIdx) then
+    for gy = 0, S - 1, step do
+      local base = gy * S
+      for gx = 0, S - 1, step do
+        if (not dist or dist[base + gx] > TOUCH) and meshedIdx[layerAt(gx, gy)] then n = n + 1 end
+      end
+    end
+  end
+  local area = n * (step * sq) ^ 2
+  -- zones are mud
+  for _, z in ipairs(zones) do
+    if meshed('mud', z.depth or 0.3) then
+      area = area + ((z.kind == 'rect') and 4 * z.hx * z.hy or math.pi * z.r * z.r)
+    end
+  end
+  return area
+end
+
+-- Sector size from the map: the worst case is a camera parked in the biggest meshed soft
+-- region, which shows min(meshed area, pi R^2) of it within sectors.loadRadius R. Sectors grow
+-- until that is at most sectors.autoMaxObjects sector objects (every object costs time in the
+-- shadow pass even when it casts no shadow). minTiles = sectors.tiles (GUI "Sector size").
+function P.autoSectorTiles(minTiles)
+  local sc = cfg.sectors
+  local area = P.meshedSoftArea()
+  local R = sc.loadRadius or 100
+  local inView = min(area, math.pi * R * R)
+  local side = sqrt(inView / max(10, sc.autoMaxObjects or 200))
+  local sec = clamp(math.ceil(side / TILE), minTiles, max(minTiles, sc.autoMaxTiles or 8))
+  P.stats.meshedSoftArea, P.stats.sectorTiles = area, sec
+  log('I', logTag, sfmt('sector size: %d tiles (%.0f m) for %.0f m2 meshed soft ground, %.0f m2 in view at %.0f m',
+    sec, sec * TILE, area, inView, R))
+  return sec
+end
+
 function P.initTerrain()
   local tb = core_terrain and core_terrain.getTerrain and core_terrain.getTerrain()
   if not tb then return false, 'no TerrainBlock in level' end
@@ -5038,6 +5091,8 @@ function P.start()
   P.dbgCache = {}
   P.startCommitMB = nil -- process growth is measured from here (debug tab)
   P.loadZones()
+  -- sector size from the map's meshed soft ground (zones included), before the sink pass
+  if cfg.sectors.autoSize then SEC = P.autoSectorTiles(SEC); M.sec = SEC end
   if not anySoft and #zones == 0 then
     log('I', logTag, 'level has no soft layers matching ' .. table.concat(cfg.softMatch, ', ') .. ' and no zones')
   end

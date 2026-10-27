@@ -12,6 +12,9 @@
 - Benchmark tooling (`tools/benchmark`), engine findings, open issues, contributing guide.
 
 ### Changed
+- Meshed mud view distance 50 → 150 m (`sectors.loadRadius`, `ring.meshRange`, `ring.frozenOwnMeshRadius`).
+- `sectors.autoSize`: sector size chosen per map from the meshed soft area in view (`sectors.autoMaxObjects` 200,
+  `autoMaxTiles` 8, `sectors.tiles` is the minimum). gridmap_v2 keeps 10 m sectors.
 - Heavy physics: mud `floorLift` 0.3 → full, mud `defaultDepth` 0.2 → 0.25 (same maximum sink);
   the rut floor lowers terrain only under carved cells.
 - Vehicle reports 15 → 20 Hz, chassis nodes every 2nd report; rebuild waits shortened.

@@ -77,8 +77,8 @@
     "camNearDist": 50,
     "camFarDist": 90,
     "farRebuildHz": 10,
-    "frozenOwnMeshRadius": 100,
-    "frozenOwnMeshMax": 80,
+    "frozenOwnMeshRadius": 150,
+    "frozenOwnMeshMax": 200,
     "lodNearDist": 40,
     "bodyMaxWait": 0.1,
     "smallChangeWait": 0.1,
@@ -86,11 +86,12 @@
     "digMaxPerFrame": 16,
     "digEvery": 2,
     "deepenRebuildHz": 8,
-    "freshWindow": 0.25
+    "freshWindow": 0.25,
+    "meshRange": 150
   },
   "sectors": {
     "tiles": 2,
-    "loadRadius": 50,
+    "loadRadius": 150,
     "unloadMargin": 40,
     "buildBudgetMs": 2,
     "syncRadius": 90,
@@ -99,7 +100,10 @@
     "minRebuildGap": 4,
     "frozenCellStride": 2,
     "catchUpBudgetMs": 3.0,
-    "nearRadius": 40
+    "nearRadius": 40,
+    "autoSize": true,
+    "autoMaxObjects": 200,
+    "autoMaxTiles": 8
   },
   "stamp": {
     "flowBack": 0.22,
