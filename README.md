@@ -1,5 +1,7 @@
 # DeepNode — Deep Mud terrain deformation for BeamNG.drive
 
+An AI-assisted experiment mod that adds terrain deformation to BeamNG.drive.
+
 Deep, persistent mud and sand for BeamNG.drive. Vehicles sink into soft terrain layers, every
 tyre cuts a real rut (0.2 m resolution, berms, settling), chassis drag dents, tyres pick up and
 fling mud, and following vehicles drive in the ruts left before them. Physics stays BeamNG's own
@@ -92,12 +94,15 @@ Detailed write-ups with measurements and ideas: [docs/OPEN_ISSUES.md](docs/OPEN_
     format would save Lua time.
 11. **Licensing of baked textures:** `art/deepmud` tyre textures are baked from BeamNG's
     decal-road mud textures — check redistribution terms before a public release.
-12. **No license file yet** — the owner has to choose one before others can legally reuse the code.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Work happens on the `test` branch; `main` holds the
 last benchmarked state. Every performance PR includes before/after numbers from the gridmap_v2 benchmark.
+
+## License
+
+Code: [MIT](LICENSE). The baked tyre textures in `art/deepmud` derive from BeamNG assets (see open issue 11).
 
 ## Credits
 

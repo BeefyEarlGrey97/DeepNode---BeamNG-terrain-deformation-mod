@@ -68,7 +68,3 @@ with 8 trucks at 20 Hz. A compact numeric format would cut Lua time.
 
 `art/deepmud/t_tyre*` are baked from BeamNG's decal-road mud textures (`bake_tyremud.py`);
 check redistribution terms before publishing a release.
-
-## 12. License
-
-No license file yet: the repository owner has to pick one.
