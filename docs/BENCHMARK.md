@@ -76,5 +76,12 @@ mod 75–83 fps, rut lag 0.10–0.13 s, 7–20 MB/min. Needs re-measurement with
 | 2026-10-27 | gridmap_v2 | heavy | v0.1.0, 70 m view, fresh mud | 45–47 (32–35) | front 0.10 s | 63 MB/min |
 | 2026-10-27 | gridmap_v2 | heavy | v0.1.0, 70 m view, repeat | 47.5–49 (37–39) | deepening 0.14–0.21 s | 25 MB/min |
 
+| 2026-10-28 | gridmap_v2 | vanilla | before builder fix, user GUI settings, vsync off, fresh mud | 37.2–39.6 (25.8–30.7) | front 0.09–0.11 s | 113 MB/min |
+| 2026-10-28 | gridmap_v2 | vanilla | builder fix + size classes 6/96, fresh mud | 38.5–42.5 (29.3–33.8) | front 0.10–0.11 s | 36–122 MB/min |
+| 2026-10-28 | gridmap_v2 | vanilla | mod off (same session, 60 fps cap) | 60 (59–60) | – | – |
+
+Per-module time while driving: `dntestModProbe.start(true)` before `bench2.py`, then
+`dntestModProbe.result()` (mod modules, wrapped mesh functions, engine metrics, driving frames only).
+
 The v0.1.0 session ran slower overall than the earlier ones (frame limiter visible in the metrics); compare
 against a mod-off run from the same session before drawing conclusions.

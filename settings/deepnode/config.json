@@ -284,7 +284,10 @@
   "pool": {
     "initial": 200,
     "growStep": 16,
-    "mode": "pair"
+    "mode": "pair",
+    "hideFrames": 3,
+    "tileClasses": 6,
+    "decalMinCorners": 96
   },
   "gui": {
     "openOnStart": true

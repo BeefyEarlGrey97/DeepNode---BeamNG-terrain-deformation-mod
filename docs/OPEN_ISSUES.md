@@ -5,6 +5,12 @@ Engine facts behind them: [ENGINE_FINDINGS.md](ENGINE_FINDINGS.md).
 
 ## 1. Frame rate with 8 trucks (goal 70–80 fps)
 
+Vanilla physics, user GUI settings (2026-10-28): 40.7–41.9 fps fresh mud vs 60 (capped) with the
+mod off. Remaining split per frame: GE Lua +4.0–4.6 ms (createMesh ~1.5, reports ~1.1, stamping),
+`RenderShadows` +3 ms, `RenderReflections` +1.2–2.3 ms, `PreRender` +0.5 ms. The engine cost follows
+the number of uploads; ProceduralMesh shares its type bits with TSStatic (see ENGINE_FINDINGS), so
+the mud cannot be masked out of the shadow casters by type.
+
 Now 50–56 fps vs 77–84 fps with the mod off (gridmap_v2, heavy physics). Split at the end of the
 last session (repeat runs, 19.2 ms vs 12.8 ms per frame):
 - idle mod (no digging): ~1.8 ms — Lua ~0.8 ms, mud objects in shadow/reflection passes

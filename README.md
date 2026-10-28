@@ -50,7 +50,7 @@ Mod off on the same machine: 77–84 fps.
 
 Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributions welcome on the `test` branch.
 
-1. Frame rate: ~6 ms per frame over vanilla with 8 trucks (goal 70–80 fps); re-uploaded meshes cost ~1 ms each in the engine's shadow pass.
+1. Frame rate: ~41 fps with 8 trucks in vanilla mode (60 with the mod off; goal 70–80 fps); every mesh upload also costs engine shadow and reflection time.
 2. Ruts deepened by the axles behind the front wheel can lag up to ~4 s under heavy load.
 3. Rut updates are 30–40 Hz for fresh ruts in view, not for every wheel.
 4. Sand is still fully meshed (no terrain-first drawing for sand yet).

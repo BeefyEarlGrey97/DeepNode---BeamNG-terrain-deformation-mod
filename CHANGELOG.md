@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Grass (and the ground under it) flickered while mud chunks rebuilt: the replaced mesh was
+  hidden one frame after its replacement was uploaded, and the new mesh was not always drawn by
+  then, so for one frame the lowered terrain showed with the lifted grass standing above it.
+  Measured on johnson_valley with forced sector rebuilds: 11 undrawn frames in 6 passes with a
+  one-frame hold, 0 in 12 passes with 2 or 3. New `pool.hideFrames` (default 3).
+
+### Changed
+- Mesh builder: submesh arrays keep their last length and take spare element tables back only
+  when a build grows; a submesh returns to its last material. Before, every tile build moved
+  thousands of tables to and from the stash when submeshes changed size (tile build
+  0.98 → 0.10 ms in a micro-benchmark of a 590-vertex rut tile).
+- Mesh size classes: tile meshes padded to sixths instead of thirds of the largest tile, decal
+  overlay submeshes from 96 instead of 384 corners (`pool.tileClasses`, `pool.decalMinCorners`).
+  createMesh of a rut tile: padded to thirds 1.41 ms, exact 1.08 ms.
+
+### Results (gridmap_v2, 8 Percherons, vanilla physics, user GUI settings, vsync off)
+- Fresh mud: 38.4 fps (low1 27.6), GE Lua 7.6 ms → 40.7–41.9 fps (low1 30.9–31.5), GE Lua 4.6–5.2 ms;
+  mod frame time 5.2 → 2.8–3.6 ms. Memory growth not higher (36–122 vs 113 MB/min, noisy).
+
 ## [0.1.0] — 2026-10-28 — first release
 
 ### Renamed

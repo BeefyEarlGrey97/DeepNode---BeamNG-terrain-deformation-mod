@@ -482,6 +482,14 @@ local defaults = {
     -- 'pair': each chunk alternates between two objects of its own (the old one becomes
     --   its spare); 'swap': a fresh object from the shared pool each time.
     mode = 'pair',
+    -- frames the replaced object stays visible after its replacement was uploaded
+    -- (1 left the chunk undrawn in some frames: the lowered terrain and the lifted grass
+    -- showed through for a frame while chunks rebuilt)
+    hideFrames = 3,
+    -- mesh size classes (tileMesh padMeshes): engine memory grows per distinct mesh
+    -- size, createMesh time per padded corner
+    tileClasses = 6,
+    decalMinCorners = 96,
   },
   gui = {
     openOnStart = true,

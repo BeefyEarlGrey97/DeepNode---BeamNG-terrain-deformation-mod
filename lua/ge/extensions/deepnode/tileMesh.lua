@@ -260,11 +260,13 @@ function M.processDeferred()
   account = math.min(account + uploadBudget, (uploadEvery + 1) * uploadBudget)
   -- a reservation holds for one frame; an unused one is dropped
   reserved, reserveNext = reserveNext, nil
+  -- frames a replaced mesh stays visible next to its replacement (pool.hideFrames)
+  local hold = ctx and ctx.cfg.pool and ctx.cfg.pool.hideFrames or 3
   local w = 0
   local n = #deferred
   for i = 1, n do
     local o, f, ch = deferred[i], deferredFrame[i], deferredChunk[i]
-    if f < frameNo then
+    if f + hold <= frameNo then
       if ch and ch.obj and ch.obj ~= o and not ch.spare then
         -- still in use by its chunk: keep as the spare (hidden, geometry kept)
         o:setHidden(true)
@@ -296,6 +298,8 @@ local function pow2(n, lo)
   return c
 end
 local padLen = {}
+-- size classes (pool.tileClasses, pool.decalMinCorners; set in M.setContext)
+local TILE_CLASSES, DEC_MIN_CORNERS = 6, 96
 local function padMeshes(chunk, meshes)
   local tileN = not chunk.sx and chunk.N
   for i = 1, #meshes do
@@ -306,13 +310,14 @@ local function padMeshes(chunk, meshes)
     local maxV, maxC = tileN and (tileN + 1) * (tileN + 1), tileN and 6 * tileN * tileN
     if m.material:find('^deepnode_dec_') then
       -- decal overlay (deepnode_decals): small, own power-of-two classes
-      capC = pow2(max(nc, 4 * nv), 384)
+      capC = pow2(max(nc, 4 * nv), DEC_MIN_CORNERS)
       capV = capC / 4
     elseif tileN and nv <= maxV and nc <= maxC then
-      -- three tile classes (1/3, 2/3, all of the largest tile): createMesh costs ~0.3 ms
-      -- + 0.3 us per corner, padding every tile to the largest one cost +35 %
-      local k = max(math.ceil(3 * nv / maxV), math.ceil(3 * nc / maxC), 1)
-      capV, capC = math.ceil(maxV * k / 3), math.ceil(maxC * k / 3)
+      -- TILE_CLASSES tile classes (k/TILE_CLASSES of the largest tile): createMesh costs
+      -- ~0.3 ms + 0.2-0.3 us per corner; padding every tile to the largest one cost +35 %,
+      -- to thirds +30 % (measured 1.41 vs 1.08 ms for a 590-vertex rut tile)
+      local k = max(math.ceil(TILE_CLASSES * nv / maxV), math.ceil(TILE_CLASSES * nc / maxC), 1)
+      capV, capC = math.ceil(maxV * k / TILE_CLASSES), math.ceil(maxC * k / TILE_CLASSES)
     else
       -- one (verts, corners) pair per class: corners 3072 * 2^k, verts a quarter of that
       -- (a grid mesh has ~5 corners per vertex), so sizes do not combine freely
@@ -426,17 +431,15 @@ end
 local Sub = {}
 Sub.__index = Sub
 
+-- The arrays of a submesh hold exactly the elements of its last build (finish cuts them
+-- to length). Spare element tables wait in the stash and come back one by one, only when
+-- a build grows past that length. (Restoring the whole stash on every reset and cutting
+-- it off again on finish moved thousands of tables per build when submeshes changed
+-- size: measured ~0.55 ms of a 1 ms tile build, gridmap_v2, 8 trucks.)
 local function trunc(arr, n, stash)
   for i = #arr, n + 1, -1 do
     stash[#stash + 1] = arr[i]
     arr[i] = nil
-  end
-end
-
-local function restore(arr, stash)
-  for i = #stash, 1, -1 do
-    arr[#arr + 1] = stash[i]
-    stash[i] = nil
   end
 end
 
@@ -447,10 +450,17 @@ end
 
 function Sub:reset(material)
   self.material = material
-  restore(self.verts, self.sv); restore(self.normals, self.sn)
-  restore(self.uvs, self.su); restore(self.faces, self.sf)
   self.nv, self.nf, self.bad = 0, 0, false
   self.decalDone = 0 -- faces already given their decal overlay (deepnode_decals)
+end
+
+-- a reusable element table from the stash, or nil
+local function spare(stash)
+  local k = #stash
+  if k == 0 then return nil end
+  local t = stash[k]
+  stash[k] = nil
+  return t
 end
 
 -- Add a vertex; returns its 0-based index. Non-finite input marks the whole build
@@ -464,24 +474,44 @@ function Sub:vert(x, y, z, nx, ny, nz, u, v)
   local n = self.nv + 1
   self.nv = n
   local t = self.verts[n]
-  if t then t.x, t.y, t.z = x, y, z else self.verts[n] = { x = x, y = y, z = z } end
+  if t then t.x, t.y, t.z = x, y, z
+  else
+    t = spare(self.sv)
+    if t then t.x, t.y, t.z = x, y, z else t = { x = x, y = y, z = z } end
+    self.verts[n] = t
+  end
   t = self.normals[n]
-  if t then t.x, t.y, t.z = nx, ny, nz else self.normals[n] = { x = nx, y = ny, z = nz } end
+  if t then t.x, t.y, t.z = nx, ny, nz
+  else
+    t = spare(self.sn)
+    if t then t.x, t.y, t.z = nx, ny, nz else t = { x = nx, y = ny, z = nz } end
+    self.normals[n] = t
+  end
   t = self.uvs[n]
-  if t then t.u, t.v = u, v else self.uvs[n] = { u = u, v = v } end
+  if t then t.u, t.v = u, v
+  else
+    t = spare(self.su)
+    if t then t.u, t.v = u, v else t = { u = u, v = v } end
+    self.uvs[n] = t
+  end
   return n - 1
+end
+
+local function corner(f, sf, k, a)
+  local t = f[k]
+  if t then t.v, t.n, t.u = a, a, a; return end
+  t = spare(sf)
+  if t then t.v, t.n, t.u = a, a, a else t = { v = a, n = a, u = a } end
+  f[k] = t
 end
 
 -- Triangle from 0-based vertex indices, already in front-face (clockwise) order.
 function Sub:tri(a, b, c)
-  local f = self.faces
+  local f, sf = self.faces, self.sf
   local n = self.nf
-  local t = f[n + 1]
-  if t then t.v, t.n, t.u = a, a, a else f[n + 1] = { v = a, n = a, u = a } end
-  t = f[n + 2]
-  if t then t.v, t.n, t.u = b, b, b else f[n + 2] = { v = b, n = b, u = b } end
-  t = f[n + 3]
-  if t then t.v, t.n, t.u = c, c, c else f[n + 3] = { v = c, n = c, u = c } end
+  corner(f, sf, n + 1, a)
+  corner(f, sf, n + 2, b)
+  corner(f, sf, n + 3, c)
   self.nf = n + 3
 end
 
@@ -495,12 +525,16 @@ local Builder = {}
 Builder.__index = Builder
 
 function M.newBuilder()
-  return setmetatable({ subs = {}, nsub = 0, byMat = {}, freeSubs = {} }, Builder)
+  return setmetatable({ subs = {}, nsub = 0, byMat = {}, freeSubs = {}, idle = {} }, Builder)
 end
 
+-- A submesh goes back to the material it was last used for (idle), so the next build
+-- of that material reuses arrays of about the right length.
 function Builder:reset()
   for i = 1, self.nsub do
-    self.freeSubs[#self.freeSubs + 1] = self.subs[i]
+    local s = self.subs[i]
+    if self.idle[s.material] == nil then self.idle[s.material] = s
+    else self.freeSubs[#self.freeSubs + 1] = s end
     self.subs[i] = nil
   end
   self.nsub = 0
@@ -512,7 +546,13 @@ function Builder:sub(material, reserve)
   local s = self.byMat[material]
   local r = reserve or 0
   if s and s.nv + r <= MAX_SUB_VERTS and s.nf + 6 * r <= MAX_SUB_CORNERS then return s end
-  s = table.remove(self.freeSubs) or newSub()
+  s = self.idle[material]
+  if s then self.idle[material] = nil else s = table.remove(self.freeSubs) end
+  if not s then
+    local m2, s2 = next(self.idle)
+    if s2 then self.idle[m2] = nil; s = s2 end
+  end
+  s = s or newSub()
   s:reset(material)
   self.nsub = self.nsub + 1
   self.subs[self.nsub] = s
@@ -893,7 +933,10 @@ end
 
 function M.setContext(main)
   ctx = main
-  growStep = (main and main.cfg and main.cfg.pool and main.cfg.pool.growStep) or 16
+  local pc = main and main.cfg and main.cfg.pool or {}
+  growStep = pc.growStep or 16
+  TILE_CLASSES = max(1, floor(pc.tileClasses or 6))
+  DEC_MIN_CORNERS = pow2(max(24, pc.decalMinCorners or 96), 24)
 end
 
 local function onExtensionLoaded()

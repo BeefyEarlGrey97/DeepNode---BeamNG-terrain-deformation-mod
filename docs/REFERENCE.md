@@ -115,9 +115,10 @@ and opening the world editor put the terrain back exactly as it was.
   fine-tune the match on a level. Where the depth fades out, the patch dips a few
   centimetres under the terrain, so the visible border is a smooth line.
 * Mesh rebuilds never flicker: the new mesh goes into a hidden object that is shown at once,
-  and the old one is hidden on the next frame (replacing a visible object's geometry in
-  place leaves it undrawn for a frame: measured in game as a rut tile vanishing in every
-  other frame). With `pool.mode = 'pair'` each chunk, tyre and lump mesh alternates between
+  and the old one stays visible for `pool.hideFrames` more frames (replacing a visible
+  object's geometry in place leaves it undrawn for a frame: measured in game as a rut tile
+  vanishing in every other frame; hiding the old one after a single frame still left some
+  chunks undrawn for a frame, the lowered terrain and the lifted grass showing through). With `pool.mode = 'pair'` each chunk, tyre and lump mesh alternates between
   two objects of its own.
 
 ### Ruts
@@ -636,6 +637,9 @@ Lengths are metres, speeds m/s, times seconds.
 | `render.disableSSS` | true | Screen-space shadows off while running |
 | `pool.initial` | 200 | Smallest number of pooled mesh objects (more are made when the map needs them) |
 | `pool.growStep` | 16 | Objects added if the pool ever runs out (logged) |
+| `pool.hideFrames` | 3 | Frames a replaced mesh stays visible next to its replacement (1 flickered) |
+| `pool.tileClasses` | 6 | Tile meshes are padded to k/tileClasses of the largest tile (fewer classes: less engine memory per upload, more createMesh time) |
+| `pool.decalMinCorners` | 96 | Smallest size class of decal overlay submeshes (doubling classes from here) |
 | `pool.mode` | pair | 'pair': each chunk alternates between two objects of its own (no flicker, least engine memory); 'swap': a fresh pooled object per upload |
 | `memory.gcStepKB` | 0 | >0: a Lua GC step of this size every frame (GUI: Steady GC) |
 | `gui.openOnStart` | true | Open the window when the mod starts |
