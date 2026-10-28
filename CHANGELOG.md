@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.1] — 2026-10-28 — grass flicker fix, faster tile rebuilds
 
 ### Fixed
 - Grass (and the ground under it) flickered while mud chunks rebuilt: the replaced mesh was
