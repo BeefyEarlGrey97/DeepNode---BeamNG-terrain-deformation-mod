@@ -79,6 +79,15 @@ mod 75–83 fps, rut lag 0.10–0.13 s, 7–20 MB/min. Needs re-measurement with
 | 2026-10-28 | gridmap_v2 | vanilla | before builder fix, user GUI settings, vsync off, fresh mud | 37.2–39.6 (25.8–30.7) | front 0.09–0.11 s | 113 MB/min |
 | 2026-10-28 | gridmap_v2 | vanilla | builder fix + size classes 6/96, fresh mud | 38.5–42.5 (29.3–33.8) | front 0.10–0.11 s | 36–122 MB/min |
 | 2026-10-28 | gridmap_v2 | vanilla | mod off (same session, 60 fps cap) | 60 (59–60) | – | – |
+| 2026-10-28b | gridmap_v2 | vanilla | mod off, orbit camera on truck 1 (16 m), vsync off | 74.6–79.3 (64–70) | – | flat |
+| 2026-10-28b | gridmap_v2 | vanilla | v0.1.1 code, 3 sets x 4–5 runs after reload | 40.8–50.6, mean 45.9 (24–35) | front 0.10 s | +244–268 MB per 5 runs; runs 4–5 +12 to +26 MB each |
+| 2026-10-28b | gridmap_v2 | vanilla | size-affine pool, decal classes, identical-upload skip, 4–5 runs after reload | 42.4–47.9, mean 45.3 (28–34) | front 0.10 s | +96–113 MB per 5 runs; runs 4–5 +0.6 to +5 MB each |
+
+2026-10-28b protocol: `tools/benchmark` bench2 with an orbit camera on truck 1 (yaw 160, pitch 14,
+16 m), vsync off, `clear`; the original and current Lua/config swapped in turn in one session.
+Physics stayed realtime in every run (sim/wall 0.998–1.000, `PhysicsNodes` 1.5–1.7 ms with or
+without the mod). Single runs of one setup spread ±3 fps: compare means of ≥ 8 runs. Per-module
+CPU (dntestModProbe): an upload 1.24 -> 1.19 ms, 4.4 % of builds skipped as identical.
 
 Per-module time while driving: `dntestModProbe.start(true)` before `bench2.py`, then
 `dntestModProbe.result()` (mod modules, wrapped mesh functions, engine metrics, driving frames only).

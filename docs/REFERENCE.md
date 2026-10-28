@@ -613,6 +613,16 @@ Lengths are metres, speeds m/s, times seconds.
 | `removeDist` | 120 | Lumps further than this from every vehicle are removed |
 | `darken`, `roughness` | 0.5, 0.35 | Generic mud colour and roughness (when `kinds.mud` gives none) |
 | `kinds.<kind>` | mud, sand | Per ground kind: `stick` (pick-up factor), `coatMax` (1 = no thick cake), `shed` (loose/clean/fling factor), `wet` (colour factor on the layer texture), `roughness`, `size` (cake thickness factor), `color` (generic texture colour) |
+| `kinds.<kind>.thickness` | sand 0.003 | Skin thickness of that kind (default `clods.thickness`); a kind with its own `texO` gets an even skin |
+| `kinds.<kind>.treadInset` | sand 0.010 | Skin this far below the tread surface (x outward share of the normal): the tyre's lugs show through, sand stays in the grooves |
+| `kinds.<kind>.coverMax` | sand 0.62 | Covered share at coat 1 (default `clods.coverMax`) |
+| `kinds.<kind>.groundGain` | sand 1.3 | Factor on the ground colour (default: the kind's `wet`) |
+| `kinds.<kind>.groundDesat` | sand 0.3 | Move the ground colour towards grey (0..1) |
+| `groundColor` | true | Tyre coat takes the terrain colour under the wheel (base map + macro/detail mean, / tyre texture mean); `color`, `brightness`, `tyreBrightness` only where it is unknown |
+| `groundGrid` | 128 | Cells a side of the base-map colour grid read at start |
+| `kinds.mud.texN` / `groundGain` | t_tyremud_nm, 2.0 | Procedural mud normal map; drying mud on a tyre is lighter than the wet ground |
+| `filmMud` | 0.5 | Water film colour = ground colour of the wheel's last soft ground x this (`filmColor` grey where unknown) |
+| `filmOpacity` | 0.4 | Water film opacity at full wetness (x the streak texture `t_tyrefilm_o`) |
 
 ### camera, materials, render, pool, gui
 

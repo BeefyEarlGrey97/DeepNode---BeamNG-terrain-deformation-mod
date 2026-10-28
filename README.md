@@ -59,8 +59,9 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 7. Tyre mud costs ~1.6 ms per frame with 8 trucks.
 8. Heavy physics slows Percherons to ~3–4 m/s in deep mud.
 9. johnson_valley benchmark not yet re-run with the current code.
-10. Vehicle reports are Lua strings compiled by the game (~160 per second); a compact format would save time.
-11. Tyre mud textures are baked from BeamNG's decal textures: check redistribution terms.
+10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
+11. Tyre textures are procedural now; only an unused fallback still names BeamNG's decal mud set.
+12. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
 
 ## License
 

@@ -43,10 +43,15 @@ groove = np.asarray(Image.fromarray(groove * 255).convert('L').filter(__import__
 fine = 0.55 * tile_noise(40, 80, 11) + 0.45 * tile_noise(80, 160, 12)
 mid = 0.6 * tile_noise(16, 32, 14) + 0.4 * tile_noise(40, 80, 15)
 
-centre = np.clip(1 - du, 0, 1) ** 1.2
-# low coverage already spreads as a fine dusting over the whole tyre (sand), with the
-# tread centre and grooves a little ahead
-q = 0.18 * centre + 0.05 * groove * tread + 0.22 * mid + 0.55 * fine
+# Reference (dump trucks in a sand pit): sand packs the tread and the shoulders and
+# dusts the sidewall down from the tread; most of the sidewall stays rubber. So the
+# order follows the profile (tread, shoulders, then towards the rim), with a ragged
+# edge (mid), radial streaks (noise stretched across u) and a fine grain that breaks
+# the edge into specks. (The old order was mostly speckle: any coverage spread blotches
+# over the whole tyre.)
+streak = tile_noise(4, 320, 16)
+prof = np.clip(1 - np.maximum(0, du - 0.3) / 0.7, 0, 1) ** 1.3
+q = 0.42 * prof + 0.05 * groove * tread + 0.13 * mid + 0.25 * fine + 0.12 * streak
 q = q - np.clip((du - 0.985) / 0.015, 0, 1) * 0.3
 
 flat = q.ravel()
@@ -58,8 +63,11 @@ alpha = (1 + rank / (flat.size - 1) * 254).reshape(H, W)
 # grain luminance: mean 0.8, fine per-grain variation, darker where packed first
 grain = np.random.default_rng(21).random((H, W)).astype(np.float32)
 grain2 = tile_noise(320, 640, 22)
-lum = 0.80 + (grain - 0.5) * 0.10 + (grain2 - 0.5) * 0.08 + (mid - 0.5) * 0.05
-dark = 0.90 + 0.10 * (1 - alpha / 255)
+lum = 0.80 + (grain - 0.5) * 0.18 + (grain2 - 0.5) * 0.14 + (mid - 0.5) * 0.08
+# thin dust (covered last: the sidewalls) lets the rubber show through: darker there,
+# full tone where it is packed (tread). The tyre colour factor is normalised by the
+# alpha-weighted mean (deepnode_main.textureMean), so the packed sand matches the ground.
+dark = 0.55 + 0.45 * (alpha / 255) ** 0.8
 g = np.clip(lum * dark, 0, 1)
 
 img = np.dstack([(np.dstack([g, g, g]) * 255).astype(np.uint8), alpha.astype(np.uint8)])

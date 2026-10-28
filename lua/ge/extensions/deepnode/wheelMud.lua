@@ -160,6 +160,31 @@ local function tyreColor(K)
   return colorString(kindColor(K))
 end
 
+-- mean linear value of each kind's tyre base texture (measured at start): the coat
+-- colour factor is the ground colour divided by it, so coat and ground match
+local texMean = {}
+local function texMeanOf(kind)
+  return texMean[kind] or texMean.mud or 0.5
+end
+
+-- colour the coat takes from the ground under wheel W (nil: unknown, use the kind
+-- colour); in colorString's space (it multiplies by clods.tyreBrightness). groundGain
+-- defaults to the kind's `wet` factor (mud on a tyre is wetter, darker than the ground);
+-- groundDesat moves it towards grey: dry dust on rubber reads paler than the ground
+-- (and a sidewall misses the blue sky light the ground gets, so it renders warmer)
+-- (three numbers, no table: called per wheel and coat tick)
+local function groundColor(W, K)
+  if not W.gr or ctx.cfg.clods.groundColor == false then return nil end
+  local k = (K.groundGain or K.wet or 1) / (texMeanOf(W.kind) * max(0.05, ctx.cfg.clods.tyreBrightness or 1))
+  local r, g, b = W.gr, W.gg, W.gb
+  local ds = K.groundDesat or 0
+  if ds > 0 then
+    local l = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    r, g, b = r + (l - r) * ds, g + (l - g) * ds, b + (l - b) * ds
+  end
+  return r * k, g * k, b * k
+end
+
 -- colour the wheel's coat has now (mixed by mass, see updateCoat); nil = clean tyre
 local function wheelColor(W)
   return W.col or kindColor(kindCfg(W.kind))
@@ -247,6 +272,11 @@ end
 -- opacity filmOpacity x wetness, alpha-clipped away when dry. Updated in wetStep steps
 -- through the material flush queue.
 -- (opacity is opacityFactor: the base colour alpha is ignored, measured)
+-- The film is muddy water, not clear (reference: trucks out of brown flood water): its
+-- colour is the ground colour of the wheel's last soft ground x filmMud, else filmColor
+-- grey; the texture (art/deepnode/bake_tyrefilm.py) streaks it where the water runs off.
+local FILM_B = '/art/deepnode/t_tyrefilm_b.color.png'
+local FILM_O = '/art/deepnode/t_tyrefilm_o.data.png'
 local function filmFields(W)
   local c = ctx.cfg.clods
   local w = W.wet or 0
@@ -254,21 +284,40 @@ local function filmFields(W)
   return sfmt('%g', a), w > 0.01 and '1' or '255'
 end
 
+local function filmColor(W)
+  local c = ctx.cfg.clods
+  local m = c.filmMud or 0
+  if W.gr and m > 0 and c.groundColor ~= false then
+    return W.gr * m, W.gg * m, W.gb * m
+  end
+  local g = c.filmColor or 0.03
+  return g, g, g
+end
+
+local function setFilmColor(W)
+  local r, g, b = filmColor(W)
+  W.film:setField('baseColorFactor', 0, sfmt('%g %g %g 1', r, g, b))
+  W.filmCol = W.filmCol or {}
+  W.filmCol[1], W.filmCol[2], W.filmCol[3] = r, g, b
+end
+
 local function acquireFilm(W)
   local op, ref = filmFields(W)
   local e = table.remove(filmFree)
   if e then
+    W.filmName, W.film = e.name, e.mat
     e.mat:setField('opacityFactor', 0, op)
     e.mat:setField('alphaRef', 0, ref)
+    setFilmColor(W)
     e.mat:flush()
-    W.filmName, W.film = e.name, e.mat
   else
     matCounter = matCounter + 1
     local name = sfmt('deepnode_tyrefilm_%d_%d', session, matCounter)
     W.film = ctx.createMaterial(name, {
       { 'version', '1.5' }, { 'castShadows', '0' }, { 'translucent', '1' }, { 'translucentZWrite', '0' },
       { 'translucentBlendOp', 'LerpAlpha' }, { 'opacityFactor', op },
-      { 'baseColorFactor', sfmt('%g %g %g 1', ctx.cfg.clods.filmColor or 0.03, ctx.cfg.clods.filmColor or 0.03, ctx.cfg.clods.filmColor or 0.03) },
+      { 'baseColorMap', FILM_B }, { 'opacityMap', FILM_O },
+      { 'baseColorFactor', sfmt('%g %g %g 1', filmColor(W)) },
       { 'roughnessFactor', sfmt('%g', ctx.cfg.clods.filmRoughness or 0.08) },
       { 'alphaTest', '1' }, { 'alphaRef', ref },
     })
@@ -335,14 +384,29 @@ local function sameShape(a, b)
   return true
 end
 
+-- the per-kind values a skin mesh is built with, as one number (a wheel entering a kind
+-- with other values rebuilds its skin)
+local function meshSig(K, c)
+  return (K.thickness or c.thickness or 0.012) + (K.treadInset or 0) * 1000 + (K.texO and 0 or 1e6)
+end
+
 local function buildMesh(W)
   local c = ctx.cfg.clods
   local Rv = W.R * (1 + (c.surfaceOffset or 0.04))
   local rimR = clamp(W.rimR or Rv * 0.58, Rv * 0.3, Rv * 0.85)
   local circ = 2 * math.pi * Rv
   local nC = clamp(floor(circ / (c.segLen or 0.06) + 0.5), 32, c.maxSegments or 112)
-  local th0 = c.thickness or 0.012
+  -- cake thickness of the kind the wheel is in (sand: a thin film); a kind with its own
+  -- textures gets an even skin (the blob relief follows the mud texture's order)
+  local K = kindCfg(W.kind)
+  local th0 = K.thickness or c.thickness or 0.012
+  local blobs = not K.texO
   local lift = c.lift or 0.003
+  -- treadInset: the skin sits this far below the tread surface (scaled by how much the
+  -- profile point faces outwards), between groove bottom and lug top: the tyre's own
+  -- lugs show through and the sand stays in the grooves (a skin over the lugs read as
+  -- a smooth cake). Sidewalls keep the plain lift.
+  local inset = K.treadInset or 0
   local ct, st = {}, {}
   for q = 0, nC do
     local a = q / nC * 2 * math.pi
@@ -377,9 +441,9 @@ local function buildMesh(W)
       local u = P.s / sTot
       for col = 0, nC do
         local v = col / nC * rep + vOff
-        local o = orderAt(u, v)
+        local o = blobs and orderAt(u, v) or 1
         local lump = hash01(seed * 7 + rank, k * 131 + col % nC, 5)
-        local d = th0 * (0.15 + 0.85 * o * o) * (0.85 + 0.3 * lump) + lift
+        local d = th0 * (0.15 + 0.85 * o * o) * (0.85 + 0.3 * lump) + lift - inset * max(0, P.nr) ^ 2
         local x = ty.o + P.x + P.nx * d
         local r = P.r + P.nr * d
         local vi = s:vert(x, r * ct[col], r * st[col], P.nx, P.nr * ct[col], P.nr * st[col], u, v)
@@ -454,6 +518,7 @@ local function buildMesh(W)
   W.gv, W.gc = nv, nc
   W.Rv = Rv
   W.shape = shapeOf(W)
+  W.meshSig = meshSig(K, c)
   W.needMesh = false
   counters.meshes = counters.meshes + 1
   counters.meshMs = counters.meshMs + ms
@@ -764,13 +829,19 @@ local function updateCoat(W, c, dt)
     local gain = picked * room
     -- colour: the new mud mixes in by the share it brings (also on a full tyre, where
     -- it replaces the loose outer layer)
-    local kc = kindColor(K)
+    local kr, kg, kb = groundColor(W, K)
+    if not kr then
+      local kc = kindColor(K)
+      kr, kg, kb = kc[1], kc[2], kc[3]
+    end
     if not W.col or W.coat < 0.005 then
-      W.col = { kc[1], kc[2], kc[3] }
+      local col = W.col or {}
+      col[1], col[2], col[3] = kr, kg, kb
+      W.col = col
     elseif picked > 0 then
       local f = min(1, (c.colorMix or 3) * picked / clamp(W.coat, 0.1, 1.5))
       local col = W.col
-      col[1], col[2], col[3] = col[1] + (kc[1] - col[1]) * f, col[2] + (kc[2] - col[2]) * f, col[3] + (kc[3] - col[3]) * f
+      col[1], col[2], col[3] = col[1] + (kr - col[1]) * f, col[2] + (kg - col[2]) * f, col[3] + (kb - col[3]) * f
     end
     W.coat = W.coat + gain
     W.loose = min(W.loose + gain, W.coat * (K.looseShare or c.looseShare or 0.55))
@@ -885,7 +956,13 @@ function M.onWheelMud(vid, wi, depth, slip, omega, R, t, kind, layer, x, y)
   W.mudT = t
   W.lastDepth = depth
   W.lastSpin = max(0, slip)
-  if kind and kind ~= W.kind then W.kind = kind end
+  if kind and kind ~= W.kind then W.kind = kind; W.kindT = t end
+  -- ground colour of the soft ground under the wheel; kept where it is unknown (a
+  -- zone without a layer texture), so the coat never changes colour out of the mud
+  if x and ctx.groundColorAt then
+    local r, g, b = ctx.groundColorAt(x, y, layer)
+    if r then W.gr, W.gg, W.gb = r, g, b end
+  end
 end
 
 function M.onWheelWater(vid, wi, f)
@@ -1037,7 +1114,7 @@ end
 -- thicker cake (coat above 1)
 local function coverage(W, c)
   if W.coat < 0.005 then return 0 end
-  local cm = c.coverMax or 0.92
+  local cm = kindCfg(W.kind).coverMax or c.coverMax or 0.92
   local C = cm * min(1, W.coat) ^ (c.coverExp or 1.1)
   if (W.cap or 1) > 1 and W.coat > 1 then
     C = C + (1 - cm) * clamp((W.coat - 1) / ((W.cap or 1) - 1), 0, 1)
@@ -1090,7 +1167,7 @@ function M.update(dt)
           if (W.cap or 1) > 1 then over = clamp((W.coat - 1) / max(0.01, (W.cap or 1) - 1), 0, 1) end
           local K = kindCfg(W.kind)
           local extra = (c.thicknessMax or 0.035) * over * (K.size or 1)
-          W.thickNow = (c.thickness or 0.012) * min(1, W.coat) + extra
+          W.thickNow = (K.thickness or c.thickness or 0.012) * min(1, W.coat) + extra
           local Rv = W.Rv or W.R
           W.sr = 1 + extra / max(0.1, Rv)
           W.sa = 1 + extra / max(0.1, (W.width or 0.3) * 0.5 + 0.05)
@@ -1105,6 +1182,12 @@ function M.update(dt)
           elseif W.chunkAcc and W.chunkAcc > 3 then
             W.chunkAcc = 3
           end
+        end
+        -- a kind of another cake thickness (sand film / mud cake): rebuild once the wheel
+        -- stayed in it for a second (boundaries between kinds would rebuild every frame)
+        if W.meshSig and not W.needMesh and now - (W.kindT or -huge) > 1
+          and abs(meshSig(kindCfg(W.kind), c) - W.meshSig) > 1e-5 then
+          W.needMesh = true; W.needT = now
         end
         -- mesh needed: first the wheels that carry mud
         if W.needMesh and not W.far then
@@ -1173,6 +1256,7 @@ function M.update(dt)
       local op, ref = filmFields(W)
       W.film:setField('opacityFactor', 0, op)
       W.film:setField('alphaRef', 0, ref)
+      setFilmColor(W)
       W.film:flush()
       W.filmWet = W.wet or 0
       counters.filmFlushes = (counters.filmFlushes or 0) + 1
@@ -1269,7 +1353,7 @@ function M.setKindColor(kind, r, g, b)
     for _, W in pairs(V.wheels) do
       if W.kind == kind then
         W.matKind = nil
-        if W.col then W.col = { r, g, b } end
+        if W.col and not groundColor(W, K) then W.col = { r, g, b } end
       end
     end
   end
@@ -1296,6 +1380,14 @@ function M.start(main)
   createKindMaterial(main, MAT, ks.mud or { color = { 0.5, 0.475, 0.44 }, roughness = 0.5 })
   for k, K in pairs(ks) do
     if k ~= 'mud' then createKindMaterial(main, MAT .. '_' .. k, K) end
+  end
+  -- tyre texture means (ground colour / mean = colour factor, see groundColor)
+  texMean = {}
+  if c.groundColor ~= false and main.textureMean then
+    for k, K in pairs(ks) do
+      local m = main.textureMean(K.texB or TEX_B, true)
+      if m then texMean[k] = max(0.05, (m[1] + m[2] + m[3]) / 3) end
+    end
   end
 end
 
@@ -1352,7 +1444,8 @@ function M.wheelStates()
     for idx, W in pairs(V.wheels) do
       list[#list + 1] = { index = idx, coat = W.coat, loose = W.loose, kind = W.kind, water = W.water or 0, wet = W.wet or 0,
         tyres = W.tyres and #W.tyres or 1, shown = W.visible and 1 or 0, far = W.far, ref = W.ref,
-        surf = abs(W.omega) * W.R, mudAge = now - W.mudT }
+        surf = abs(W.omega) * W.R, mudAge = now - W.mudT,
+        col = W.col and { W.col[1], W.col[2], W.col[3] } or nil }
     end
     table.sort(list, function(a, b) return a.index < b.index end)
     out[vid] = list

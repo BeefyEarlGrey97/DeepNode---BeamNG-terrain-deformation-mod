@@ -176,19 +176,23 @@
     "surfaceOffset": 0.04,
     "lodNearDist": 20,
     "roughness": 0.35,
+    "groundColor": true,
+    "groundGrid": 128,
     "kinds": {
       "mud": {
         "stick": 1.0,
         "coatMax": 3.0,
         "shed": 1.0,
         "wet": 0.85,
-        "roughness": 0.55,
+        "roughness": 0.6,
         "size": 1.0,
         "color": [
           0.55,
           0.45,
           0.35
-        ]
+        ],
+        "texN": "/art/deepnode/t_tyremud_nm.normal.png",
+        "groundGain": 2.0
       },
       "sand": {
         "stick": 0.9,
@@ -206,7 +210,12 @@
         "texO": "/art/deepnode/t_tyresand_o.data.png",
         "texN": "/art/deepnode/t_tyresand_nm.normal.png",
         "looseShare": 0.4,
-        "brightness": 1.45
+        "brightness": 1.45,
+        "thickness": 0.003,
+        "coverMax": 0.62,
+        "treadInset": 0.010,
+        "groundGain": 1.3,
+        "groundDesat": 0.3
       }
     },
     "buildRate": 1,
@@ -240,9 +249,10 @@
     "wetDarken": 0.25,
     "wetStep": 0.1,
     "wetFilm": true,
-    "filmOpacity": 0.25,
+    "filmOpacity": 0.4,
     "filmRoughness": 0.05,
     "filmColor": 0.03,
+    "filmMud": 0.5,
     "filmLift": 0.0015
   },
   "camera": {

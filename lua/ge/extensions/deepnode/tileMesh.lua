@@ -90,6 +90,16 @@ M.hash01 = hash01
 -- object pool
 -------------------------------------------------------------------------------
 local pool = { free = {}, all = {}, count = 0, group = nil, session = 0 }
+-- Size-affine reuse: engine memory grows when an object gets a mesh of other buffer
+-- sizes than its last one (measured: one fixed size <1 KB kept per upload, varying sizes
+-- 22-31 KB), so a released object waits in a free list keyed by the padded size
+-- signature of its last mesh and is handed out again for a mesh of the same signature.
+-- pool.free holds objects without geometry (new or cleared); objects of other signatures
+-- are only taken when neither is left.
+local byKey = {}                                   -- signature -> free objects
+local objKey = setmetatable({}, { __mode = 'k' })  -- object -> signature of its mesh
+local nKeyed = 0
+local reuse = { hit = 0, fresh = 0, steal = 0, same = 0 }
 local deferred, deferredFrame = {}, {}
 local frameNo = 0
 local identity = nil
@@ -141,8 +151,32 @@ function M.getGroup() return pool.group end
 local growStep = 16
 function M.setGrowStep(n) growStep = max(1, n or 16) end
 
-local function acquire()
-  local o = table.remove(pool.free)
+local function takeKeyed(key)
+  local l = key and byKey[key]
+  local o = l and l[#l]
+  if o then
+    l[#l] = nil
+    nKeyed = nKeyed - 1
+    reuse.hit = reuse.hit + 1
+    return o
+  end
+  o = table.remove(pool.free)
+  if o then reuse.fresh = reuse.fresh + 1; return o end
+  -- steal from the longest list (its object changes size: the old behaviour)
+  local best, bn = nil, 0
+  for _, ll in pairs(byKey) do if #ll > bn then best, bn = ll, #ll end end
+  if best then
+    o = best[bn]
+    best[bn] = nil
+    nKeyed = nKeyed - 1
+    reuse.steal = reuse.steal + 1
+    return o
+  end
+  return nil
+end
+
+local function acquire(key)
+  local o = takeKeyed(key)
   if not o then
     -- pool exhausted: grow in a small batch (logged, should not happen with a sized pool)
     log('W', 'deepnode', 'mesh pool exhausted, growing by ' .. growStep)
@@ -164,10 +198,19 @@ local function release(o)
   o:setHidden(true)
   -- pitfall 12: never let a recycled object carry a transform into a world-space mesh
   if identity then o:setTransform(identity) end
-  pool.free[#pool.free + 1] = o
+  local k = objKey[o]
+  if k then
+    local l = byKey[k]
+    if not l then l = {}; byKey[k] = l end
+    l[#l + 1] = o
+    nKeyed = nKeyed + 1
+  else
+    pool.free[#pool.free + 1] = o
+  end
   stats.inUse = stats.inUse - 1
 end
 M.release = release
+function M.reuseStats() return reuse.hit, reuse.fresh, reuse.steal, nKeyed, reuse.same end
 
 -- Queue an object to be hidden and returned to the pool on the next frame, so the
 -- replacement mesh is already visible when the old one disappears (no flicker).
@@ -298,10 +341,29 @@ local function pow2(n, lo)
   return c
 end
 local padLen = {}
+-- upload census (M.uploadCensus): uploads, corners by submesh kind, distinct padded sizes
+local census = { uploads = 0, subs = 0, cornersLayer = 0, cornersDec = 0, subsDec = 0, sizes = {}, nSizes = 0, padCorners = 0, padDec = 0, vertsDec = 0, vertsLayer = 0 }
+local function noteSize(capV, capC, nc, dec, nv)
+  local key = capV * 1048576 + capC
+  if not census.sizes[key] then census.sizes[key] = true; census.nSizes = census.nSizes + 1 end
+  census.subs = census.subs + 1
+  census.padCorners = census.padCorners + (capC - nc)
+  if dec then census.cornersDec = census.cornersDec + nc; census.subsDec = census.subsDec + 1; census.vertsDec = census.vertsDec + nv; census.padDec = census.padDec + (capC - nc)
+  else census.cornersLayer = census.cornersLayer + nc; census.vertsLayer = census.vertsLayer + nv end
+end
+function M.uploadCensus(reset)
+  local r = {}
+  for k, v in pairs(census) do if type(v) == 'number' then r[k] = v end end
+  if reset then
+    for k, v in pairs(census) do if type(v) == 'number' and k ~= 'nSizes' then census[k] = 0 end end
+  end
+  return r
+end
 -- size classes (pool.tileClasses, pool.decalMinCorners; set in M.setContext)
 local TILE_CLASSES, DEC_MIN_CORNERS = 6, 96
 local function padMeshes(chunk, meshes)
   local tileN = not chunk.sx and chunk.N
+  local key = #meshes
   for i = 1, #meshes do
     local m = meshes[i]
     local nv, nc = #m.verts, #m.faces
@@ -309,9 +371,13 @@ local function padMeshes(chunk, meshes)
     local capV, capC
     local maxV, maxC = tileN and (tileN + 1) * (tileN + 1), tileN and 6 * tileN * tileN
     if m.material:find('^deepnode_dec_') then
-      -- decal overlay (deepnode_decals): small, own power-of-two classes
-      capC = pow2(max(nc, 4 * nv), DEC_MIN_CORNERS)
-      capV = capC / 4
+      -- decal overlay (deepnode_decals): small, own power-of-two classes. Overlay strips
+      -- have ~2 corners per vertex (clipped polygons, measured 1.95 on gridmap_v2): the
+      -- classes pair verts = corners / 2. With the grid rule (verts = corners / 4) a
+      -- 157-corner strip was padded to 384 corners (+60 % of all overlay corners went to
+      -- padding: createMesh time and degenerate triangles drawn in every pass)
+      capC = pow2(max(nc, 2 * nv), DEC_MIN_CORNERS)
+      capV = capC / 2
     elseif tileN and nv <= maxV and nc <= maxC then
       -- TILE_CLASSES tile classes (k/TILE_CLASSES of the largest tile): createMesh costs
       -- ~0.3 ms + 0.2-0.3 us per corner; padding every tile to the largest one cost +35 %,
@@ -324,6 +390,9 @@ local function padMeshes(chunk, meshes)
       capC = pow2(max(nc, 4 * nv), 3072)
       capV = capC / 4
     end
+    noteSize(capV, capC, nc, m.material:find('^deepnode_dec_') ~= nil, nv)
+    -- signature of the padded buffer sizes (submeshes in order), see byKey
+    key = (key * 131071 + capV * 977 + capC) % 4503599627370496
     if nv > 0 and (capV > nv or capC > nc) then
       local v1 = m.verts[1]
       local pv = { x = v1.x, y = v1.y, z = v1.z }
@@ -332,6 +401,7 @@ local function padMeshes(chunk, meshes)
       for k = nc + 1, capC do faces[k] = PAD_F end
     end
   end
+  return key
 end
 local function unpadMeshes(meshes)
   for i = 1, #meshes do
@@ -360,15 +430,57 @@ function M.present(chunk, meshes)
   -- left the chunk undrawn for a frame (measured in game: the rut tile vanished in every
   -- other frame while rebuilding, i.e. flicker).
   local mode = ctx and ctx.cfg.pool and ctx.cfg.pool.mode or 'pair'
-  local o = nil
-  if mode == 'pair' and chunk.spare then o = chunk.spare; chunk.spare = nil end
-  o = o or acquire()
-  if not o then return false end
+  -- A rebuild that comes out identical to the shown mesh (a neighbour or timer asked for
+  -- it, nothing visible changed: ~5 % of uploads, gridmap_v2 8 trucks) is not uploaded:
+  -- every upload costs createMesh time, engine memory and a shadow-pass refresh. The
+  -- test covers everything createMesh reads: positions, normals (tile-border normals
+  -- follow the neighbour tiles), uvs, faces and materials.
+  local same = chunk.obj ~= nil and chunk.geoN == #meshes
+  local hsh = 0
+  for i = 1, #meshes do
+    local m = meshes[i]
+    local vs, ns, us, fs = m.verts, m.normals, m.uvs, m.faces
+    local a = (#vs * 131 + #fs) % 4294967296
+    for k = 1, #vs do
+      local v, n, uv = vs[k], ns[k], us[k]
+      a = (a * 31 + floor(v.x * 4096) + floor(v.y * 4096) * 3 + floor(v.z * 65536) * 7
+        + floor(n.x * 16384) * 11 + floor(n.y * 16384) * 13 + floor(uv.u * 65536) * 17 + floor(uv.v * 65536) * 19) % 4294967296
+    end
+    for k = 1, #fs do a = (a * 31 + fs[k].v) % 4294967296 end
+    local gm = chunk.geoMat
+    if not gm then gm = {}; chunk.geoMat = gm end
+    if gm[i] ~= m.material then same = false; gm[i] = m.material end
+    local gh = chunk.geoH
+    if not gh then gh = {}; chunk.geoH = gh end
+    if gh[i] ~= a then same = false; gh[i] = a end
+    hsh = hsh + a
+  end
+  chunk.geoN = #meshes
+  if same then
+    reuse.same = reuse.same + 1
+    stats.builds = stats.builds + 1
+    return true
+  end
   local timer = hptimer and hptimer()
-  local nv = setGeometry(o, meshes)
-  padMeshes(chunk, meshes)
+  local key = padMeshes(chunk, meshes)
+  local o = nil
+  if mode == 'pair' and chunk.spare then
+    -- the chunk's own spare only when its buffers have this mesh's sizes
+    if objKey[chunk.spare] == key then
+      o = chunk.spare
+      reuse.hit = reuse.hit + 1
+    else
+      release(chunk.spare)
+    end
+    chunk.spare = nil
+  end
+  o = o or acquire(key)
+  if not o then unpadMeshes(meshes); return false end
+  census.uploads = census.uploads + 1
   o:createMesh({ meshes })
+  objKey[o] = key
   unpadMeshes(meshes)
+  local nv = setGeometry(o, meshes)
   M.recordUpload(chunk.sx and 'S' or 'T', nv, timer and timer:stop() or 1)
   chunk.lastVerts = nv
   o:setHidden(false)
@@ -388,6 +500,8 @@ function M.destroyAll(objectsAlive)
     if pool.group then pool.group:delete() end
   end
   pool.free, pool.all, pool.count, pool.group = {}, {}, 0, nil
+  byKey, nKeyed = {}, 0
+  objKey = setmetatable({}, { __mode = 'k' })
   deferred, deferredFrame, deferredChunk = {}, {}, {}
   geo = setmetatable({}, { __mode = 'k' })
   geoVerts, geoCorners = 0, 0
@@ -395,7 +509,7 @@ function M.destroyAll(objectsAlive)
 end
 
 function M.stats()
-  return stats.created, stats.inUse, #pool.free, stats.builds, stats.rejected, stats.peakInUse
+  return stats.created, stats.inUse, #pool.free + nKeyed, stats.builds, stats.rejected, stats.peakInUse
 end
 
 -- Memory flush: free pooled objects keep the geometry of their last use while hidden;
@@ -404,6 +518,12 @@ end
 function M.trimPool(keep)
   local cleared, deleted = 0, 0
   local free = pool.free
+  -- keyed free objects are trimmed / cleared like the others
+  for k, l in pairs(byKey) do
+    for i = 1, #l do free[#free + 1] = l[i]; objKey[l[i]] = nil end
+    byKey[k] = nil
+  end
+  nKeyed = 0
   for i = #free, 1, -1 do
     local o = free[i]
     if pool.count - deleted > (keep or 0) then

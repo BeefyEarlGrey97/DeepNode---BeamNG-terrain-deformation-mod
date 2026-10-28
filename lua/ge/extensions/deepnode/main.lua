@@ -322,9 +322,12 @@ local defaults = {
     wetDarken = 0.25,
     wetStep = 0.1,          -- wetness change that triggers a material update
     wetFilm = true,
-    filmOpacity = 0.25,
+    -- the film is muddy water: colour = ground colour of the wheel's last soft ground x
+    -- filmMud (filmColor grey where unknown), streaked by art/deepnode/t_tyrefilm_*
+    filmOpacity = 0.4,
     filmRoughness = 0.05,
     filmColor = 0.03,
+    filmMud = 0.5,
     filmLift = 0.0015,
     -- x factors on the whole build-up and on every loss (GUI "Mud build-up" / "Mud wear-off")
     buildRate = 1,
@@ -357,6 +360,13 @@ local defaults = {
     chunkSize = 0.035,      -- m base size (+ cake thickness)
     chunkFling = 0.5,       -- share of the tyre surface speed they leave with
     roughness = 0.35,
+    -- Colour of the coat: the terrain colour under the wheel (base map + macro/detail
+    -- mean, see P.initGroundColors) divided by the mean of the kind's tyre texture, times
+    -- the kind's groundGain (default: its `wet`), moved groundDesat towards grey;
+    -- `color`/`brightness`/tyreBrightness then only apply where the ground colour is
+    -- unknown (no layer texture, zones). groundGrid: base map cells a side.
+    groundColor = true,
+    groundGrid = 128,
     -- Per soft-ground kind (the softMatch text found in the layer; zones are mud).
     -- Lumps use the textures of the layer they were picked up from, times `wet`.
     -- stick: pick-up factor; coatMax: highest coat (1 = no clumps); shed: loose/clean
@@ -365,12 +375,21 @@ local defaults = {
     -- texture, used where a layer has no texture.
     kinds = {
       -- color: factor on the monochrome tyre mud texture (mean grey 0.72)
-      mud = { stick = 1.0, coatMax = 3.0, shed = 1.0, wet = 0.85, roughness = 0.55, size = 1.0,
-              color = { 0.55, 0.45, 0.35 } },
+      -- mud: own procedural textures (art/deepnode/bake_tyremud.py): a smooth clay coat,
+      -- tread first, then the shoulders and the sidewalls down to the rim; groundGain 2:
+      -- mud drying on a tyre is lighter than the wet ground (gridmap_v2: the ground colour
+      -- alone read near black next to the rubber in the truck's shadow)
+      mud = { stick = 1.0, coatMax = 3.0, shed = 1.0, wet = 0.85, roughness = 0.6, size = 1.0,
+              color = { 0.55, 0.45, 0.35 }, texN = '/art/deepnode/t_tyremud_nm.normal.png',
+              groundGain = 2.0 },
       -- sand: own fine-grain tyre textures (art/deepnode/bake_tyresand.py): packs into
       -- the tread, dusts the sidewalls; no caking (coatMax 1), falls off fast (shed)
+      -- thickness / coverMax: per kind over the clods values (sand: a thin film in the
+      -- tread grooves and a dusting down the sidewalls, not a cake); treadInset: skin
+      -- below the lug tops (wheelMud buildMesh); groundGain / groundDesat: see groundColor
       sand = { stick = 0.9, coatMax = 1.0, shed = 2.0, wet = 0.88, roughness = 0.9, size = 0.6, looseShare = 0.4, brightness = 1.45,
-               color = { 1.0, 0.88, 0.68 },
+               color = { 1.0, 0.88, 0.68 }, thickness = 0.003, coverMax = 0.62, treadInset = 0.010,
+               groundGain = 1.3, groundDesat = 0.3,
                texB = '/art/deepnode/t_tyresand_b.color.png', texO = '/art/deepnode/t_tyresand_o.data.png',
                texN = '/art/deepnode/t_tyresand_nm.normal.png' },
     },
@@ -533,7 +552,17 @@ function P.loadConfig()
   local file = jsonReadFile and jsonReadFile('/settings/deepnode/config.json')
   if type(file) == 'table' then P.mergeConfig(c, file) end
   local g = jsonReadFile and FS and FS:fileExists(P.GUI_CFG) and jsonReadFile(P.GUI_CFG)
-  if type(g) == 'table' then P.mergeConfig(c, g) end
+  if type(g) == 'table' then
+    -- the GUI owns only the kind colours: older gui.json files saved whole kinds (with
+    -- texture paths from before the rename), which pinned them over config.json
+    local ks = type(g.clods) == 'table' and g.clods.kinds
+    if type(ks) == 'table' then
+      for k, K in pairs(ks) do
+        ks[k] = type(K) == 'table' and type(K.color) == 'table' and { color = K.color } or nil
+      end
+    end
+    P.mergeConfig(c, g)
+  end
   cfg = c
   M.cfg = c
   return c
@@ -2542,9 +2571,131 @@ function P.createLayerMaterials()
         if (f[3] or 0) == 0 and f[1] ~= 'activeLayers' and f[1] ~= 'opacityFactor' then cf[#cf + 1] = { f[1], f[2] } end
       end
       P.createClodMaterial(e, L, cf, tint)
+      -- source maps of the terrain colour (tyre coat colour, see P.initGroundColors)
+      P.matUV[e].src = base
+      P.matUV[e].macro, P.matUV[e].macroStr = useMacro and t.macro or '', t.macroStr or 0
+      P.matUV[e].detail, P.matUV[e].detailStr = useDetail and detail or '', dstr * (mc.detailStrength or 1)
     end
   end
   P.baseSize = maxBase > 0 and maxBase or ter.worldSize
+end
+
+-- Terrain colour under a point, for the tyre coat (wheelMud takes the colour of the ground
+-- it drove through). The terrain shader's colour is
+--   base + (macro * 2 - 1) * macroStrength + (detail * 2 - 1) * detailStrength
+-- with the base sRGB-decoded and macro/detail added as data. Macro and detail tile every
+-- few metres, so a tyre sees their mean: one offset per layer. The base map is kept as a
+-- coarse grid (linear RGB, groundGrid cells a side); a tiled base (detail-only layer) is
+-- one mean colour. Read once at start with GBitmap (PNG/JPG/DDS as the engine loads them).
+P.groundCols = {}
+local function srgbLin(c)
+  c = c / 255
+  if c <= 0.04045 then return c / 12.92 end
+  return ((c + 0.055) / 1.055) ^ 2.4
+end
+
+-- mean of a bitmap over n x n samples: linear RGB (sRGB-decoded) and raw 0..1;
+-- byAlpha: weighted by the alpha (tyre textures: coverage order, so the mean of what
+-- shows first, the packed part)
+function P.bitmapMean(bmp, n, byAlpha)
+  local w, h = bmp:getWidth(), bmp:getHeight()
+  if not w or w <= 0 or not h or h <= 0 then return nil end
+  local c = ColorI(0, 0, 0, 0)
+  local lr, lg, lb, rr, rg, rb, k = 0, 0, 0, 0, 0, 0, 0
+  for i = 0, n - 1 do
+    for j = 0, n - 1 do
+      if bmp:getColor(floor((i + 0.5) / n * w), floor((j + 0.5) / n * h), c) then
+        local wt = byAlpha and c.a / 255 or 1
+        lr, lg, lb = lr + srgbLin(c.r) * wt, lg + srgbLin(c.g) * wt, lb + srgbLin(c.b) * wt
+        rr, rg, rb = rr + c.r / 255 * wt, rg + c.g / 255 * wt, rb + c.b / 255 * wt
+        k = k + wt
+      end
+    end
+  end
+  if k <= 0 then return nil end
+  return { lr / k, lg / k, lb / k }, { rr / k, rg / k, rb / k }
+end
+
+local bitmapCache = {}
+function M.loadBitmap(path)
+  if not path or path == '' or not GBitmap then return nil end
+  if bitmapCache[path] == nil then
+    local b = GBitmap()
+    local ok = pcall(function() return b:loadFile(path) end) and b:getWidth() and b:getWidth() > 0
+    bitmapCache[path] = ok and b or false
+  end
+  return bitmapCache[path] or nil
+end
+function M.releaseBitmaps() bitmapCache = {} end
+
+-- mean linear colour { r, g, b } of a texture file (nil when it cannot be read)
+function M.textureMean(path, byAlpha)
+  local b = M.loadBitmap(path)
+  local lin = b and P.bitmapMean(b, 32, byAlpha)
+  bitmapCache[path] = nil
+  return lin
+end
+
+function P.initGroundColors()
+  P.groundCols = {}
+  if cfg.clods.groundColor == false or not GBitmap then return end
+  local t0 = newTimer()
+  local N = cfg.clods.groundGrid or 128
+  for e, L in pairs(layers) do
+    local uv = P.matUV[e]
+    if L.soft and uv and uv.src and uv.src ~= '' then
+      local off = { 0, 0, 0 }
+      for _, m in ipairs({ { uv.macro, uv.macroStr }, { uv.detail, uv.detailStr } }) do
+        local b = (m[1] or '') ~= '' and (m[2] or 0) ~= 0 and M.loadBitmap(m[1])
+        local _, raw = b and P.bitmapMean(b, 32)
+        if raw then for i = 1, 3 do off[i] = off[i] + (raw[i] * 2 - 1) * m[2] end end
+      end
+      local bmp = M.loadBitmap(uv.src)
+      if bmp then
+        local G = { off = off }
+        if uv.base then
+          local w, h = bmp:getWidth(), bmp:getHeight()
+          local c = ColorI(0, 0, 0, 0)
+          local grid = {}
+          for j = 0, N - 1 do
+            for i = 0, N - 1 do
+              local q = (j * N + i) * 3
+              if bmp:getColor(floor((i + 0.5) / N * w), floor((j + 0.5) / N * h), c) then
+                grid[q + 1], grid[q + 2], grid[q + 3] = srgbLin(c.r), srgbLin(c.g), srgbLin(c.b)
+              else
+                grid[q + 1], grid[q + 2], grid[q + 3] = 0.2, 0.17, 0.13
+              end
+            end
+          end
+          G.grid, G.n = grid, N
+        else
+          G.mean = P.bitmapMean(bmp, 32)
+        end
+        if G.grid or G.mean then P.groundCols[e] = G end
+      end
+    end
+  end
+  M.releaseBitmaps()
+  P.stats.groundColorMs = t0:stopAndReset()
+end
+
+-- linear terrain colour at a world point on soft layer e; nil when unknown
+function M.groundColorAt(x, y, e)
+  local G = e and P.groundCols[e]
+  if not G then return nil end
+  local r, g, b
+  if G.grid then
+    local u, v = M.uvOf(x, y, e)
+    local n = G.n
+    local i = floor((u - floor(u)) * n) % n
+    local j = floor((v - floor(v)) * n) % n
+    local q = (j * n + i) * 3
+    r, g, b = G.grid[q + 1], G.grid[q + 2], G.grid[q + 3]
+  else
+    r, g, b = G.mean[1], G.mean[2], G.mean[3]
+  end
+  local o = G.off
+  return max(0.005, r + o[1]), max(0.005, g + o[2]), max(0.005, b + o[3])
 end
 
 function P.allMaterialNames()
@@ -2851,6 +3002,7 @@ function P.reactivate(t)
     local o = fm.reclaim(sk, t.key)
     if o then
       t.obj = o
+      t.geoN = nil -- not the mesh tileMesh.present last saw for this tile: upload again
       fm.markDirty(sk, true)
       -- neighbours' border rules follow whether this tile has its own mesh
       P.markNeighboursDirty(t)
@@ -3997,7 +4149,11 @@ function M.onMudReport(vid, w, nodes)
             P.stampWheel(px, py, pz, px, py, pz, axx, axy, fwx, fwy, R, Wt, tr, true, dig, digMax)
           end
         end
-        if wm then
+        -- tyre mud only on soft ground: the tile meshes (and so the vehicle's reports)
+        -- also cover the hard squares at the mud's edge, where mudLayerAt falls back to
+        -- the zone/default kind; a tyre rolling there picked up "mud" of that kind and
+        -- changed its coat colour (and kind) out of the mud
+        if wm and P.softAtWorld(px, py) then
           local e, kind = M.mudLayerAt(px, py)
           wm.onWheelMud(vid, wi, d, slip, om, R, simTime, kind, e, px, py)
         end
@@ -5117,6 +5273,7 @@ function P.start()
   local t0 = newTimer()
   P.createFallbackMaterial()
   P.createLayerMaterials()
+  P.initGroundColors()
   local wm, fm = P.mod('wheelMud'), P.mod('farMesh')
   if wm then wm.start(M) end
   P.stats.materialsMs = t0:stopAndReset()

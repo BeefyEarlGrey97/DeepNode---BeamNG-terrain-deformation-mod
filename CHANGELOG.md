@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.1.2] — 2026-10-28 — tyre mud, sand and wet looks; ~60 % less memory growth
+
+### Fixed
+- Tyre coat changed colour (and kind) out of the mud: the vehicle reports every wheel on a
+  mud tile, and tiles also cover hard squares at the mud's edge, where `mudLayerAt` falls back
+  to a neighbour layer or the zone/default kind (gridmap_v2: the hard start line of the sand
+  lane read as mud). Tyre mud is now only fed on soft ground (`P.softAtWorld`), and a wheel
+  keeps the last soft-ground colour where the ground colour is unknown.
+- Mud on the tyres looked like moss camouflage (blotchy decal texture, lumpy normal map, olive
+  tint). New procedural mud set (`bake_tyremud.py`, no game texture any more): a smooth clay coat,
+  tread first, then shoulders and sidewalls down to the rim with ragged edges, soft lumps and the
+  lug relief under the mud; own normal map `t_tyremud_nm`. `kinds.mud.groundGain` 2: drying mud
+  on a tyre is lighter than the wet ground (gridmap_v2: the coat read near black in the truck's
+  shadow, rubber 17 vs coat 25 grey levels; now a clay brown).
+- Wet tyres looked wrapped in black plastic (uniform film colour 0.03). The water film is now
+  muddy water: ground colour of the wheel's last soft ground x `filmMud` (0.5), streaked where
+  water runs off (`bake_tyrefilm.py`, `t_tyrefilm_b/o`), opacity `filmOpacity` 0.4 (was 0.25).
+- Sand on the tyres looked like a cake: a solid, uniform, greyish band over the whole tyre.
+  - The user gui.json saved the whole `clods.kinds` table, so the sand texture paths from before
+    the rename (`/art/deepmud/...`, gone) stayed pinned over config.json: no coverage map, the
+    alpha clip showed the full skin. The GUI now saves only the kind colours, and loading drops
+    everything but `color` from older gui.json kinds.
+  - The skin sat 1.2 cm over the tread lugs (a smooth band). Sand skin: 3 mm (`kinds.sand.thickness`)
+    and 10 mm below the tread surface (`kinds.sand.treadInset`), so the tyre's own lugs show
+    through and the sand sits in the grooves.
+  - New sand coverage order (`bake_tyresand.py`): tread, shoulders, then down the sidewall with a
+    ragged, radially streaked edge (the old order was mostly speckle over the whole tyre); thin
+    sidewall dust baked darker (rubber showing through). `kinds.sand.coverMax` 0.62 (was 0.92).
+
+### Changed
+- Tyre coat colour = terrain colour under the wheel (`clods.groundColor`): the layer's base map
+  (sampled once at start into a `groundGrid`² grid, GBitmap, ~50 ms) plus its macro/detail mean,
+  divided by the alpha-weighted mean of the kind's tyre texture, times `groundGain` (default: the
+  kind's `wet`), `groundDesat` towards grey. puresands: tyre sand (190,166,142) vs lit ground
+  (215,187,160), same hue (B/R 0.74; was 0.62, a fixed orange-grey colour). The fixed kind colours
+  only apply where the ground colour is unknown (zones, layers without texture).
+- A wheel entering a kind with other skin values (thickness, inset) rebuilds its skin once after
+  1 s in it.
+- Mesh pool: size-affine reuse. A released object waits in a free list keyed by the padded
+  buffer sizes of its last mesh and is handed out again for a mesh of the same sizes (engine
+  memory grows when an object's buffers change size). gridmap_v2, 8 Percherons, vanilla, after
+  warm-up: +1.2 to +6.8 MB per run (~850 uploads) against +12 to +17 MB before; 87 % same-size
+  hits. `deepnode_tileMesh.reuseStats()` (hits, fresh, steals, keyed free).
+- Decal overlay size classes pair verts = corners / 2 (measured 1.95 corners per vertex) instead
+  of the grid ratio 4: overlay padding 307 -> 103 corners per submesh (no new classes).
+- A rebuild identical to the shown mesh (positions, normals, uvs, faces, materials) is not
+  uploaded: 4.4 % of builds on gridmap_v2 (a neighbour or timer asked, nothing visible changed).
+- Tyre coat colour from the ground computed without a table per wheel and coat tick (tyre mud
+  update 0.41 -> 0.30 ms per frame, 8 trucks).
+- `deepnode_tileMesh.uploadCensus(reset)`: uploads, submeshes, corners (layer / overlay),
+  padding, distinct padded sizes.
+
+### Results (gridmap_v2, 8 Percherons, vanilla, orbit camera on truck 1, vsync off)
+- Same session, original v0.1.1 Lua swapped in and out: fps mean 45.9 (v0.1.1, 14 runs) vs
+  45.3 (now, 14 runs; ±3 fps between single runs of one setup), low 1 % 24–35 vs 28–34.
+  Without tyre mud 45.1 vs 48.0 (the new mud/sand/wet looks cost ~1 ms more to draw).
+- Engine memory, fresh mud, 5 runs after a reload: +244–268 MB vs +96–113 MB; runs 4–5
+  +12 to +26 MB each vs +0.6 to +5 MB. Repeat runs (existing ruts, 10 runs): +5.9 MB/min.
+- Physics unaffected in every setup: sim/wall time 0.998–1.000, `PhysicsNodes` 1.5–1.7 ms
+  with or without the mod, vehicle Lua (`PhysicsAndVLUA`) 0.35–0.45 ms.
+
 ## [0.1.1] — 2026-10-28 — grass flicker fix, faster tile rebuilds
 
 ### Fixed

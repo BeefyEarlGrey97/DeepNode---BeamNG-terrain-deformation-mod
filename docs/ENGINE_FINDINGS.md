@@ -54,5 +54,19 @@ They explain most design decisions; please extend this file when you measure som
 - Material changes need `mat:flush()` (~0.4–0.8 ms); `setField` alone does nothing.
 - Base-colour alpha is ignored by alpha clip: use `opacityMap`.
 - Vehicle tyre material swaps at runtime render chrome.
+- `GBitmap():loadFile(path)` reads level terrain PNGs in GE Lua (2048² in tens of ms);
+  `bmp:getColor(x, y, colorI)` fills an OUT `ColorI` (call without it errors "expect userdata").
+- Object material `baseColorFactor` x2 (0.25 -> 0.5 grey) gave x3.2 in decoded screenshot values:
+  consistent with a linear factor through the tonemapper toe, not with an sRGB-decoded one (x4.2+).
+- A level's `WaterPlane` (puresands: z 25) puts wheels in water: tyre mud washes off (coat stays 0).
+- Engine memory kept per `createMesh` follows buffer size changes per object: with size-affine
+  reuse (same padded sizes back to the same object) 1-7 MB per ~850 uploads, without 12-17 MB.
+  Finer tile classes (12 instead of 6) cut padding 20 % but only 2 % of createMesh time and
+  doubled the memory growth (more sizes, more objects changing size).
+- Compiling + running a 1 KB `queueGameEngineLua` chunk: 16 us.
+- `jit.profile` in the GE VM attributes engine time to the next Lua that runs (useless shares),
+  and after a profiling session the mod's stamping ran 3-4x slower until `reload_lua`.
+- `mudLayerAt` falls back to neighbour layers and the zone/default kind: hard ground next to mud
+  reads as mud (gridmap_v2 sand lane start line). Test softness with `P.softAtWorld`.
 - Vehicles spawned from Lua start in `realistic` gearbox mode (stay in neutral):
   `controller.mainController.setGearboxMode('arcade')`.

@@ -136,6 +136,13 @@ local function save(m)
   end
   for _, s in ipairs(SLIDERS) do if s[2] then put(s[1]) end end
   for _, p in ipairs(EXTRA) do put(p) end
+  -- of the kinds only the colours (the rest stays with config.json)
+  local ks = out.clods and out.clods.kinds
+  if ks then
+    local cols = {}
+    for k, K in pairs(ks) do if type(K) == 'table' and K.color then cols[k] = { color = K.color } end end
+    out.clods.kinds = cols
+  end
   put('physics.mode')
   put('roads.mode')
   m.saveGuiConfig(out)

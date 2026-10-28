@@ -81,6 +81,7 @@ local function summary(R)
   local p99 = R.dts[math.max(1, math.floor(n * 0.99))]
   local p95 = R.dts[math.max(1, math.floor(n * 0.95))]
   R.fps = n / sum
+  R.rt = (R.simT or sum) / sum -- physics realtime factor (sim s per wall s)
   R.low1 = 1 / p99
   R.low5 = 1 / p95
   R.minFps = 1 / R.dts[n]
@@ -112,6 +113,7 @@ local function onUpdate(dtReal, dtSim)
   if S.step == 'drive' then
     local R = S.cur
     R.dts[#R.dts + 1] = dtReal
+    R.simT = (R.simT or 0) + (dtSim or dtReal)
     local done = 0
     local speeds = {}
     for _, e in ipairs(list) do

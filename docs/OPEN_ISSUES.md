@@ -23,6 +23,14 @@ effect: `collisionType None`, `hideInRenderView(63)`, local-light shadows off, d
 moving the object, rotating objects. Ideas: fewer/smaller dirty regions per visible dig, fewer
 frozen tile objects, cheaper reports.
 
+Measured 2026-10-28 (orbit camera on truck 1, vanilla, 8 trucks, 3 runs): tile uploads 870 per
+run at 1.16-1.21 ms each (createMesh), sector uploads 85 per run at 1.8-1.9 ms, tyre material
+flushes 200 per run at 0.83 ms (engine material re-init; already confined to upload frames by
+the shared budget). Every mod material has `castShadows 0`; the extra `RenderShadows` time
+(+3-4 ms) follows the uploads. Tried without effect: finer tile size classes (12: -20 %
+padding, -2 % createMesh time, twice the memory growth), deferring colour-only tyre flushes
+(colour already rides along with coverage steps: same flush count).
+
 ## 2. Deepening lag under load
 
 Fresh rut fronts in view rebuild at 30–40 Hz outside the governor; ruts deepened by the axles
@@ -58,6 +66,10 @@ rut edge. Untouched cells inside dug squares are already left to the terrain.
 ## 7. Tyre mud cost
 
 ~1.6 ms/frame with 8 trucks. Flushes and per-frame transforms are already limited to trucks in view.
+Measured 2026-10-28 (gridmap_v2, 8 trucks, interleaved 8 + 8 runs): drawing the 64 skins costs
+~0.8 ms (45.6 fps shown vs 47.4 hidden, Lua unchanged); the water film layer adds nothing
+measurable (46.1 vs 45.9 fps without / with it); Lua (coat, flushes at 0.83 ms each,
+transforms) ~1 ms. Fewer skin segments would cut the draw cost but show on close-ups.
 
 ## 8. Heavy physics speed
 
@@ -68,12 +80,23 @@ not possible with current values.
 
 Not re-measured since the overhaul. See [BENCHMARK.md](BENCHMARK.md).
 
-## 10. Report transport
+## 10. Report transport (measured: not a cost)
 
 Vehicle reports are Lua source strings (`queueGameEngineLua`) compiled in the GE, ~160 per second
-with 8 trucks at 20 Hz. A compact numeric format would cut Lua time.
+with 8 trucks at 20 Hz. Measured 2026-10-28: compiling and running a 1 KB report chunk takes
+16 us, ~0.06 ms per frame in total. A binary format is not worth it.
 
 ## 11. Texture licensing
 
-`art/deepnode/t_tyre*` are baked from BeamNG's decal-road mud textures (`bake_tyremud.py`);
-check redistribution terms before publishing a release.
+The tyre textures are procedural now (`bake_tyremud.py`, `bake_tyresand.py`, `bake_tyrefilm.py`,
+no game asset read). `clods.texDir`/`texBase` still name BeamNG's decal-road mud set as the
+fallback normal map of a kind without its own `texN` (none in the shipped config).
+
+## 12. Tyre coat colour and sand look
+
+Tuned on puresands (sand) and gridmap_v2 (mud, wet) on 2026-10-28 with Percherons: sand in the
+tread grooves, a clay coat for mud, a muddy water film. Not checked yet: johnson_valley mud (its
+ground colour differs; mud `groundGain` 2 was tuned on gridmap_v2's dark mud); `treadInset` 10 mm is
+one value for every tyre model (tread depth differs: on a shallow tyre the skin may hide under the
+lugs, on a deep one sit too low). Sidewall dust is alpha-clipped specks, no soft haze (a translucent
+dust layer like the water film would cost another material per wheel).
