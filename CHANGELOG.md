@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-10-29 — gradual tyre mud, heavy physics default, decal roads switch
+
 ### Changed
 - Heavy physics is the default (`physics.mode = "heavy"`).
 - Decal roads on the mud are off by default; the GUI checkbox is now called "Experimental decal
