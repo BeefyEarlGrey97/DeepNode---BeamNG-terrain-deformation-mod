@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-10-29 — 4.3 MB download (DDS tyre textures)
+
+### Changed
+- Tyre textures ship as DDS at half size (512x1024, film 256x512) in BeamNG's formats, made with
+  NVIDIA Texture Tools (`tools/dev/tyre_dds.py`): colour BC7 sRGB, normal BC5, coverage order BC7
+  linear (BC4, the game's data format, was clipped everywhere by the object shader's alpha test).
+  Release zip 18.3 MB -> ~4.3 MB. Same look in game (wheel close-ups, mud and sand, steady state;
+  coverage-by-alphaRef identical within 0.3 %). New folder `art/deepnode/tyre/`: the engine's
+  texture cache keeps cooked `art/deepnode/t_tyre*.dds` from the old PNGs and loads those instead
+  of same-named files.
+- Tyre texture means are stored per kind (`clods.kinds.*.texMean`, measured from the source
+  PNGs) instead of read from the texture at start.
+- PNG sources and bake scripts moved to `tools/tyre_textures/` (not shipped).
+
 ## [0.1.3] — 2026-10-29 — gradual tyre mud, heavy physics default, decal roads switch
 
 ### Changed

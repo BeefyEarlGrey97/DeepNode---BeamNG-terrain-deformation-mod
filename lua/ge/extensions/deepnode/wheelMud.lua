@@ -9,9 +9,9 @@
 --    axle at ~6 cm steps, lifted off the tyre by a cake thickness that follows the mud
 --    blobs of the texture (thick where mud sticks first);
 --  * which part of that skin shows is decided per pixel by the material's alpha clip:
---    art/deepnode/t_tyremud_o.data.png holds a coverage order (tread first, then
+--    art/deepnode/t_tyremud_o.data.dds holds a coverage order (tread first, then
 --    shoulders, then blotches over the sidewalls; histogram-equalised, see
---    art/deepnode/bake_tyremud.py), so alphaRef = 255 - 254 x coverage shows exactly
+--    tools/tyre_textures/bake_tyremud.py), so alphaRef = 255 - 254 x coverage shows exactly
 --    that share. Each wheel has its own material; a change is setField + flush
 --    (~0.4-0.8 ms measured, no lasting engine memory over 600 flushes), at most
 --    clods.flushPerFrame per frame inside the shared upload budget;
@@ -36,8 +36,8 @@ local floor, min, max, sqrt, abs, huge = math.floor, math.min, math.max, math.sq
 local sin, cos, atan2 = math.sin, math.cos, math.atan2 or math.atan
 local sfmt = string.format
 
-local TEX_B = '/art/deepnode/t_tyremud_b.color.png'
-local TEX_O = '/art/deepnode/t_tyremud_o.data.png'
+local TEX_B = '/art/deepnode/tyre/t_tyremud_b.color.dds'
+local TEX_O = '/art/deepnode/tyre/t_tyremud_o.data.dds'
 local ORDER_FILE = '/art/deepnode/tyremud_order.json'
 local MAT = 'deepnode_clod'
 
@@ -281,9 +281,9 @@ end
 -- (opacity is opacityFactor: the base colour alpha is ignored, measured)
 -- The film is muddy water, not clear (reference: trucks out of brown flood water): its
 -- colour is the ground colour of the wheel's last soft ground x filmMud, else filmColor
--- grey; the texture (art/deepnode/bake_tyrefilm.py) streaks it where the water runs off.
-local FILM_B = '/art/deepnode/t_tyrefilm_b.color.png'
-local FILM_O = '/art/deepnode/t_tyrefilm_o.data.png'
+-- grey; the texture (tools/tyre_textures/bake_tyrefilm.py) streaks it where the water runs off.
+local FILM_B = '/art/deepnode/tyre/t_tyrefilm_b.color.dds'
+local FILM_O = '/art/deepnode/tyre/t_tyrefilm_o.data.dds'
 local function filmFields(W)
   local c = ctx.cfg.clods
   local w = W.wet or 0
@@ -1466,12 +1466,19 @@ function M.start(main)
   for k, K in pairs(ks) do
     if k ~= 'mud' then createKindMaterial(main, MAT .. '_' .. k, K) end
   end
-  -- tyre texture means (ground colour / mean = colour factor, see groundColor)
+  -- tyre texture means (ground colour / mean = colour factor, see groundColor): the kind's
+  -- texMean (linear mean of the base texture weighted by its coverage order, measured from
+  -- the source PNG: the shipped BC7 DDS has no alpha and GBitmap may not decode it), else
+  -- measured from the texture file
   texMean = {}
-  if c.groundColor ~= false and main.textureMean then
+  if c.groundColor ~= false then
     for k, K in pairs(ks) do
-      local m = main.textureMean(K.texB or TEX_B, true)
-      if m then texMean[k] = max(0.05, (m[1] + m[2] + m[3]) / 3) end
+      if tonumber(K.texMean) then
+        texMean[k] = max(0.05, tonumber(K.texMean))
+      elseif main.textureMean then
+        local m = main.textureMean(K.texB or TEX_B, true)
+        if m then texMean[k] = max(0.05, (m[1] + m[2] + m[3]) / 3) end
+      end
     end
   end
 end

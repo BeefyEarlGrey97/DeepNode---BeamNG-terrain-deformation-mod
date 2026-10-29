@@ -219,7 +219,7 @@ Bindings, category Gameplay; no default key), the "Tyre mud" checkbox in the win
   pixel by its material's alpha clip (coverage order texture: tread first, then
   shoulders, then the sidewalls). A coat above 1 makes the cake thicker.
 * Kinds (`clods.kinds`, by the `softMatch` text of the layer): mud sticks and cakes;
-  sand has its own fine-grain textures (`art/deepnode/bake_tyresand.py`): it packs into
+  sand has its own fine-grain textures (`tools/tyre_textures/bake_tyresand.py`, shipped as half-size DDS by `tools/dev/tyre_dds.py`): it packs into
   the tread grooves and dusts the sidewalls, never cakes and falls off fast. The colour
   is the kind's `color` (GUI colour pickers), mixed by mass when the kind changes.
 * Build-up: per metre rolled in mud (`buildPerMeter` x `stick`), more when deep or

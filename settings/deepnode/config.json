@@ -197,7 +197,8 @@
           0.45,
           0.35
         ],
-        "texN": "/art/deepnode/t_tyremud_nm.normal.png",
+        "texN": "/art/deepnode/tyre/t_tyremud_nm.normal.dds",
+        "texMean": 0.4767,
         "groundGain": 2.0
       },
       "sand": {
@@ -212,9 +213,10 @@
           0.92,
           0.765
         ],
-        "texB": "/art/deepnode/t_tyresand_b.color.png",
-        "texO": "/art/deepnode/t_tyresand_o.data.png",
-        "texN": "/art/deepnode/t_tyresand_nm.normal.png",
+        "texB": "/art/deepnode/tyre/t_tyresand_b.color.dds",
+        "texO": "/art/deepnode/tyre/t_tyresand_o.data.dds",
+        "texN": "/art/deepnode/tyre/t_tyresand_nm.normal.dds",
+        "texMean": 0.4489,
         "looseShare": 0.4,
         "brightness": 1.45,
         "thickness": 0.003,

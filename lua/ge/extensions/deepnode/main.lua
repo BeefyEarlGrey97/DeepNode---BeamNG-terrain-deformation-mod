@@ -378,14 +378,15 @@ local defaults = {
     -- texture, used where a layer has no texture.
     kinds = {
       -- color: factor on the monochrome tyre mud texture (mean grey 0.72)
-      -- mud: own procedural textures (art/deepnode/bake_tyremud.py): a smooth clay coat,
+      -- mud: own procedural textures (tools/tyre_textures/bake_tyremud.py, shipped as DDS
+      -- by tools/dev/tyre_dds.py): a smooth clay coat,
       -- tread first, then the shoulders and the sidewalls down to the rim; groundGain 2:
       -- mud drying on a tyre is lighter than the wet ground (gridmap_v2: the ground colour
       -- alone read near black next to the rubber in the truck's shadow)
       mud = { stick = 1.0, coatMax = 3.0, shed = 1.0, wet = 0.85, roughness = 0.6, size = 1.0,
-              color = { 0.55, 0.45, 0.35 }, texN = '/art/deepnode/t_tyremud_nm.normal.png',
-              groundGain = 2.0 },
-      -- sand: own fine-grain tyre textures (art/deepnode/bake_tyresand.py): packs into
+              color = { 0.55, 0.45, 0.35 }, texN = '/art/deepnode/tyre/t_tyremud_nm.normal.dds',
+              groundGain = 2.0, texMean = 0.4767 },
+      -- sand: own fine-grain tyre textures (tools/tyre_textures/bake_tyresand.py): packs into
       -- the tread, dusts the sidewalls; no caking (coatMax 1), falls off fast (shed)
       -- thickness / coverMax: per kind over the clods values (sand: a thin film in the
       -- tread grooves and a dusting down the sidewalls, not a cake); treadInset: skin
@@ -393,8 +394,8 @@ local defaults = {
       sand = { stick = 0.9, coatMax = 1.0, shed = 2.0, wet = 0.88, roughness = 0.9, size = 0.6, looseShare = 0.4, brightness = 1.45,
                color = { 1.0, 0.88, 0.68 }, thickness = 0.003, coverMax = 0.62, treadInset = 0.010,
                groundGain = 1.3, groundDesat = 0.3,
-               texB = '/art/deepnode/t_tyresand_b.color.png', texO = '/art/deepnode/t_tyresand_o.data.png',
-               texN = '/art/deepnode/t_tyresand_nm.normal.png' },
+               texB = '/art/deepnode/tyre/t_tyresand_b.color.dds', texO = '/art/deepnode/tyre/t_tyresand_o.data.dds',
+               texN = '/art/deepnode/tyre/t_tyresand_nm.normal.dds', texMean = 0.4489 },
     },
   },
   memory = {
