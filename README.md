@@ -5,7 +5,7 @@ Terrain deformation for BeamNG.drive 0.40: deep mud and sand that sink, rut and 
 **Install:** download `DeepNode-v0.1.0.zip` from [Releases](../../releases) and drop it, unextracted, into
 `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\`. *Physics* **HEAVY** is the default (DeepNode
 window, Run tab); decal roads on the mud and sand are under **Experimental decal road** (off by default:
-no decal road on soft ground).
+no decal road on soft ground). To set the mod UI keybinds: Search for DeepNode under Controls
 
 ## Clean-room build
 
@@ -42,7 +42,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 6. Dug areas lose the decal-road pattern; the change at the rut edge is visible up close.
 7. Tyre mud costs ~1.6 ms per frame with 8 trucks.
 8. Heavy physics slows Percherons to ~3–4 m/s in deep mud.
-9. johnson_valley benchmark not yet re-run with the current code.
+9. johnson_valley benchmark not yet achieve internal goals.
 10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
 
