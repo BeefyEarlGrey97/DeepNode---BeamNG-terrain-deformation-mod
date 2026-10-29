@@ -1,0 +1,20 @@
+name: Lua syntax check
+
+on:
+  pull_request:
+  push:
+    branches: [main, test]
+
+jobs:
+  luacheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LuaJIT (same compiler family as BeamNG)
+        run: sudo apt-get update && sudo apt-get install -y luajit
+      - name: Compile every Lua file
+        run: bash tools/dev/luacheck.sh | tee luacheck.log; test "${PIPESTATUS[0]}" -eq 0
+      - name: Only castRayStatic may be written as a global
+        run: |
+          bad=$(sed -n '/global writes/,$p' luacheck.log | grep -v 'global writes' | grep -v '"castRayStatic"' || true)
+          if [ -n "$bad" ]; then echo "Unexpected global writes:"; echo "$bad"; exit 1; fi

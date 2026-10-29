@@ -46,6 +46,17 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
 
+## Contributing and forking
+
+Fork freely (MIT). To contribute: fork, branch from `test`, run `bash tools/dev/luacheck.sh`
+(needs LuaJIT; CI runs it on every pull request), and open the pull request against `test`.
+Full workflow, benchmark rules and the mistakes to avoid are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Look for issues labelled `good first issue` and `help wanted`. Please follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+To build on DeepNode: the mod lives in `lua/` (runtime) and `scripts/` (game hooks); config keys are in
+[docs/REFERENCE.md](docs/REFERENCE.md), engine facts in [docs/ENGINE_FINDINGS.md](docs/ENGINE_FINDINGS.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
