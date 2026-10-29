@@ -48,8 +48,11 @@ out of the soft mask. Roads whose material contains a `roads.skipMatch` text (`i
 `dirt`) or a `softMatch` text (`mud`, `sand`) are not carved: mud furrows, tyre tracks and
 dirt decals belong to the mud.
 
-Those decals on the mud are drawn by the mod (`roads.mode = "overlay"`, GUI Run tab
-**"Decal roads on mud"**, switches live and is saved):
+Those decals on the mud can be drawn by the mod (`roads.mode = "overlay"`, GUI Run tab
+**"Experimental"**, off by default, switches live and is saved). With heavy physics (the
+default) undug mud is drawn by the terrain itself, so its decal roads show without the
+overlay; the overlay then only adds them on meshed ground (sand, which heavy mode keeps
+meshed, and vanilla physics):
 
 * An engine decal road is a flat strip laid once onto what is below it. On the mud it
   either lies on the lowered terrain (hidden) or, laid onto the mud surface, covers every
@@ -65,7 +68,13 @@ Those decals on the mud are drawn by the mod (`roads.mode = "overlay"`, GUI Run 
 * The engine keeps drawing the roads too, on the lowered terrain: hidden under the mud
   meshes, still visible beyond the loaded mud sectors.
 * Cost (gridmap_v2, 8 Percherons through both pits, 4 runs): 54.6 fps with decals,
-  55.1 without; ~3 MB engine memory per run more once warmed up.
+  55.1 without; ~3 MB engine memory per run more once warmed up. Switching it on rebuilds
+  every loaded mud mesh (gridmap_v2: 85 sectors in ~3 s).
+* The overlay materials are kept for the session and updated in place: deleting them on an
+  off/on switch left the meshes still drawn with the deleted copy (garbage strips).
+* A Material changed after a mesh was uploaded only reaches that mesh for constants
+  (colour factor, alphaRef); feature changes (alphaTest on/off, maps added/removed) need
+  a new upload (measured: recolouring the copies showed only on meshes built later).
 * Not possible in BeamNG 0.40 (measured): ProceduralMesh has no vertex colours (decal
   ends fade by narrowing the strip instead), ProceduralMesh collision only enters the
   physics world on a full `be:reloadCollision()` (~380 ms), and translucent copies of
@@ -437,9 +446,9 @@ Lengths are metres, speeds m/s, times seconds.
 | `enabled` | true | Keep terrain under hard decal roads free of mud |
 | `margin` | 0.5 | Extra width (m) kept free of mud on each side of a road |
 | `skipMatch` | `["invisible", "dirt"]` | Roads with a material containing one of these texts (or a `softMatch` text) are not carved |
-| `mode` | `"overlay"` | Decal roads on the mud: `overlay` (drawn into the mud meshes), `drape` (engine decals laid once), `off` |
+| `mode` | `"off"` | Decal roads on the mud: `overlay` (drawn into the mud meshes, experimental), `drape` (engine decals laid once), `off` |
 | `overlayAlphaRef` | 110 | Alpha clip of the overlay materials (0 = translucent: slow) |
-| `overlayLift` / `overlayLiftStep` | 0.004 / 0.001 | m over the mud; one step per renderPriority level (stack kept under `sectors.drop`) |
+| `overlayLift` / `overlayLiftStep` | 0.008 / 0.001 | m over the mud; one step per renderPriority level (stack kept under `sectors.drop`) |
 | `overlayRoughness` | 0.85 | Fixed roughness of the overlay materials (-1 = the road's own maps) |
 | `overlayRoughnessByMatch` | furrows 1, tiretracks 1 | Per material text |
 | `overlaySkipMatch` | `["water"]` | Decals left out of the overlay |
@@ -574,13 +583,17 @@ Lengths are metres, speeds m/s, times seconds.
 | `enabled` | true | Mud on tyres |
 | `texDir`, `texBase` | decal-road mud set | Mud texture where a layer has no texture of its own |
 | `coatMax` | 3.0 | Highest coat; 0..1 sets how much of the tyre is covered, 1..coatMax how thick |
-| `buildPerMeter` | 0.03 | Coat picked up per metre the tread rolls through mud |
+| `buildPerMeter` | 0.01 | Coat picked up per metre the tread rolls through mud (Percheron at 18 km/h: coverage ~0.6 after 7 s) |
 | `buildSpinGain` | 0.5 | Extra pick-up per m/s of wheel spin (at most x3) |
 | `looseShare` | 0.55 | Share of the coat that is loose while in mud |
-| `looseShedPerMeter` | 0.12 | Loose coat lost per metre after leaving the mud |
+| `looseShedPerMeter` | 0.1 | Loose coat lost per metre after leaving the mud |
 | `packTime` | 6 | Seconds for the loose layer to pack down after leaving the mud |
-| `cleanDelay` | 0.4 | Time out of the mud before the tyre starts to clean |
-| `cleanPerMeter` | 0.015 | Packed coat lost per metre (times the coat below 1) |
+| `cleanDelay` | 1.0 | Time out of the mud before the tyre starts to clean |
+| `cleanPerMeter` | 0.02 | Packed coat lost per metre (times the coat below 1) |
+| `lookDelay` / `lookFade` | 1.0 / 1.0 | Drawn colour and kind hold this long after the wheel's state (mud / sand / off the soft ground) changed, then blend over `lookFade` s; the texture set changes half way |
+| `coverUpRate` / `coverDownRate` | 0.5 / 1.0 | Drawn coverage follows the coat's at most this much per s (no jump when mud and sand cover differently) |
+| `colorFlushGap` | 0.1 | At most one colour step per wheel in this time during a blend |
+| `flushGap` | 0.25 | Per wheel at most one coverage update in this time (near the camera; 3x further away) |
 | `flingSpeed` | 9.0 | Tyre surface speed above which mud flies off |
 | `flingRate` | 0.08 | Coat lost per second per m/s above that speed |
 | `washRate` | 0.6 | Coat washed off per second with the tyre fully in water |

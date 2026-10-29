@@ -107,10 +107,12 @@ local defaults = {
     drapeFrames = 30,       -- frames between laying the roads and removing the proxies (3 was too few)
     -- mode: 'overlay' = decal roads drawn into the mud meshes (deepnode_decals, follows the
     -- mud, left out on rut cells), 'drape' = the engine's decals laid once onto the
-    -- undisturbed mud (above), 'off' = no decal roads on the mud (GUI "Decal roads on mud")
-    mode = 'overlay',
+    -- undisturbed mud (above), 'off' = no decal roads on the mud. Default off: the overlay is
+    -- experimental (GUI "Experimental"); heavy physics draws undug mud with the terrain, whose
+    -- own decal roads show there anyway
+    mode = 'off',
     overlayAlphaRef = 110,  -- overlays are alpha-clipped (opaque pass); 0 = translucent (slow, sorts badly)
-    overlayLift = 0.004,    -- m over the mud; one overlayLiftStep per renderPriority level
+    overlayLift = 0.008,    -- m over the mud (4 mm z-fought beyond ~10 m); one overlayLiftStep per renderPriority level
     overlayLiftStep = 0.001,
     overlayRoughness = 0.85, -- fixed roughness (the decal roughness maps sparkle on a mesh); -1 = keep
     overlayRoughnessByMatch = { furrows = 1, tiretracks = 1 },
@@ -456,7 +458,7 @@ local defaults = {
   -- them, so rut walls are real terrain the tyres have to climb (4WD, diff locks and low
   -- range work as in vanilla). Changing the mode restarts the mod (new sink pass).
   physics = {
-    mode = 'vanilla',
+    mode = 'heavy',
     heavy = {
       -- ground model values per soft kind (absolute, see art/groundmodels.json fields)
       groundModels = {

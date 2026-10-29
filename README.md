@@ -3,8 +3,8 @@
 Terrain deformation for BeamNG.drive 0.40: deep mud and sand that sink, rut and remember every tyre.
 
 **Install:** download `DeepNode-v0.1.0.zip` from [Releases](../../releases) and drop it, unextracted, into
-`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\`. For the best result switch *Physics* to **HEAVY** in
-the DeepNode window (Run tab).
+`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\`. *Physics* **HEAVY** is the default (DeepNode
+window, Run tab); decal roads drawn into the mud meshes are under **Experimental** (off by default).
 
 ## Clean-room build
 
@@ -18,7 +18,7 @@ on are documented in [docs/ENGINE_FINDINGS.md](docs/ENGINE_FINDINGS.md).
 - Tyre ruts at 0.2 m resolution with berms and slumping walls, chassis dents, dual wheels
 - Ruts carved ahead of each wheel, so they appear under the tyre (front latency ~0.1 s)
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
-- Mud and sand buildup on the tyres, with falloff and chunks particles that fly off when driving
+- Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
 - Simple UI with live settings and performance stats
   
 ## Benchmarks included
@@ -37,7 +37,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 2. Ruts deepened by the axles behind the front wheel can lag up to ~4 s under heavy load.
 3. Rut updates are 30–40 Hz for fresh ruts in view, not for every wheel.
 4. Sand is still fully meshed (no terrain-first drawing for sand yet).
-5. Vanilla physics mode: full mud mesh, alpha-clipped decal copies, high memory growth.
+5. Vanilla physics mode: full mud mesh, high memory growth; the experimental decal overlay looks duller than the engine decals (alpha clip).
 6. Dug areas lose the decal-road pattern; the change at the rut edge is visible up close.
 7. Tyre mud costs ~1.6 ms per frame with 8 trucks.
 8. Heavy physics slows Percherons to ~3–4 m/s in deep mud.

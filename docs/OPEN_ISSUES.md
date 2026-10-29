@@ -54,9 +54,14 @@ needs a deeper sand ground model (`defaultDepth`) to keep the same sinking.
 v0.1.0 benchmark: vanilla mode grows memory 132–253 MB/min with 8 trucks (heavy 25–63 MB/min) because every
 soft square is meshed and rebuilt.
 
-Terrain-first needs the heavy rut floor. Vanilla mode still copies decal roads into the mud meshes
-as alpha-clipped materials (matte, dark fringes at `overlayAlphaRef 110`). Ideas: higher alphaRef,
-keep the roughness map, premultiplied colour fix.
+Terrain-first needs the heavy rut floor. Vanilla mode can copy decal roads into the mud meshes
+(overlay, now "Experimental" and off by default) as alpha-clipped materials (matte, dark fringes at
+`overlayAlphaRef 110`). Measured 2026-10-29 (gridmap_v2): the clip drops the soft translucent parts
+of the furrow / tiretrack decals, so vanilla mud with the overlay looks duller than the engine
+decals on the heavy-mode terrain; on sand the dirt-variation decals look about the same at alphaRef
+110, 40 and 10. Ideas: keep the roughness map, premultiplied colour fix, a dithered alpha texture.
+Debug pitfall: recolouring the overlay materials (alphaTest off, maps removed) only shows on meshes
+uploaded afterwards.
 
 ## 6. Dug areas lose the decal pattern
 

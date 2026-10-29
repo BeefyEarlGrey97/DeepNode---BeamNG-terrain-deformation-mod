@@ -16,8 +16,8 @@
   },
   "roads": {
     "enabled": true,
-    "mode": "overlay",
-    "overlayLift": 0.004,
+    "mode": "off",
+    "overlayLift": 0.008,
     "insideShare": 0.9,
     "margin": 0.5,
     "skipMatch": [
@@ -160,15 +160,20 @@
     "texBase": "t_mud_large",
     "drawDist": 70,
     "coatMax": 3,
-    "buildPerMeter": 0.03,
+    "buildPerMeter": 0.01,
     "buildSpinGain": 0.5,
     "looseShare": 0.55,
     "packTime": 6,
-    "looseShedPerMeter": 0.03,
-    "cleanDelay": 2.0,
-    "cleanPerMeter": 0.002,
+    "looseShedPerMeter": 0.1,
+    "cleanDelay": 1.0,
+    "cleanPerMeter": 0.02,
     "colorMix": 3,
     "colorStep": 0.03,
+    "colorFlushGap": 0.1,
+    "lookDelay": 1.0,
+    "lookFade": 1.0,
+    "coverUpRate": 0.5,
+    "coverDownRate": 1.0,
     "flingSpeed": 6.0,
     "flingRate": 0.12,
     "washRate": 0.2,
@@ -238,7 +243,7 @@
     "chunkFling": 0.5,
     "coverMax": 0.92,
     "flushWait": 0.5,
-    "flushGap": 0.5,
+    "flushGap": 0.25,
     "flingPackedSpeed": 18.0,
     "flingPackedRate": 0.01,
     "washLooseFactor": 3,
@@ -314,7 +319,7 @@
     "lift": 0.12
   },
   "physics": {
-    "mode": "vanilla",
+    "mode": "heavy",
     "heavy": {
       "groundModels": {
         "mud": {

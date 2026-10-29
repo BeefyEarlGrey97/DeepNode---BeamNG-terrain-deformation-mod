@@ -2,7 +2,27 @@
 
 ## [Unreleased]
 
+### Changed
+- Heavy physics is the default (`physics.mode = "heavy"`).
+- Decal roads on the mud (overlay) are off by default; the GUI checkbox is now called
+  "Experimental". With heavy physics undug mud is the terrain itself and shows the level's own
+  decal roads anyway.
+- Tyre coat look changes gradually: after a change of state (mud / sand / off the soft ground)
+  the drawn colour and kind hold for `clods.lookDelay` (1 s), then blend over `clods.lookFade`
+  (1 s), textures switching half way; drawn coverage moves at most `coverUpRate` 0.5 /
+  `coverDownRate` 1.0 per s. gridmap_v2, Percheron on a 60 m circle (mud -> sand): colour held
+  ~1.2 s, blended in ~1 s, coverage 0.48 -> 0.30 over ~0.6 s (before: colour and texture
+  switched within 0.3 s, coverage jumped).
+- Slower build-up, faster fall-off: `buildPerMeter` 0.03 -> 0.01 (coverage 0 -> 0.58 over 6.5 s
+  in mud at 18 km/h, before full in ~3 s), coverage updates every 0.25 s per wheel (was 0.5 s:
+  visible jumps); `cleanDelay` 2 -> 1 s, `looseShedPerMeter` 0.03 -> 0.1 (loose layer gone ~0.7 s
+  after the delay), `cleanPerMeter` 0.002 -> 0.02 (packed layer). Tyre flushes ~4.5/s with one
+  truck, 59.7 fps mean.
+
 ### Fixed
+- Decal overlay switch: turning it off and on deleted the overlay materials while meshes still
+  drew with them (garbage strips until each mesh was rebuilt); the copies are now updated in
+  place. Overlay lift 4 -> 8 mm (z-fighting speckles beyond ~10 m).
 - Tyre coat switched kind the moment a wheel crossed from mud to sand (or back): a mud-caked
   tyre turned into a thin sand film at once. The ground's kind is now kept apart from the coat's;
   the coat changes kind when the new material makes up half of it (same mass share the colour

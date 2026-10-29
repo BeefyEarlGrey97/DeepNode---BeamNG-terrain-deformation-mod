@@ -56,10 +56,6 @@ local function overlayMaterial(name)
   local src = scenetree.findObject(name)
   if not src then matOf[name] = false; return nil end
   local dst = 'deepnode_dec_' .. name
-  -- a copy left from an earlier session (GE Lua reload) would be reused with its old
-  -- fields by createMaterial: delete it first
-  local old = scenetree.findObject(dst)
-  if old then old:delete() end
   local R = ctx.cfg.roads
   local fields = { { 'version', '1.5' }, { 'castShadows', '0' } }
   for _, f in ipairs(COPY) do
@@ -87,7 +83,19 @@ local function overlayMaterial(name)
     fields[#fields + 1] = { 'translucent', '1' }
     fields[#fields + 1] = { 'translucentZWrite', '0' }
   end
-  local m = ctx.createMaterial(dst, fields)
+  -- A copy from an earlier start (GUI toggle, restart, GE Lua reload) is updated in
+  -- place and flushed. Deleting it (old code) while mud meshes still drew with it left
+  -- those meshes on the deleted material: after an off/on toggle only meshes rebuilt
+  -- later used the new copy (measured: one tile of the whole pit did).
+  local old = scenetree.findObject(dst)
+  local m
+  if old then
+    for _, f in ipairs(fields) do pcall(function() old:setField(f[1], 0, tostring(f[2])) end) end
+    pcall(function() old:flush() end)
+    m = old
+  else
+    m = ctx.createMaterial(dst, fields)
+  end
   matOf[name] = m and dst or false
   return m and dst or nil
 end
@@ -510,9 +518,9 @@ function M.start(main)
   -- the surface of a tile mesh drawn over it
   local top = (main.cfg.sectors.drop or 0.015) - 0.002
   local step = R.overlayLiftStep or 0.001
-  if #prios > 1 then step = min(step, (top - (R.overlayLift or 0.004) - 0.0006) / (#prios - 1)) end
+  if #prios > 1 then step = min(step, (top - (R.overlayLift or 0.008) - 0.0006) / (#prios - 1)) end
   for _, e in ipairs(roads) do
-    e.lift = (R.overlayLift or 0.004) + rankOf[e.prio] * step + (e.idx % 3) * 0.0003
+    e.lift = (R.overlayLift or 0.008) + rankOf[e.prio] * step + (e.idx % 3) * 0.0003
   end
   -- draw order: high renderPriority first (lower numbers end up on top)
   for _, list in pairs(byTile) do

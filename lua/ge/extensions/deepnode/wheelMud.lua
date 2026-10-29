@@ -185,9 +185,16 @@ local function groundColor(W, K)
   return r * k, g * k, b * k
 end
 
--- colour the wheel's coat has now (mixed by mass, see updateCoat); nil = clean tyre
+-- kind the tyre is drawn with (textures, coverage, cake thickness): follows the coat's
+-- kind with the look delay (updateLook)
+local function lookKind(W)
+  return W.dkind or W.kind
+end
+
+-- colour the wheel's coat is drawn with: the coat's colour (mixed by mass, see
+-- updateCoat) through the look delay (updateLook); nil = clean tyre
 local function wheelColor(W)
-  return W.col or kindColor(kindCfg(W.kind))
+  return W.dcol or W.col or kindColor(kindCfg(lookKind(W)))
 end
 
 local function colorDiff(a, b)
@@ -220,10 +227,10 @@ local function wetColor(W, col)
 end
 
 local function acquireMaterial(W)
-  local K = kindCfg(W.kind)
+  local K = kindCfg(lookKind(W))
   local e = table.remove(matFree)
   local col = wheelColor(W)
-  local tb, to, tn = kindTextures(W.kind)
+  local tb, to, tn = kindTextures(lookKind(W))
   local rough = wetRoughness(W, K)
   if e then
     if e.texB ~= tb then
@@ -249,7 +256,7 @@ local function acquireMaterial(W)
     W.matName, W.mat = name, m
   end
   W.matTex = tb
-  W.ref, W.matKind = 255, W.kind
+  W.ref, W.matKind = 255, lookKind(W)
   W.matCol = { col[1], col[2], col[3] }
   W.matWet = W.wet or 0
 end
@@ -398,7 +405,7 @@ local function buildMesh(W)
   local nC = clamp(floor(circ / (c.segLen or 0.06) + 0.5), 32, c.maxSegments or 112)
   -- cake thickness of the kind the wheel is in (sand: a thin film); a kind with its own
   -- textures gets an even skin (the blob relief follows the mud texture's order)
-  local K = kindCfg(W.kind)
+  local K = kindCfg(lookKind(W))
   local th0 = K.thickness or c.thickness or 0.012
   local blobs = not K.texO
   local lift = c.lift or 0.003
@@ -810,6 +817,7 @@ local function resetCoat(W)
   W.wantRef = 255
   W.col = nil
   W.newShare = 0
+  W.dcol, W.dkind, W.lookKey, W.lookFrom, W.dC = nil, nil, nil, nil, 0
 end
 
 -- coat change over dt; returns the coat that dropped off as chunks (loose shed + fling)
@@ -1137,12 +1145,53 @@ end
 -- thicker cake (coat above 1)
 local function coverage(W, c)
   if W.coat < 0.005 then return 0 end
-  local cm = kindCfg(W.kind).coverMax or c.coverMax or 0.92
+  local cm = kindCfg(lookKind(W)).coverMax or c.coverMax or 0.92
   local C = cm * min(1, W.coat) ^ (c.coverExp or 1.1)
   if (W.cap or 1) > 1 and W.coat > 1 then
     C = C + (1 - cm) * clamp((W.coat - 1) / ((W.cap or 1) - 1), 0, 1)
   end
   return C
+end
+
+-- Drawn look (colour, kind) of a coat. The coat model switches its colour and kind
+-- within a fraction of a second at a mud/sand/off boundary, which read as a snap. The
+-- drawn look holds for clods.lookDelay s after the wheel's state (ground kind under it
+-- or off the soft ground, coat kind) changed, then blends to the coat's look over
+-- clods.lookFade s (a linear fade towards a target that may still move); the texture
+-- set (kind) changes half way through. A clean tyre takes the look at once.
+local function updateLook(W, c)
+  local col = W.col
+  if not col then W.dcol, W.dkind = nil, nil; return end
+  local inMud = now - W.mudT < 0.25
+  local key = inMud and (W.groundKind or W.kind) or 'off'
+  local d = W.dcol
+  if not d or (W.ref == 255 and (W.dC or 0) <= 0) then
+    d = d or {}
+    d[1], d[2], d[3] = col[1], col[2], col[3]
+    W.dcol = d
+    if W.dkind ~= W.kind then W.dkind, W.dkindT = W.kind, now end
+    W.lookKey, W.lookT = key, -huge
+    return
+  end
+  local delay, fade = c.lookDelay or 1, max(0.05, c.lookFade or 1)
+  -- a new state starts a transition; so does a coat kind switch that comes after the
+  -- last transition ended (one inside a running transition joins it: no second delay)
+  if key ~= W.lookKey or (W.dkind ~= W.kind and now - W.lookT >= delay + fade) then
+    W.lookKey, W.lookT = key, now
+    local f = W.lookFrom or {}
+    f[1], f[2], f[3] = d[1], d[2], d[3]
+    W.lookFrom = f
+  end
+  local age = now - W.lookT
+  if age < delay then return end
+  local s = (age - delay) / fade
+  if s >= 1 then
+    d[1], d[2], d[3] = col[1], col[2], col[3]
+  else
+    local f = W.lookFrom
+    d[1], d[2], d[3] = f[1] + (col[1] - f[1]) * s, f[2] + (col[2] - f[2]) * s, f[3] + (col[3] - f[3]) * s
+  end
+  if s >= 0.5 and W.dkind ~= W.kind then W.dkind, W.dkindT = W.kind, now end
 end
 
 local flushList = {}
@@ -1181,14 +1230,22 @@ function M.update(dt)
       end
       if not skipV then vdt = V.updAcc; V.updAcc, V.updN = 0, 0 end
       if not skipV then for _, W in pairs(V.wheels) do
-        if W.valid and (W.coat > 0 or now - W.mudT < 0.5 or (W.wet or 0) > 0 or (W.water or 0) > 0) then
+        if W.valid and (W.coat > 0 or (W.dC or 0) > 0 or now - W.mudT < 0.5 or (W.wet or 0) > 0 or (W.water or 0) > 0) then
           local dropped = updateCoat(W, c, vdt)
+          updateLook(W, c)
+          -- drawn coverage follows the coat's at most coverUpRate / coverDownRate per s
+          -- (a mud/sand switch changes coverMax: the coat no longer jumps)
           local C = coverage(W, c)
-          W.wantRef = C <= 0 and 255 or clamp(floor(255.5 - 254 * C), 1, 254)
+          local dC = W.dC or 0
+          if C > dC then dC = min(C, dC + (c.coverUpRate or 0.5) * vdt)
+          else dC = max(C, dC - (c.coverDownRate or 1) * vdt) end
+          if C <= 0 and dC < 0.01 then dC = 0 end
+          W.dC = dC
+          W.wantRef = dC <= 0 and 255 or clamp(floor(255.5 - 254 * dC), 1, 254)
           -- coat above 1: thicker cake through the transform scale
           local over = 0
           if (W.cap or 1) > 1 then over = clamp((W.coat - 1) / max(0.01, (W.cap or 1) - 1), 0, 1) end
-          local K = kindCfg(W.kind)
+          local K = kindCfg(lookKind(W))
           local extra = (c.thicknessMax or 0.035) * over * (K.size or 1)
           W.thickNow = (K.thickness or c.thickness or 0.012) * min(1, W.coat) + extra
           local Rv = W.Rv or W.R
@@ -1208,8 +1265,8 @@ function M.update(dt)
         end
         -- a kind of another cake thickness (sand film / mud cake): rebuild once the wheel
         -- stayed in it for a second (boundaries between kinds would rebuild every frame)
-        if W.meshSig and not W.needMesh and now - (W.kindT or -huge) > 1
-          and abs(meshSig(kindCfg(W.kind), c) - W.meshSig) > 1e-5 then
+        if W.meshSig and not W.needMesh and now - (W.dkindT or W.kindT or -huge) > 1
+          and abs(meshSig(kindCfg(lookKind(W)), c) - W.meshSig) > 1e-5 then
           W.needMesh = true; W.needT = now
         end
         -- mesh needed: first the wheels that carry mud
@@ -1219,8 +1276,10 @@ function M.update(dt)
         -- material threshold to apply
         if W.mat and not W.needMesh and not W.far and inView then
           local diff = abs(W.wantRef - W.ref)
-          local kindChange = W.coat > 0 and (W.matKind ~= W.kind
-            or colorDiff(W.col, W.matCol) >= (c.colorStep or 0.03)
+          -- colour steps of a look fade: at most one per colorFlushGap s per wheel
+          local kindChange = W.coat > 0 and (W.matKind ~= lookKind(W)
+            or (colorDiff(wheelColor(W), W.matCol) >= (c.colorStep or 0.03)
+              and now - W.flushT >= (c.colorFlushGap or 0.1))
             or abs((W.wet or 0) - (W.matWet or 0)) >= (c.wetStep or 0.1)
             or ((W.wet or 0) == 0 and (W.matWet or 0) > 0))
           -- per wheel at most one update every flushGap s (the coat jitters at its cap)
@@ -1287,10 +1346,10 @@ function M.update(dt)
       W.filmWet = W.wet or 0
       counters.filmFlushes = (counters.filmFlushes or 0) + 1
     end
-    if W.matKind ~= W.kind or colorDiff(W.col, W.matCol) > 0 or abs((W.wet or 0) - (W.matWet or 0)) > 0 then
-      local K = kindCfg(W.kind)
+    if W.matKind ~= lookKind(W) or colorDiff(wheelColor(W), W.matCol) > 0 or abs((W.wet or 0) - (W.matWet or 0)) > 0 then
+      local K = kindCfg(lookKind(W))
       local col = wheelColor(W)
-      local tb, to, tn = kindTextures(W.kind)
+      local tb, to, tn = kindTextures(lookKind(W))
       if W.matTex ~= tb then
         W.mat:setField('baseColorMap', 0, tb)
         W.mat:setField('opacityMap', 0, to)
@@ -1299,7 +1358,7 @@ function M.update(dt)
       end
       W.mat:setField('baseColorFactor', 0, colorString(wetColor(W, col)))
       W.mat:setField('roughnessFactor', 0, sfmt('%g', wetRoughness(W, K)))
-      W.matKind = W.kind
+      W.matKind = lookKind(W)
       W.matCol = W.matCol or {}
       W.matCol[1], W.matCol[2], W.matCol[3] = col[1], col[2], col[3]
       W.matWet = W.wet or 0
@@ -1379,7 +1438,7 @@ function M.setKindColor(kind, r, g, b)
     for _, W in pairs(V.wheels) do
       if W.kind == kind then
         W.matKind = nil
-        if W.col and not groundColor(W, K) then W.col = { r, g, b } end
+        if W.col and not groundColor(W, K) then W.col = { r, g, b }; W.dcol = nil end
       end
     end
   end
@@ -1468,11 +1527,12 @@ function M.wheelStates()
   for vid, V in pairs(vehs) do
     local list = {}
     for idx, W in pairs(V.wheels) do
-      list[#list + 1] = { index = idx, coat = W.coat, loose = W.loose, kind = W.kind, groundKind = W.groundKind,
+      list[#list + 1] = { index = idx, coat = W.coat, loose = W.loose, kind = W.kind, drawnKind = W.dkind, groundKind = W.groundKind,
         newShare = W.newShare, water = W.water or 0, wet = W.wet or 0,
         tyres = W.tyres and #W.tyres or 1, shown = W.visible and 1 or 0, far = W.far, ref = W.ref,
         surf = abs(W.omega) * W.R, mudAge = now - W.mudT,
-        col = W.col and { W.col[1], W.col[2], W.col[3] } or nil }
+        col = W.col and { W.col[1], W.col[2], W.col[3] } or nil,
+        dcol = W.dcol and { W.dcol[1], W.dcol[2], W.dcol[3] } or nil, cover = W.dC or 0 }
     end
     table.sort(list, function(a, b) return a.index < b.index end)
     out[vid] = list
