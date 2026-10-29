@@ -511,8 +511,9 @@ local function buildMesh(W)
   if not meshes or #meshes == 0 then return false end
   if not W.obj then W.obj = newObject(W.tag) end
   if not W.obj then return false end
-  W.obj:setHidden(true)
-  W.visible = false
+  -- a skin that is drawn (rebuild for another kind) is replaced in place: hiding it for
+  -- the upload made the coat blink at every mud/sand switch
+  if not W.visible then W.obj:setHidden(true) end
   local nv, nc, ms = upload(W.obj, meshes, 'C')
   geoVerts, geoCorners = geoVerts - (W.gv or 0) + nv, geoCorners - (W.gc or 0) + nc
   W.gv, W.gc = nv, nc
@@ -808,6 +809,7 @@ local function resetCoat(W)
   W.chunkAcc = 0
   W.wantRef = 255
   W.col = nil
+  W.newShare = 0
 end
 
 -- coat change over dt; returns the coat that dropped off as chunks (loose shed + fling)
@@ -825,13 +827,32 @@ local function updateCoat(W, c, dt)
     local spinF = 1 + min(2, (c.buildSpinGain or 0.5) * W.lastSpin)
     local depthF = clamp(W.lastDepth / 0.1, 0.2, 1.5)
     local room = max(0, 1 - W.coat / max(0.05, cap))
-    local picked = (c.buildPerMeter or 0.03) * build * (K.stick or 1) * depthF * spinF * rolled
+    -- the ground's kind (what is picked up) can differ from the coat's (what is drawn)
+    local GK = W.groundKind or W.kind
+    local KG = GK == W.kind and K or kindCfg(GK)
+    local picked = (c.buildPerMeter or 0.03) * build * (KG.stick or 1) * depthF * spinF * rolled
     local gain = picked * room
+    -- coat kind: a (nearly) clean tyre takes the ground's kind at once; a coated one only
+    -- once the new material makes up most of the coat, by the same mass share the colour
+    -- mixes with. Switching at the boundary made a mud-caked tyre look like a thin sand
+    -- film the moment it rolled into sand (and the other way round).
+    if GK ~= W.kind then
+      if W.coat < 0.05 then
+        W.kind, W.kindT, W.newShare = GK, now, 0
+        K = KG
+      elseif picked > 0 then
+        local f = min(1, (c.colorMix or 3) * picked / clamp(W.coat, 0.1, 1.5))
+        W.newShare = (W.newShare or 0) + (1 - (W.newShare or 0)) * f
+        if W.newShare >= 0.5 then W.kind, W.kindT, W.newShare = GK, now, 0; K = KG end
+      end
+    else
+      W.newShare = 0
+    end
     -- colour: the new mud mixes in by the share it brings (also on a full tyre, where
     -- it replaces the loose outer layer)
-    local kr, kg, kb = groundColor(W, K)
+    local kr, kg, kb = groundColor(W, KG)
     if not kr then
-      local kc = kindColor(K)
+      local kc = kindColor(KG)
       kr, kg, kb = kc[1], kc[2], kc[3]
     end
     if not W.col or W.coat < 0.005 then
@@ -956,7 +977,9 @@ function M.onWheelMud(vid, wi, depth, slip, omega, R, t, kind, layer, x, y)
   W.mudT = t
   W.lastDepth = depth
   W.lastSpin = max(0, slip)
-  if kind and kind ~= W.kind then W.kind = kind; W.kindT = t end
+  -- the ground's kind; the coat's own kind (W.kind) follows it in updateCoat once the new
+  -- material makes up most of the coat
+  if kind then W.groundKind = kind end
   -- ground colour of the soft ground under the wheel; kept where it is unknown (a
   -- zone without a layer texture), so the coat never changes colour out of the mud
   if x and ctx.groundColorAt then
@@ -1227,7 +1250,10 @@ function M.update(dt)
         -- visibility: drawn while it carries mud and its material has been set once; a
         -- material lagging behind the coat keeps showing (hiding it made wheels pop);
         -- or while its water film shows
-        local show = W.valid and not W.far and not W.needMesh and W.obj
+        -- a wheel waiting for a skin rebuild (other kind: thickness, inset) keeps drawing
+        -- its current skin; hiding it made the coat vanish for a moment at every mud/sand
+        -- switch. Only a wheel without any skin yet waits hidden.
+        local show = W.valid and not W.far and (not W.needMesh or (W.gv or 0) > 0) and W.obj
           and ((W.wantRef < 255 and W.ref < 255) or (W.filmWet or 0) > 0)
         if show and not W.visible then
           if applyTransform(W) then W.obj:setHidden(false); W.visible = true end
@@ -1442,7 +1468,8 @@ function M.wheelStates()
   for vid, V in pairs(vehs) do
     local list = {}
     for idx, W in pairs(V.wheels) do
-      list[#list + 1] = { index = idx, coat = W.coat, loose = W.loose, kind = W.kind, water = W.water or 0, wet = W.wet or 0,
+      list[#list + 1] = { index = idx, coat = W.coat, loose = W.loose, kind = W.kind, groundKind = W.groundKind,
+        newShare = W.newShare, water = W.water or 0, wet = W.wet or 0,
         tyres = W.tyres and #W.tyres or 1, shown = W.visible and 1 or 0, far = W.far, ref = W.ref,
         surf = abs(W.omega) * W.R, mudAge = now - W.mudT,
         col = W.col and { W.col[1], W.col[2], W.col[3] } or nil }

@@ -64,6 +64,9 @@ They explain most design decisions; please extend this file when you measure som
   Finer tile classes (12 instead of 6) cut padding 20 % but only 2 % of createMesh time and
   doubled the memory growth (more sizes, more objects changing size).
 - Compiling + running a 1 KB `queueGameEngineLua` chunk: 16 us.
+- With vsync on, `createMesh` (and material flushes) block while the driver waits for the frame:
+  ~14 ms per tile upload and ~3.7 ms per flush measured at a steady 60 fps, against ~1.2 / 0.8 ms
+  with vsync off. Wall-clock timing of uploads is no cost measure with vsync on.
 - `jit.profile` in the GE VM attributes engine time to the next Lua that runs (useless shares),
   and after a profiling session the mod's stamping ran 3-4x slower until `reload_lua`.
 - `mudLayerAt` falls back to neighbour layers and the zone/default kind: hard ground next to mud

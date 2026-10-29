@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Tyre coat switched kind the moment a wheel crossed from mud to sand (or back): a mud-caked
+  tyre turned into a thin sand film at once. The ground's kind is now kept apart from the coat's;
+  the coat changes kind when the new material makes up half of it (same mass share the colour
+  mixes with: ~4-6 m of driving), at once only on a nearly clean tyre.
+- Coated tyres blinked or stayed bare for seconds: a wheel waiting for a skin rebuild (other kind)
+  was hidden, and the rebuild itself hid it for the upload. The current skin now stays drawn and is
+  replaced in place.
+- Upload starvation with vsync on: createMesh blocks while the driver waits for the frame (~14 ms
+  measured per tile upload at a steady 60 fps, ~1.2 ms with vsync off); the budget charged that
+  wait, allowed about one upload per frame and learned absurd costs. Uploads are now charged at most
+  twice their estimate (min 1.5 ms) and waits do not train the cost model. Reservations (tyre
+  skins, sectors) queue up and are served in turn on upload frames, also after the rut fronts' dig
+  uploads; before, a waiting sector won every frame and a reservation on a frame without uploads
+  was lost.
+- gridmap_v2, one Percheron on a 40 m circle across the sand/mud seam, vsync on: coated wheels
+  hidden in 8 of 1920 samples (first 5 s after a reload) against 199 of 1920; 25 tile uploads/s
+  against 13/s; 59-61 fps.
+
 ## [0.1.2] — 2026-10-28 — tyre mud, sand and wet looks; ~60 % less memory growth
 
 ### Fixed

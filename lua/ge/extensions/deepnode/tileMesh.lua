@@ -269,8 +269,17 @@ function M.uploadMsThisFrame() return frameUploadMs end
 function M.estimateUpload(kind, verts) return COST_BASE + (costPerVert[kind] or 0.003) * (verts or 0) end
 -- An upload that waited too long reserves the next frame for itself: then nothing else
 -- uploads before it, and it runs alone, whatever the account says (it is still charged).
-local reserved, reserveNext = nil, nil
-function M.reserveFrame(kind) reserveNext = reserveNext or kind end
+-- Reservations queue up (one entry per kind) and are served in turn on upload frames:
+-- with first-come reservations a waiting sector re-reserved every frame and tyre skins
+-- never got theirs (seconds of bare tyres after a spawn or a mud/sand switch), and a
+-- reservation that fell on a frame without uploads (perf.uploadEvery) was lost.
+local reserved = nil
+local reserveQ = {}
+function M.reserveFrame(kind)
+  for i = 1, #reserveQ do if reserveQ[i] == kind then return end end
+  if reserved == kind then return end
+  reserveQ[#reserveQ + 1] = kind
+end
 -- Uploads only every uploadEvery-th frame (perf.uploadEvery), with the budget of the
 -- frames between: tested because every mesh upload also costs engine time outside
 -- createMesh (shadow/reflection passes, measured +0.5 ms each while uploads run).
@@ -278,7 +287,10 @@ local uploadEvery = 1
 function M.setUploadEvery(n) uploadEvery = max(1, floor(n or 1)) end
 function M.canUpload(kind, verts)
   if uploadEvery > 1 and frameNo % uploadEvery ~= 0 then return false end
-  if reserved then return reserved == kind and frameUploads == 0 end
+  -- a reserved frame belongs to that kind even after the rut fronts' dig uploads (they
+  -- bypass the budget and run in the same frames): waiting for a frame without uploads
+  -- starved tyre skins for 20 s and more while trucks dug
+  if reserved then return reserved == kind end
   if account <= 0 then return false end
   if frameUploads == 0 then return true end
   return M.estimateUpload(kind, verts) <= account
@@ -287,8 +299,14 @@ function M.recordUpload(kind, verts, ms)
   if reserved == kind then reserved = nil end
   frameUploads = frameUploads + 1
   frameUploadMs = frameUploadMs + ms
-  account = account - ms
-  if verts and verts > 50 and ms > 0 and ms < 50 then
+  -- With vsync on, createMesh blocks while the driver waits for the frame: measured
+  -- ~14 ms per tile upload at a steady 60 fps (vsync off: ~1.2 ms). Charging that wait
+  -- left room for about one upload per frame and starved tyre skins and sectors for
+  -- seconds. An upload is charged at most twice its estimate, and the learned cost per
+  -- vertex ignores times over three times the estimate.
+  local est = M.estimateUpload(kind, verts)
+  account = account - min(ms, max(2 * est, 1.5))
+  if verts and verts > 50 and ms > 0 and ms < 50 and ms <= 3 * est then
     local k = max(0, ms - COST_BASE) / verts
     costPerVert[kind] = (costPerVert[kind] or k) * 0.9 + k * 0.1
   end
@@ -301,8 +319,13 @@ function M.processDeferred()
   frameUploads = 0
   frameUploadMs = 0
   account = math.min(account + uploadBudget, (uploadEvery + 1) * uploadBudget)
-  -- a reservation holds for one frame; an unused one is dropped
-  reserved, reserveNext = reserveNext, nil
+  -- a reservation holds for one upload frame; an unused one is dropped (a kind still
+  -- waiting asks again and queues up behind the others)
+  if uploadEvery > 1 and frameNo % uploadEvery ~= 0 then
+    reserved = nil
+  else
+    reserved = table.remove(reserveQ, 1)
+  end
   -- frames a replaced mesh stays visible next to its replacement (pool.hideFrames)
   local hold = ctx and ctx.cfg.pool and ctx.cfg.pool.hideFrames or 3
   local w = 0
