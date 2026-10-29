@@ -17,6 +17,7 @@
   "roads": {
     "enabled": true,
     "mode": "off",
+    "hideOnMud": true,
     "overlayLift": 0.008,
     "insideShare": 0.9,
     "margin": 0.5,

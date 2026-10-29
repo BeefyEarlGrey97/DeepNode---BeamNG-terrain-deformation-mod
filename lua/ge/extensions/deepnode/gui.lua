@@ -298,14 +298,13 @@ local function tabRun(m)
   -- dug); on/off live, off by default
   ptr.decals = ptr.decals or im.BoolPtr(false)
   ptr.decals[0] = m.decalRoadsOn and m.decalRoadsOn() or false
-  if im.Checkbox('Experimental', ptr.decals) then
+  if im.Checkbox('Experimental decal road', ptr.decals) then
     m.setDecalRoads(ptr.decals[0])
     changed()
   end
   if im.IsItemHovered() then
-    im.SetTooltip('Experimental: decal roads (mud furrows, dirt tracks) drawn into the mud meshes.\n' ..
-      'Off (default): undug mud in heavy physics still shows the level\'s own decal roads;\n' ..
-      'meshed mud (sand, vanilla physics) shows only its terrain material (cheaper).')
+    im.SetTooltip('On: decal roads (mud furrows, dirt tracks) show on the mud and sand.\n' ..
+      'Off (default): no decal road on the mud or sand, only the terrain material.')
   end
   -- physics option (deepnode_physics): restarts the mod; the terrain under the mud changes,
   -- so switch with no vehicle sunk in it

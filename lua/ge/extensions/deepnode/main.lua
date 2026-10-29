@@ -108,9 +108,10 @@ local defaults = {
     -- mode: 'overlay' = decal roads drawn into the mud meshes (deepnode_decals, follows the
     -- mud, left out on rut cells), 'drape' = the engine's decals laid once onto the
     -- undisturbed mud (above), 'off' = no decal roads on the mud. Default off: the overlay is
-    -- experimental (GUI "Experimental"); heavy physics draws undug mud with the terrain, whose
-    -- own decal roads show there anyway
+    -- experimental (GUI "Experimental decal road"); off hides the decal roads on soft ground
+    -- (P.coverRoads)
     mode = 'off',
+    hideOnMud = true,       -- mode off: no decal road shows on soft ground (P.coverRoads)
     overlayAlphaRef = 110,  -- overlays are alpha-clipped (opaque pass); 0 = translucent (slow, sorts badly)
     overlayLift = 0.008,    -- m over the mud (4 mm z-fought beyond ~10 m); one overlayLiftStep per renderPriority level
     overlayLiftStep = 0.001,
@@ -1669,12 +1670,47 @@ function P.finishDrape(objectsAlive)
     tm.build or 0, tm.reload, tm.cleanup, tm.roads or 0))
 end
 
--- Decal roads on the mud on/off (GUI "Decal roads"), live: the overlay module starts or
--- stops and every loaded mesh is rebuilt (tiles at their rebuild rate, sectors in turn).
+-- Decal roads off (roads.mode 'off', GUI "Experimental decal road" unticked): no decal road
+-- shows on the mud or sand, as before terrain-first drawing. Heavy physics leaves undug
+-- mud to the terrain, which draws the level's decal roads on it; covering them with the
+-- mesh does not work (the decal's depth bias wins over a mesh up to ~5 cm above the
+-- terrain, measured; 2 cm z-fights). So every decal road with any part over soft ground is
+-- hidden whole, also its part over hard ground beside the mud. Shown again when the
+-- overlay is switched on or the mod stops.
+P.roadsHidden = {}
+function P.coverRoads(off)
+  for _, o in ipairs(P.roadsHidden) do pcall(function() o:setHidden(false) end) end
+  P.roadsHidden = {}
+  if not off or not ter or cfg.roads.hideOnMud == false then return 0 end
+  local t0 = newTimer()
+  for _, name in ipairs(scenetree.findClassObjects and scenetree.findClassObjects('DecalRoad') or {}) do
+    local road = scenetree.findObject(name)
+    local okH, hid = pcall(function() return road and road:isHidden() end)
+    local okE, ec = pcall(function() return road:getEdgeCount() end)
+    if road and okH and not hid and okE then
+      for i = 0, (tonumber(ec) or 0) - 1 do
+        local l, r = road:getLeftEdgePosition(i), road:getRightEdgePosition(i)
+        if l and r and isFinite(l.x) and isFinite(r.x)
+            and (P.softAtWorld((l.x + r.x) * 0.5, (l.y + r.y) * 0.5) or P.softAtWorld(l.x, l.y) or P.softAtWorld(r.x, r.y)) then
+          road:setHidden(true)
+          P.roadsHidden[#P.roadsHidden + 1] = road
+          break
+        end
+      end
+    end
+  end
+  log('I', logTag, sfmt('decal roads off: %d roads over soft ground hidden, %.0f ms', #P.roadsHidden, t0:stop()))
+  return #P.roadsHidden
+end
+
+-- Decal roads on the mud on/off (GUI "Experimental decal road"), live: the overlay module
+-- starts or stops, the road cover above is set or removed and every loaded mesh is rebuilt
+-- (tiles at their rebuild rate, sectors in turn).
 function M.decalRoadsOn() return P.roadMode() == 'overlay' end
 function M.setDecalRoads(on)
   cfg.roads.mode = on and 'overlay' or 'off'
   if not running then return end
+  P.coverRoads(not on)
   local dec = P.mod('decals')
   if dec then
     if on then
@@ -5285,7 +5321,8 @@ function P.start()
   P.sinkPass()
   -- after the sink pass: the lifted copies build their cells on the lowered terrain
   if cfg.grass and cfg.grass.lift ~= false then P.liftGroundCover() end
-  -- decal roads drawn into the mud meshes (before the first sector builds)
+  -- decal roads drawn into the mud meshes, or kept off the mud
+  P.coverRoads(P.roadMode() == 'off')
   local dec = P.mod('decals')
   if dec and P.roadMode() == 'overlay' then
     local okDec, errDec = pcall(dec.start, M)
@@ -5355,6 +5392,8 @@ function P.stop(objectsAlive)
   if ph then ph.stop(objectsAlive) end
   local dec = P.mod('decals')
   if dec then dec.stop(objectsAlive) end
+  -- decal roads hidden while off are shown again
+  if objectsAlive ~= false then P.coverRoads(false) else P.roadsHidden = {} end
   P.liftOn = false
   P.floorTiles = {}
   for _, t in pairs(tiles) do t.obj = nil end

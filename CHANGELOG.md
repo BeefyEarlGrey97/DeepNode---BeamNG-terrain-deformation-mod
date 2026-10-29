@@ -4,9 +4,11 @@
 
 ### Changed
 - Heavy physics is the default (`physics.mode = "heavy"`).
-- Decal roads on the mud (overlay) are off by default; the GUI checkbox is now called
-  "Experimental". With heavy physics undug mud is the terrain itself and shows the level's own
-  decal roads anyway.
+- Decal roads on the mud are off by default; the GUI checkbox is now called "Experimental decal
+  road". Off: no decal road shows on mud or sand: every decal road touching soft ground is hidden
+  whole (`roads.hideOnMud`; heavy physics draws undug mud with the terrain, which drew them;
+  a mud mesh up to ~5 cm above the terrain loses to the decal's depth bias). gridmap_v2: 238 roads
+  hidden in 62 ms at start. On: shown again, plus the overlay in the mud meshes.
 - Tyre coat look changes gradually: after a change of state (mud / sand / off the soft ground)
   the drawn colour and kind hold for `clods.lookDelay` (1 s), then blend over `clods.lookFade`
   (1 s), textures switching half way; drawn coverage moves at most `coverUpRate` 0.5 /

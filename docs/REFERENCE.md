@@ -48,11 +48,16 @@ out of the soft mask. Roads whose material contains a `roads.skipMatch` text (`i
 `dirt`) or a `softMatch` text (`mud`, `sand`) are not carved: mud furrows, tyre tracks and
 dirt decals belong to the mud.
 
-Those decals on the mud can be drawn by the mod (`roads.mode = "overlay"`, GUI Run tab
-**"Experimental"**, off by default, switches live and is saved). With heavy physics (the
-default) undug mud is drawn by the terrain itself, so its decal roads show without the
-overlay; the overlay then only adds them on meshed ground (sand, which heavy mode keeps
-meshed, and vanilla physics):
+Those decals on the mud are switched by the GUI Run tab checkbox **"Experimental decal
+road"** (`roads.mode`, off by default, switches live and is saved):
+
+* Off (`"off"`): no decal road shows on the mud or sand. Every decal road with any part
+  over soft ground is hidden whole (`roads.hideOnMud`), also its stretch over hard ground
+  next to the mud. (Heavy physics draws undug mud with the terrain itself, which would draw
+  the level's decals on it; covering them with the mud mesh does not work: the decal's depth
+  bias beats a mesh up to ~5 cm above the terrain, 2 cm z-fights.)
+* On (`"overlay"`): the roads are shown again; on undug mud in heavy mode the terrain draws
+  them, and the mod draws them into its meshes (sand, vanilla physics):
 
 * An engine decal road is a flat strip laid once onto what is below it. On the mud it
   either lies on the lowered terrain (hidden) or, laid onto the mud surface, covers every
@@ -446,7 +451,8 @@ Lengths are metres, speeds m/s, times seconds.
 | `enabled` | true | Keep terrain under hard decal roads free of mud |
 | `margin` | 0.5 | Extra width (m) kept free of mud on each side of a road |
 | `skipMatch` | `["invisible", "dirt"]` | Roads with a material containing one of these texts (or a `softMatch` text) are not carved |
-| `mode` | `"off"` | Decal roads on the mud: `overlay` (drawn into the mud meshes, experimental), `drape` (engine decals laid once), `off` |
+| `mode` | `"off"` | Decal roads on the mud: `overlay` (shown, drawn into the mud meshes, experimental), `drape` (engine decals laid once), `off` (no decal road on soft ground) |
+| `hideOnMud` | true | Mode `off`: hide every decal road that touches soft ground (false: leave them, heavy mode then shows them on undug mud) |
 | `overlayAlphaRef` | 110 | Alpha clip of the overlay materials (0 = translucent: slow) |
 | `overlayLift` / `overlayLiftStep` | 0.008 / 0.001 | m over the mud; one step per renderPriority level (stack kept under `sectors.drop`) |
 | `overlayRoughness` | 0.85 | Fixed roughness of the overlay materials (-1 = the road's own maps) |

@@ -4,7 +4,8 @@ Terrain deformation for BeamNG.drive 0.40: deep mud and sand that sink, rut and 
 
 **Install:** download `DeepNode-v0.1.0.zip` from [Releases](../../releases) and drop it, unextracted, into
 `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\`. *Physics* **HEAVY** is the default (DeepNode
-window, Run tab); decal roads drawn into the mud meshes are under **Experimental** (off by default).
+window, Run tab); decal roads on the mud and sand are under **Experimental decal road** (off by default:
+no decal road on soft ground).
 
 ## Clean-room build
 
