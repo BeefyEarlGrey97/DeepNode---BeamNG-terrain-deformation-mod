@@ -32,6 +32,10 @@ of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -
 - Per-kind print look: sand prints have softer relief and finer, lighter crumbs than mud.
 
 ### Fixed
+- Tyre mud on the HT-55 dump truck's rear wheels: its four rear physics wheels share their hub
+  nodes in pairs (one 1.27 m axle span per side), so each picked up its neighbour's tyre mesh and
+  was built as a dual (two narrow skins per wheel, one on the wrong tyre). A wheel now only takes
+  tyre meshes over its own tread nodes.
 - Prints were dropped with 6 trucks (16 segments a frame, queue overflow): a wheel's waiting
   segment is now extended by its next report while it goes on straight (`mergeMax`); 0 dropped of
   ~20 600 in a 6-truck run (5 000 merged).

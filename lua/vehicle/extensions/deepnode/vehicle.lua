@@ -167,7 +167,11 @@ local function tyreLayout(w)
         local rx, ry, rz = p.x - cx, p.y - cy, p.z - cz
         local q = rx * ax + ry * ay + rz * az
         local px, py, pz = rx - ax * q, ry - ay * q, rz - az * q
-        if sqrt(px * px + py * py + pz * pz) < 0.35 * w.R and abs(q) < L * 0.5 + 0.2 then
+        -- only tyres over this wheel's own tread nodes: two physics wheels can share the
+        -- hub nodes (HT-55 dump truck rear: RR1 and RR2 on one 1.27 m axle span), and the
+        -- other wheel's tyre must not make this one a dual
+        local onTread = not lo or (q > lo - 0.1 and q < hi + 0.1)
+        if onTread and sqrt(px * px + py * py + pz * pz) < 0.35 * w.R and abs(q) < L * 0.5 + 0.2 then
           local dup = false
           for _, o in ipairs(offs) do if abs(o - q) < 0.05 then dup = true; break end end
           if not dup then offs[#offs + 1] = q; widths[q] = tmesh.width end
