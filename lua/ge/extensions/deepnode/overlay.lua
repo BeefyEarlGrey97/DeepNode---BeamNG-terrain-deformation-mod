@@ -833,6 +833,9 @@ local function roadRecentre(x, y, z)
 end
 
 local function drawName(slot) return FX_RDRAW .. slot end
+local rfx = {}           -- slot -> draw PostEffect (cached: scenetree lookups every frame)
+local vbox = {}          -- vehicle id -> { t, px, py, pz, cx, cy, hl, hw, fx, fy, zmin } (roadVehicles)
+local shared = {}        -- uniform name -> { a, b, c, d, formatted } (sharedStr)
 
 local function makeRoadEffects()
   local shS = SH_RSTAMP .. '_' .. sourceRev(RSTAMP_PATH)
@@ -885,6 +888,7 @@ local function makeRoadEffects()
     fx:enable()
     setSkip(fx, true)
     rdrawOn[slot] = false
+    rfx[slot] = fx
   end
 end
 
@@ -897,6 +901,7 @@ local function killRoadEffects()
     vals[drawName(slot)] = nil
   end
   vals[FX_RSTAMP] = {}
+  rfx, vbox, shared = {}, {}, {}
   roadOn = false
 end
 
@@ -920,38 +925,70 @@ local function startRoads()
   return true
 end
 
--- vehicle footprints near the camera for the road passes (no road painted on a vehicle)
+-- vehicle footprints near the camera for the road passes (no road painted on a vehicle). The
+-- box (getSpawnWorldOOBB + its 8 corners) is measured every 0.5 s per vehicle and moved with the
+-- vehicle position in between (measured: the per-frame boxes of 8 trucks, formatted for every
+-- pass, cost ~0.5 ms of Lua a frame)
 local rveh = { n = 0 }
-local function roadVehicles()
+local function roadVehicles(now)
   local n = 0
   for i = 0, be:getObjectCount() - 1 do
     if n >= 8 then break end
     local veh = be:getObject(i)
-    local bb = veh and veh.getSpawnWorldOOBB and veh:getSpawnWorldOOBB()
-    if bb and bb.getCenter and bb.getPoint then
-      local c = bb:getCenter()
-      if (c.x - camX) ^ 2 + (c.y - camY) ^ 2 < 10000 then
+    local p = veh and veh:getPosition()
+    if p and (p.x - camX) ^ 2 + (p.y - camY) ^ 2 < 10000 then
+      local id = veh:getId()
+      local b = vbox[id]
+      if not b or now - b[1] > 0.5 or now < b[1] then
+        local bb = veh.getSpawnWorldOOBB and veh:getSpawnWorldOOBB()
         local d = veh:getDirectionVector()
         local dl = sqrt(d.x * d.x + d.y * d.y)
-        if dl > 0.1 then
+        if bb and bb.getCenter and bb.getPoint and dl > 0.1 then
+          local c = bb:getCenter()
           local fx, fy = d.x / dl, d.y / dl
           local hl, hw, zmin = 0, 0, math.huge
           for k = 0, 7 do
-            local p = bb:getPoint(k)
-            local rx, ry = p.x - c.x, p.y - c.y
+            local q = bb:getPoint(k)
+            local rx, ry = q.x - c.x, q.y - c.y
             hl = max(hl, abs(rx * fx + ry * fy))
             hw = max(hw, abs(-rx * fy + ry * fx))
-            zmin = min(zmin, p.z)
+            zmin = min(zmin, q.z)
           end
-          n = n + 1
-          local e = rveh[n] or {}
-          rveh[n] = e
-          e[1], e[2], e[3], e[4], e[5], e[6], e[7] = c.x, c.y, hl + 0.1, hw + 0.1, fx, fy, zmin
+          b = { now, p.x, p.y, p.z, c.x, c.y, hl + 0.3, hw + 0.3, fx, fy, zmin }
+          vbox[id] = b
+        else
+          b = nil
         end
+      end
+      if b then
+        n = n + 1
+        local e = rveh[n] or {}
+        rveh[n] = e
+        local dx, dy, dz = p.x - b[2], p.y - b[3], p.z - b[4]
+        e[1], e[2], e[3], e[4], e[5], e[6], e[7] = b[5] + dx, b[6] + dy, b[7], b[8], b[9], b[10], b[11] + dz
       end
     end
   end
   rveh.n = n
+end
+
+-- one formatted string per uniform and frame, shared by every road pass
+local function sharedStr(name, a, b, c, d)
+  local e = shared[name]
+  if not e then e = {}; shared[name] = e end
+  if e[1] ~= a or e[2] ~= b or e[3] ~= c or e[4] ~= d then
+    e[1], e[2], e[3], e[4] = a, b, c, d
+    e[5] = sfmt('%.6f %.6f %.6f %.6f', a, b, c, d)
+  end
+  return e[5]
+end
+local function setConstStr(fxName, name, str)
+  local t = vals[fxName]
+  if not t then t = {}; vals[fxName] = t end
+  local e = t[name]
+  if not e then e = { '$' .. name }; t[name] = e end
+  e[7] = true
+  e[2] = str
 end
 
 local function roadFrame()
@@ -997,43 +1034,52 @@ local function roadFrame()
   if want ~= rstampOn then setSkip(st, not want); setSkip(cp, not want); rstampOn = want end
 
   -- draw passes: only the materials with quads in the window
-  roadVehicles()
+  roadVehicles(os.clock())
   local dbg = rc.debug or 0
+  local sW = sharedStr('dnWin', rwin.x0, rwin.y0, rwin.span, rwin.size)
+  local sSun = sharedStr('dnSun', sun.x, sun.y, sun.z, oc.ambient)
+  local sGround = sharedStr('dnGround', rground[1], rground[2], rground[3], rc.srgb and 1 or 0)
+  local sLook = sharedStr('dnLook', rc.minNormalZ or 0.5, rc.edgeFade or 12, rc.relief or 1, rc.alphaGain or 1)
+  local sVehN = sharedStr('dnVehN', rveh.n, 0, 0, 0)
+  local sVeh, sVehD, sVehZ = {}, {}, {}
+  for k = 1, rveh.n do
+    local e = rveh[k]
+    sVeh[k] = sharedStr('dnVeh' .. (k - 1), e[1], e[2], e[3], e[4])
+  end
+  for k = 0, 3 do
+    local a = k * 2 + 1 <= rveh.n and rveh[k * 2 + 1] or nil
+    local b = k * 2 + 2 <= rveh.n and rveh[k * 2 + 2] or nil
+    sVehD[k] = sharedStr('dnVehD' .. k, a and a[5] or 1, a and a[6] or 0, b and b[5] or 1, b and b[6] or 0)
+  end
+  for k = 0, 1 do
+    local z = {}
+    for j = 1, 4 do
+      local e = k * 4 + j <= rveh.n and rveh[k * 4 + j] or nil
+      z[j] = e and e[7] or 0
+    end
+    sVehZ[k] = sharedStr('dnVehZ' .. k, z[1], z[2], z[3], z[4])
+  end
   for slot = 0, #rmats - 1 do
     local name = drawName(slot)
-    local fx = find(name)
+    local fx = rfx[slot]
     local on = fx ~= nil and rslots[slot] == true
     if fx and on ~= rdrawOn[slot] then setSkip(fx, not on); rdrawOn[slot] = on end
     if on then
       local mt = rmats[slot + 1]
       beginConsts(name)
-      setConst(name, 'dnWin', rwin.x0, rwin.y0, rwin.span, rwin.size)
+      setConstStr(name, 'dnWin', sW)
       setConst(name, 'dnZ', rwin.z, rc.zAbove or 0.12, rc.zBelow or 1.5, 1 / max(0.5, mt.minWidth or 2))
       setConst(name, 'dnPass', slot, mt.opa ~= '' and 1 or 0, mt.nrm ~= '' and (rc.normalStrength or 1) * mt.nstr or 0, dbg)
       setConst(name, 'dnTint', mt.tint[1], mt.tint[2], mt.tint[3], mt.tint[4])
       setConst(name, 'dnMat', mt.met, mt.gloss, 0, 0)
-      setConst(name, 'dnSun', sun.x, sun.y, sun.z, oc.ambient)
-      setConst(name, 'dnGround', rground[1], rground[2], rground[3], rc.srgb and 1 or 0)
+      setConstStr(name, 'dnSun', sSun)
+      setConstStr(name, 'dnGround', sGround)
       setConst(name, 'dnUV', rc.swapUV and 1 or 0, rc.flipU and 1 or 0, rc.flipV and 1 or 0, 1 / max(0.5, mt.minTexLen or 5))
-      setConst(name, 'dnLook', rc.minNormalZ or 0.5, rc.edgeFade or 12, rc.relief or 1, rc.alphaGain or 1)
-      setConst(name, 'dnVehN', rveh.n, 0, 0, 0)
-      for k = 1, rveh.n do
-        local e = rveh[k]
-        setConst(name, 'dnVeh' .. (k - 1), e[1], e[2], e[3], e[4])
-      end
-      for k = 0, 3 do
-        local a = k * 2 + 1 <= rveh.n and rveh[k * 2 + 1] or nil
-        local b = k * 2 + 2 <= rveh.n and rveh[k * 2 + 2] or nil
-        setConst(name, 'dnVehD' .. k, a and a[5] or 1, a and a[6] or 0, b and b[5] or 1, b and b[6] or 0)
-      end
-      for k = 0, 1 do
-        local z = {}
-        for j = 1, 4 do
-          local e = k * 4 + j <= rveh.n and rveh[k * 4 + j] or nil
-          z[j] = e and e[7] or 0
-        end
-        setConst(name, 'dnVehZ' .. k, z[1], z[2], z[3], z[4])
-      end
+      setConstStr(name, 'dnLook', sLook)
+      setConstStr(name, 'dnVehN', sVehN)
+      for k = 1, rveh.n do setConstStr(name, 'dnVeh' .. (k - 1), sVeh[k]) end
+      for k = 0, 3 do setConstStr(name, 'dnVehD' .. k, sVehD[k]) end
+      for k = 0, 1 do setConstStr(name, 'dnVehZ' .. k, sVehZ[k]) end
     end
   end
 end
@@ -1254,26 +1300,16 @@ function M.frame()
   -- vehicle footprints near the camera (no puddles under them): bounding box from the vehicle
   local nv = 0
   if (oc.puddles or 0) > 0 then
+    -- the road pass's cached vehicle boxes (measured every 0.5 s, moved with the vehicle)
+    if not roadOn then roadVehicles(os.clock()) end
     local dirs = {}
-    for i = 0, be:getObjectCount() - 1 do
-      if nv >= 8 then break end
-      local veh = be:getObject(i)
-      local p = veh and veh:getPosition()
-      if p and (p.x - camX) ^ 2 + (p.y - camY) ^ 2 < 3600 then
-        local d = veh:getDirectionVector()
-        local dl = sqrt(d.x * d.x + d.y * d.y)
-        if dl > 0.1 then
-          local bb = veh.getSpawnWorldOOBB and veh:getSpawnWorldOOBB()
-          local hl, hw = 4, 1.3
-          if bb and bb.getHalfExtents then
-            local he = bb:getHalfExtents()
-            hl, hw = max(he.x, he.y), min(he.x, he.y)
-          end
-          setConst(FX_OVER, 'dnVeh' .. nv, p.x, p.y, hl, hw)
-          dirs[#dirs + 1] = d.x / dl
-          dirs[#dirs + 1] = d.y / dl
-          nv = nv + 1
-        end
+    for k = 1, rveh.n do
+      local e = rveh[k]
+      if (e[1] - camX) ^ 2 + (e[2] - camY) ^ 2 < 3600 then
+        setConst(FX_OVER, 'dnVeh' .. nv, e[1], e[2], e[3] - 0.3, e[4] - 0.3)
+        dirs[#dirs + 1] = e[5]
+        dirs[#dirs + 1] = e[6]
+        nv = nv + 1
       end
     end
     for k = 0, 3 do
