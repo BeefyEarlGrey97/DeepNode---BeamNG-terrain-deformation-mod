@@ -607,7 +607,7 @@ local defaults = {
     bermReach = { mud = 2.4, sand = 2.6 }, -- berm band beside the print, x tyre half width
     -- per soft kind: wet darkening, saturation gain, wetness (0..1), crumb density on the berms
     mud = { darken = 0.5, saturate = 0.35, wet = 0.9, bermCrumbs = 0.75, crumbLift = 0.12 },
-    sand = { darken = 0.15, saturate = 0.05, wet = 0.35, bermCrumbs = 0.8, relief = 0.45, crumbHeight = 0.5,
+    sand = { darken = 0.15, saturate = 0.05, wet = 0.35, bermCrumbs = 0.35, relief = 0.45, crumbHeight = 0.3,
              crumbLift = 0.25 },
     grain = { size = 0.05, height = 1.2, printDensity = 0.15, churnSize = 0.35 }, -- crumb size m, height x size
     -- mud a coated tyre leaves on hard ground: tread-shaped stains while coat >= minCoat,

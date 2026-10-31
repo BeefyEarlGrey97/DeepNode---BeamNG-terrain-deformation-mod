@@ -392,7 +392,11 @@ local function throwSplats(W)
   W.ovSplT = wheelNow
   if dt <= 0 or dt > 0.5 then return end
   local spin = W.lastSpin or 0
-  if wheelNow - (W.mudT or -1e9) > 0.3 or spin < sp.minSpin then W.ovSplAcc = 0; return end
+  -- mud only (the soft-ground time also counts sand)
+  if wheelNow - (W.mudT or -1e9) > 0.3 or spin < sp.minSpin or (W.groundKind or 'mud') ~= 'mud' then
+    W.ovSplAcc = 0
+    return
+  end
   -- prints first: no splats while the paint queue is busy
   if qTail - qHead + 1 > oc.queueMax * 0.25 then return end
   local acc = (W.ovSplAcc or 0) + dt * min(sp.maxPerSec, sp.perSpin * spin)
