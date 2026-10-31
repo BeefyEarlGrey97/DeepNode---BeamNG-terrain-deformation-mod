@@ -54,12 +54,18 @@ local function clamp(v, a, b)
   return v
 end
 
-local function newTimer()
-  if hptimer then return hptimer() end
+-- (the os.clock fallback lives in its own function: closures in newTimer made LuaJIT
+-- abort every trace through its return, `jit.v`: "NYI: bytecode UCLO")
+local function clockTimer()
   local t = { t0 = os.clock() }
   function t:stop() return (os.clock() - self.t0) * 1000 end
   function t:stopAndReset() local e = (os.clock() - self.t0) * 1000; self.t0 = os.clock(); return e end
   return t
+end
+
+local function newTimer()
+  if hptimer then return hptimer() end
+  return clockTimer()
 end
 
 -------------------------------------------------------------------------------
@@ -508,7 +514,11 @@ local defaults = {
           staticFrictionCoefficient = 0.35, slidingFrictionCoefficient = 0.32 },
         sand = { defaultDepth = 0.14, flowConsistencyIndex = 7500, fluidDensity = 30000 },
       },
-      floorLift = { mud = 0.3, sand = 0 }, -- m the hard floor starts above the vanilla sink
+      -- m the hard floor starts above the vanilla sink (>= the sink depth: terrain-first, the
+      -- terrain draws undug ground). Sand too since 2026-10-31: same truck times through the
+      -- gridmap_v2 sand pit (5.9 / 9.1 / 11.8 s to 30 / 60 / 90 m), same fps, engine memory
+      -- per 4 runs 15.9 -> 4.9 MB (the floor follows the dug ruts, as for mud)
+      floorLift = { mud = 0.3, sand = 0.3 },
       floorReach = 0.3,    -- squares round a terrain vertex whose ruts lower it
       floorMargin = 0.03,  -- m the terrain stays under the rut surface (hidden by the mesh)
       floorHz = 5,         -- rut floor recomputes per second
@@ -751,14 +761,14 @@ function M.matName(m)
 end
 
 -- rut code: 0 = floor, 128 = rest surface, 255 = rest + bermMax
+-- One branch (min compiles branch-free): side traces off the old three-way branch failed
+-- in LuaJIT ("register coalescing too complex", jit.v, thousands per bench run).
 local function decodeZ(t, idx)
   local c = t.rut[idx]
   local r = t.rest[idx]
-  if c == 128 then return r end
-  if c < 128 then
-    local f = t.floor[idx]
-    if f > r then f = r end
-    return f + (r - f) * c / 128
+  if c <= 128 then
+    local f = min(t.floor[idx], r)
+    return f + (r - f) * c * 0.0078125
   end
   return r + (c - 128) / 127 * bermMax
 end
@@ -3218,6 +3228,11 @@ end
 -- with one truck. Once a second: the oldest over frozenOwnMeshMax go to their sectors
 -- (in batches, a sector's tiles froze together), tiles of unloaded sectors drop theirs.
 P.ownCheck = 0
+-- sort orders made once (a closure per call stops LuaJIT traces: FNEW / UCLO)
+function P.byLastUse(a, b) return a.lastUse < b.lastUse end
+function P.byD(a, b) return a.d < b.d end
+function P.byDesiredDist(a, b) return P.desiredDist[a] < P.desiredDist[b] end
+function P.byPrio(a, b) return a.prio < b.prio end
 function P.updateFrozenOwn(dt)
   if P.frozenOwnCount <= 0 then return end
   P.ownCheck = P.ownCheck + dt
@@ -3243,7 +3258,7 @@ function P.updateFrozenOwn(dt)
   if not list then return end
   local over = #list - (cfg.ring.frozenOwnMeshMax or 150)
   if over <= 0 then return end
-  table.sort(list, function(a, b) return a.lastUse < b.lastUse end)
+  table.sort(list, P.byLastUse)
   for i = 1, over do P.handoverFrozen(list[i]) end
 end
 
@@ -4431,7 +4446,7 @@ function P.gatherCenters()
       end
     end
   end
-  table.sort(cand, function(a, b) return a.d < b.d end)
+  table.sort(cand, P.byD)
   local R = cfg.ring.boxMargin or 3
   -- Vehicles beyond meshRange of the camera keep digging (tile data, stamps) but load
   -- no sectors and get no tile meshes: their uploads cost frame time and engine memory
@@ -4584,7 +4599,7 @@ function P.updateRing()
     end
   end
   for k = nd + 1, #P.desiredList do P.desiredList[k] = nil end
-  table.sort(P.desiredList, function(a, b) return P.desiredDist[a] < P.desiredDist[b] end)
+  table.sort(P.desiredList, P.byDesiredDist)
 
   local timer = newTimer()
   local prepared = 0
@@ -4674,18 +4689,20 @@ M.takeBuildToken = function(reserve) return P.takeBuildToken(reserve) end
 -- view when its centre lies within the screen's diagonal half-angle (+8 degrees and its
 -- own size); tiles right next to the camera always count.
 P.view = { x = 0, y = 0, z = 0, fx = 0, fy = 1, fz = 0, cosA = 0.5, ok = false }
-function P.updateViewCone()
+function P.viewConeCalc()
   local v = P.view
-  v.ok = pcall(function()
-    local p, f = core_camera.getPosition(), core_camera.getForward()
-    local l = sqrt(f.x * f.x + f.y * f.y + f.z * f.z)
-    if l < 1e-6 then error('no forward') end
-    v.x, v.y, v.z = p.x, p.y, p.z
-    v.fx, v.fy, v.fz = f.x / l, f.y / l, f.z / l
-    local fov = core_camera.getFovDeg and core_camera.getFovDeg() or 60
-    local half = math.atan(math.tan(math.rad(fov) * 0.5) * 2.04) + math.rad(8)
-    v.cosA = math.cos(min(half, math.rad(85)))
-  end)
+  local p, f = core_camera.getPosition(), core_camera.getForward()
+  local l = sqrt(f.x * f.x + f.y * f.y + f.z * f.z)
+  if l < 1e-6 then error('no forward') end
+  v.x, v.y, v.z = p.x, p.y, p.z
+  v.fx, v.fy, v.fz = f.x / l, f.y / l, f.z / l
+  local fov = core_camera.getFovDeg and core_camera.getFovDeg() or 60
+  local half = math.atan(math.tan(math.rad(fov) * 0.5) * 2.04) + math.rad(8)
+  v.cosA = math.cos(min(half, math.rad(85)))
+end
+-- no closure per call (a new function per frame stopped LuaJIT traces, jit.v FNEW)
+function P.updateViewCone()
+  P.view.ok = pcall(P.viewConeCalc)
 end
 -- point (+ radius) inside the camera view cone (same cone as the fast rut path)
 function M.pointInView(x, y, z, r)
@@ -4822,7 +4839,7 @@ function P.rebuildTiles()
   end end
   for k = n + 1, #P.rebuildList do P.rebuildList[k] = nil end
   if n == 0 then return end
-  table.sort(P.rebuildList, function(a, b) return a.prio < b.prio end)
+  table.sort(P.rebuildList, P.byPrio)
   local timer = newTimer()
   local fm = P.mod('farMesh')
   local reserve = cfg.ring.prebuildReserve or 0

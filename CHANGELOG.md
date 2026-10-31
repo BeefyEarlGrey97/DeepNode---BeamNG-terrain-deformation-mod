@@ -20,6 +20,12 @@ of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -
 - `ring.minVisibleChange` (6 mm): a tile re-upload whose largest change against the mesh on screen
   is smaller is skipped (~47 uploads per run, ~4 %).
 
+- Heavy physics: sand is drawn terrain-first too (`physics.heavy.floorLift.sand` 1 in
+  config.json): undug sand is the engine terrain with its decals and view distance. Same truck
+  times through the sand pit and same fps; engine memory per 4 runs 15.9 -> 4.9 MB.
+- LuaJIT: no closures created per call in the hot paths (timers, view cone, sort orders) and a
+  branch less in `decodeZ` (`jit.v` trace aborts, see ENGINE_FINDINGS).
+
 ### Fixed
 - Heavy physics floor heights are written absolute from the sink pass's reference. The height
   grid rounds every write (1.5 mm steps on gridmap_v2) and the relative writes drifted down

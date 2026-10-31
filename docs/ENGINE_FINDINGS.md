@@ -58,6 +58,19 @@ They explain most design decisions; please extend this file when you measure som
 
 ## Other
 
+- `Engine.Render.DynamicDecalMgr.addDecals` (box-projected colour decals, one frame) projects onto
+  everything in the depth buffer inside the box, vehicles included: a wet imprint under a wheel
+  coloured the tyre sidewalls (2026-10-31, red test colour). The ground under a wheel is hidden by
+  the tyre anyway; the research idea VIS-1 was dropped.
+- `tb:updateGrid` cost hardly depends on the box span (gridmap_v2, 2048 squares): 1 square 0.5 ms,
+  a 100 x 2 union box 0.6 ms, 100 x 100 1.1 ms (best of 6). `updateGridMaterials` 2 x 2: 0.06 ms.
+- `jit.v` (shipped as `lua/common/jit/v.lua`; `require('jit.v').start('/temp/jitv.txt')`) works in
+  the GE VM but slows it a lot while on. One bench run: trace aborts in the mod were mostly
+  "register coalescing too complex" side traces in `decodeZ` / `writeOne` / `carve`, plus
+  `NYI: bytecode UCLO / FNEW` from closures made per call (timer fallback, view-cone `pcall`,
+  sort comparators). The closures were moved out (UCLO/FNEW aborts 138 -> 26) and `decodeZ` lost a
+  branch.
+
 - `Engine.Render.DecalMgr.addDecal(pos, normal, rot, template, scale, texIndex, flags, alpha)` with
   the level's `tireTrackDecal` / `puddles_decal` templates returned instances but nothing showed,
   neither over a raised ProceduralMesh nor on the terrain beside it (2026-10-31, one try): the

@@ -25,13 +25,20 @@ local pts = {}
 local stats = { builds = 0, failed = 0, lastBuildMs = 0, maxBuildFrames = 0, byTier = {},
   urgentWaitLast = 0, urgentWaitMax = 0, urgentWaitSum = 0, urgentWaits = 0 }
 
+local function byD(a, b) return a.d < b.d end
+
 local function tm() return extensions and extensions.deepnode_tileMesh or (ctx and ctx.tileMeshForTests) end
 
-local function newTimer()
-  if hptimer then return hptimer() end
+local function clockTimer()
   local t = { t0 = os.clock() }
   function t:stop() return (os.clock() - self.t0) * 1000 end
   return t
+end
+
+-- no closure in here: LuaJIT aborts traces through a function that closes upvalues
+local function newTimer()
+  if hptimer then return hptimer() end
+  return clockTimer()
 end
 
 local function newSector(key)
@@ -534,7 +541,7 @@ function M.buildSync(radius, camx, camy, vehCenters)
     local d = minDist(sec)
     if d <= radius then list[#list + 1] = { sec = sec, d = d } end
   end
-  table.sort(list, function(a, b) return a.d < b.d end)
+  table.sort(list, byD)
   for _, e in ipairs(list) do
     startBuild(e.sec, true)
     local guard = 0

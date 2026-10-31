@@ -37,7 +37,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 1. Frame rate: ~45 fps with 8 trucks in vanilla physic mode (75–79 with the mod off); every mesh upload also costs engine shadow and reflection time (~0.6 ms per `createMesh`, linear in uploads per frame: measured 2026-10-31).
 2. Ruts deepened by the axles behind the front wheel can lag under heavy load (deadline-first queue 2026-10-31: worst ~1 s with 4 trucks, 8 trucks not re-measured).
 3. Rut updates are 30–40 Hz for fresh ruts in view, not for every wheel.
-4. Sand is still fully meshed (no terrain-first drawing for sand yet).
+4. Sand: terrain-first in heavy mode since 2026-10-31; vanilla physics mode still meshes all sand.
 5. Vanilla physics mode: full mud mesh, high memory growth; the experimental decal overlay looks duller than the engine decals (alpha clip).
 6. Dug areas lose the decal-road pattern; the change at the rut edge is visible up close.
 7. Tyre mud costs ~1.6 ms per frame with 8 trucks.

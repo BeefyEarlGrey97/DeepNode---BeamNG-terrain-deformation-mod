@@ -340,7 +340,7 @@
       },
       "floorLift": {
         "mud": 1.0,
-        "sand": 0
+        "sand": 1.0
       },
       "floorReach": 0.3,
       "floorMargin": 0.03,

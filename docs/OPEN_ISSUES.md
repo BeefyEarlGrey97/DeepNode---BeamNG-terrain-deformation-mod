@@ -56,11 +56,13 @@ behind rebuild at `ring.deepenRebuildHz` (8) inside the upload budget and can wa
 Literal 40 Hz needs `digEvery 1` at < 80 fps; cost scales with uploads (see 1). Predictive
 stamping (`stamp.leadTime -1`, adaptive 15–60 ms) keeps the front under the tyre at ~20–30 Hz.
 
-## 4. Sand still fully meshed
+## 4. Sand still fully meshed (fixed 2026-10-31, heavy mode)
 
-Heavy `floorLift.sand = 0` lowers the terrain under sand, so sand keeps the old mesh everywhere
-(no terrain-first decals, limited view distance through `sectors.loadRadius`). Setting it to 1
-needs a deeper sand ground model (`defaultDepth`) to keep the same sinking.
+Heavy `floorLift.sand` is now 1 (config.json; code default 0.3): undug sand is the terrain, as
+for mud. Measured on gridmap_v2 (4 Percherons, full throttle): sand trucks reach 30 / 60 / 90 m
+at 5.9 / 9.1 / 11.8 s with and without it, so no deeper sand ground model was needed (the floor
+follows the dug ruts). Same fps (77.2 vs 77.15, 2 x 4 runs), engine memory per 4 runs
+15.9 -> 4.9 MB. Vanilla physics mode still meshes all sand.
 
 ## 5. Vanilla physics mode: decals and memory
 

@@ -184,7 +184,7 @@ BeamNG's own physics:
   viscosity 7500 (5000), density 30000 (25000).
   Measured on gridmap_v2, 85 m from standstill, full throttle:
   Percheron 8x8 mud 56 -> 30 km/h (rear drive only 25, low range 32), sand 55 -> 48 km/h.
-* Rut floor: under undisturbed mud the hard floor stays `floorLift` (0.3 m) above the
+* Rut floor (mud, and sand since 2026-10-31): under undisturbed ground the hard floor stays `floorLift` (0.3 m) above the
   full sink. Where ruts are dug, the terrain under them is lowered to the rut surface,
   so rut walls are real terrain. Terrain squares are 0.75-1 m, so the walls are coarse
   and gentle: they hold a light steering input for a while and can be climbed. Terrain
