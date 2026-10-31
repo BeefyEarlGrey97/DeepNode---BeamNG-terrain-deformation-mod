@@ -65,6 +65,10 @@ of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -
   compiled shader): it now makes new ShaderData objects and points the effects at them.
 
 ### Changed
+- `ring.bodyMaxWait` 0.1 -> 1.5 s (config.json): a tile whose new ruts are all under a truck body
+  waits until the whole truck has passed, so an 8x8 makes one upload per tile instead of one per
+  axle. 8 Percherons on gridmap_v2: uploads 8500 -> 3900 per 5 runs, 47.5 -> 52.3 fps, low1
+  35.5 -> 39.9, Lua 3.7 -> 2.6 ms, RenderShadows 6.3 -> 5.5 ms.
 - `overlay.zTolerance` now counts from the undisturbed ground (not the tyre bottom); new
   `maxDepth`. Overlay constants are formatted only when they change.
 - Tyre prints have no tread pattern any more, so they suit every wheel, small or big: a

@@ -81,7 +81,7 @@
     "frozenOwnMeshRadius": 70,
     "frozenOwnMeshMax": 200,
     "lodNearDist": 40,
-    "bodyMaxWait": 0.1,
+    "bodyMaxWait": 1.5,
     "smallChangeWait": 0.1,
     "digNearDist": 40,
     "digMaxPerFrame": 16,

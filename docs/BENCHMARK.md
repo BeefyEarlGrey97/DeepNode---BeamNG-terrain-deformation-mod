@@ -143,6 +143,18 @@ maxMeshBuildsPerSec 120, uploadEvery 2, loadRadius 70), vsync and the 60 fps lim
 | + ring.digEvery 2 (rejected) | 47.5 (34.2) | 4.00 | 8271 | 101 | -57 to +43 MB |
 | + distance-scaled minVisibleChange (rejected: uploads 8891, no change) | 47.4 (35.8) | 3.85 | 8891 | 113 | -58 to +11 MB |
 
+| + ring.camNearDist 12 / camFarDist 45 (rejected: uploads 8577) | 47.5 (35.6) | 3.77 | 8577 | 132 | -55 to +10 MB |
+| + tileRebuildHz 15 / maxMeshBuildsPerSec 60 (rejected: uploads 8564) | 47.4 (35.2) | 3.56 | 8564 | 135 | -57 to -14 MB |
+| **ring.bodyMaxWait 0.1 -> 1.5** (one upload per truck pass, config.json) | **52.3 (39.9)** | 2.63 | 3865 | 453 | -38 to -25 MB |
+
+Uploads are set by the work per dug tile (~4 per tile: one per axle of an 8x8, then settling), not by
+the rebuild rates: holding a tile's rebuild while all its new ruts are under the truck body (up to
+1.5 s, an 8x8 at walking pace) shows the whole pass in one upload. RenderShadows 6.3 -> 5.5 ms, Lua
+3.7 -> 2.6 ms. Rut lag readouts rise (near avg 0.12 -> 0.29 s, front 0.10 -> 0.30 s: counted from
+the carve, mostly under the body); in screenshots the ruts reach right up behind the rear wheels.
+The rut floor now keeps up (terrain updates 453 vs ~130 per 5 runs: the upload budget no longer
+starves them); 2 of 5 runs ended with a slower truck (avg end speed ~2.2 m/s, all finished).
+
 The road look costs ~0.5 fps after the Lua fix (GPU side: 5 material passes); trimming the 257 free
 pooled mesh objects changed nothing (hidden objects cost no render time). In 2 of the test sets one run
 had a mud-lane truck slow down (avg end speed 1.1 m/s, all 8 finished): watch for floor writes held

@@ -185,7 +185,11 @@ local defaults = {
     meshRange = 70,         -- m: vehicles further from the camera dig without meshes (beyond
                             -- sectors.loadRadius the mud is drawn as lowered terrain anyway)
     settleRebuildHz = 2,    -- rebuild rate of a tile that only settles (no tyre on it)
-    bodyMaxWait = 0.6,      -- s a tile may wait while all its new ruts are under a vehicle
+    -- s a tile may wait while all its new ruts are under a vehicle. 1.5 s: an 8x8 truck at
+    -- walking pace covers a tile while all four axles dig it, so one upload shows the whole
+    -- pass instead of one per axle (8 Percherons, gridmap_v2: uploads 8500 -> 3800 per 5 runs,
+    -- 47.5 -> 52 fps, low1 35.5 -> 40; ruts still show right behind the rear wheels)
+    bodyMaxWait = 1.5,
     bodyHideMargin = 0.5,   -- m added round the vehicle box for that test
     bigChange = 0.02,       -- m: a rut change this big rebuilds at tileRebuildHz ...
     smallChangeWait = 0.4,  -- s: ... smaller ones (axles behind deepening it) wait this long
@@ -4983,7 +4987,7 @@ function P.rebuildTiles()
   local meshR = cfg.ring.meshRange or huge
   local meshR2 = (meshR + TILE) * (meshR + TILE)
   local settleGap = 1 / max(0.5, cfg.ring.settleRebuildHz or 2)
-  local bodyWait = cfg.ring.bodyMaxWait or 0.6
+  local bodyWait = cfg.ring.bodyMaxWait or 1.5
   local smallWait = cfg.ring.smallChangeWait or 0.4
   local borderGap = cfg.ring.borderRebuildGap or 1
   -- rut code steps (2.7 mm each for a 0.35 m deep mud) that count as a visible change

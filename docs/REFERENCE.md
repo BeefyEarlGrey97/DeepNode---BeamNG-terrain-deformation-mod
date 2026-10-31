@@ -526,7 +526,7 @@ Lengths are metres, speeds m/s, times seconds.
 | `tileRebuildHz` | 5 | One tile rebuilds at most this often (6: +27 % uploads, -4 fps, same rut lag in the test) |
 | `meshRange` | 60 | Vehicles further from the camera dig without meshes |
 | `settleRebuildHz` | 2 | Rebuild rate of a tile no tyre touched for 0.3 s |
-| `bodyMaxWait` / `bodyHideMargin` | 0.6 / 0.5 | New ruts all under a vehicle body (box + margin) wait up to this long |
+| `bodyMaxWait` / `bodyHideMargin` | 1.5 / 0.5 | New ruts all under a vehicle body (box + margin) wait up to this long (s): one upload per truck pass instead of one per axle (2026-10-31, 8 Percherons: uploads -55 %, +4.5 fps; was 0.1 in config.json) |
 | `bigChange` / `smallChangeWait` | 0.02 / 0.4 | Rut changes below 2 cm wait up to 0.4 s |
 | `borderRebuildGap` | 5 | A tile whose only change is a neighbour's mesh waits this long |
 | `minVisibleChange` | 0.006 | A tile re-upload whose largest height change against the mesh on screen is below this (m) is skipped (data keeps the change) |
