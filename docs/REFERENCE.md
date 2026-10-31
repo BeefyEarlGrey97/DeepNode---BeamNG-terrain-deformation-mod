@@ -731,6 +731,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.grooveDark` | 0.4 | Darkening of the deepest pressed parts (reads whatever side the sun is on) |
 | `overlay.ambient` | 0.45 | Ambient share in the relight ratio |
 | `overlay.highlight` | 1.0 | Sun highlight on wet ground |
+| `overlay.wetSheen` | 0.6 | Sky reflection on wet ground at grazing angles (Fresnel x wetness; sky sampled from the top of the screen) |
 | `overlay.useShadowMask` | true | Use the engine screen shadow mask (no relief / highlight in shadow) |
 | `overlay.groundAlbedo` | 0.3 | Ground albedo guess: light level for the highlight = scene / this |
 | `overlay.fadeStart` / `fadeLength` | 35 / 25 | Prints fade out between these distances from the camera (m) |

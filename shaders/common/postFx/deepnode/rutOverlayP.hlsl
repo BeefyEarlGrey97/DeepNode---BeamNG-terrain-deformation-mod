@@ -48,7 +48,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnDust;    // sand dust on hard ground: tint colour (rgb), opacity
     uniform float4 dnCarryG;  // brightness gain of the mud stain, of the dust, of the splats, unused
     uniform float4 dnSplat;   // mud splats: tint colour (rgb), opacity
-    uniform float4 dnTime;    // time (s, mod 64), drying time of wet tracks (s), wet darkening, unused
+    uniform float4 dnTime;    // time (s, mod 64), drying time of wet tracks (s), wet darkening, wet sky sheen
     uniform float4 dnPress;   // tracks on hard terrain: grass darkening, grass desaturation, dirt darkening, relief (x mud)
     uniform float4 dnGrain;   // crumb size (m), crumb height (x size), print crumb density, churn noise size (m)
     uniform float4 dnKindX;   // sand relief (x mud), sand crumb height (x mud), crumb lift mud, crumb lift sand
@@ -301,6 +301,14 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float3 specAdd = sunLight * (sh * spec * wet * dnLook.w * 0.04) * float3(1.0, 0.97, 0.92);
 
     float3 outC = C2 * ratio * ao + specAdd;
+    // wet sheen from every direction: the wet surface mirrors the sky at grazing angles
+    // (Schlick, water F0 0.02; sky sampled from the top of the screen as for the puddles)
+    if (wet > 0.05 && dnTime.w > 0.0) {
+        float fresM = 0.02 + 0.98 * pow(1.0 - saturate(dot(nt, V)), 5.0);
+        float4 skyM = skyColour();
+        float3 skyC = skyM.w > 0.0 ? skyM.rgb : sunLight * amb * 1.2 * float3(0.7, 0.82, 1.0);
+        outC = lerp(outC, skyC * 0.8, saturate(fresM * wet * dnTime.w));
+    }
 
     // --- puddles: water pooled in the deepest parts of mud ruts ---------------------------
     if (kind == 0 && !berm && dnWater.x > 0.0) {

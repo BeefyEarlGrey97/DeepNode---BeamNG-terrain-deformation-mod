@@ -751,7 +751,7 @@ function M.frame()
   setConst(FX_OVER, 'dnSplat', sp.color[1], sp.color[2], sp.color[3], sp.opacity)
   local tr = oc.tracks
   setConst(FX_OVER, 'dnPress', tr.grassDarken, tr.grassDesat, tr.dirtDarken, tr.relief)
-  setConst(FX_OVER, 'dnTime', wheelNow % 64, oc.wetTracks.dryTime, oc.wetTracks.darken, 0)
+  setConst(FX_OVER, 'dnTime', wheelNow % 64, oc.wetTracks.dryTime, oc.wetTracks.darken, oc.wetSheen or 0)
   local g = oc.grain
   setConst(FX_OVER, 'dnGrain', g.size, g.height, g.printDensity, g.churnSize)
   setConst(FX_OVER, 'dnKindX', oc.sand.relief or 1, oc.sand.crumbHeight or 1, oc.mud.crumbLift or 0.12,
