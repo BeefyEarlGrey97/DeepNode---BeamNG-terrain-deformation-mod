@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-31 — ground look, decal roads in the ruts, faster with 8 trucks
+
 Research follow-up (terrain deformation techniques review, 2026-10-31): what BeamNG 0.40's Lua
 allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleaved A/B, runs 2-5
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
