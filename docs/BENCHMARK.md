@@ -61,6 +61,13 @@ truck 8 shares the centre circle half a lap behind truck 1).
 Historical JV result (7 trucks, before the 2026-10 overhaul code): vanilla 97–102 fps;
 mod 75–83 fps, rut lag 0.10–0.13 s, 7–20 MB/min. Needs re-measurement with the current code.
 
+## 3. gridmap_v2, 4 trucks (2026-10-31)
+
+Same pits, 4 Percherons: trucks 1-2 of the 8-truck row in the mud pit, 5-6 in the sand pit
+(`tools/benchmark/gridmap_spawn4.lua`). Orbit camera on truck 1 (yaw 160, pitch 14, 16 m),
+vsync off, `bench2.py <label> 5 clear`; compare runs 2-5 (run 1 after a Lua reload is inflated),
+interleave variants by swapping the Lua files and reloading (`reload.sh`).
+
 ## Result log
 
 | date | map | mode | variant | fps (low1) | rut latency | memory |
@@ -94,3 +101,8 @@ Per-module time while driving: `dntestModProbe.start(true)` before `bench2.py`, 
 
 The v0.1.0 session ran slower overall than the earlier ones (frame limiter visible in the metrics); compare
 against a mod-off run from the same session before drawing conclusions.
+
+| date | map | mode | variant | fps (low1) | rut latency | memory |
+|---|---|---|---|---|---|---|
+| 2026-10-31 | gridmap_v2, 4 trucks | heavy | before research changes, runs 2-5 x 2 sets | 76.1 (59.7) | near 0.12 s avg, max 1.5-3.9 s; front 0.09 s | +5-15 MB per run |
+| 2026-10-31 | gridmap_v2, 4 trucks | heavy | soil memory + kinds + deadline queue + minVisibleChange | 78.3 (62.3) | near 0.12 s avg, max 0.6-3.0 s (0.8-1.0 s runs 3-5); front 0.09 s | +3-19 MB per run |

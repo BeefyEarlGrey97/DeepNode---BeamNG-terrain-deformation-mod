@@ -183,6 +183,20 @@ local defaults = {
     bodyHideMargin = 0.5,   -- m added round the vehicle box for that test
     bigChange = 0.02,       -- m: a rut change this big rebuilds at tileRebuildHz ...
     smallChangeWait = 0.4,  -- s: ... smaller ones (axles behind deepening it) wait this long
+    -- Depth ladder, first rung: a re-upload whose largest change against the mesh on
+    -- screen is below minVisibleChange (m) is skipped; the data keeps the change and the
+    -- next real change (or the sector at freeze) shows it. Measured 2026-10-31 (4
+    -- Percherons, gridmap_v2): 7.6 % of tile uploads changed < 1 cm, 14 % < 3 cm. The
+    -- terrain floor sits floorMargin (3 cm) under the rut, so a few mm do not show.
+    minVisibleChange = 0.006,
+    -- Deadline-first queue (Recoil / UE significance style): every waiting rebuild has a
+    -- deadline = when its change became visible + a target latency (fresh rut front in
+    -- view: the fast path; deepening in view: inViewTarget; out of view: outViewTarget);
+    -- earliest deadline first. Deepening out of the camera's view waits up to
+    -- outViewMaxDefer s (or until it comes into view): same budget, spent on what is seen.
+    inViewTarget = 0.3,
+    outViewTarget = 1.5,
+    outViewMaxDefer = 4,
     borderRebuildGap = 5,   -- s a tile waits when only its border rule changed (neighbour mesh);
                             -- most freeze first and keep a 1.5 cm step at that edge (not seen)
     farLod = 3,             -- vehicles without an active ring run reports at 1/farLod rate
@@ -251,6 +265,32 @@ local defaults = {
     refWheelLoad = 3500,    -- N per wheel (about a 1400 kg car on 4 wheels)
     jitterZ = 0.015,        -- clumpy vertical jitter at full track intensity (m)
     jitterXY = 0.03,        -- horizontal jitter at full track intensity (m)
+    -- Per soft-ground kind (the kind of the terrain square under the hub; values missing
+    -- here fall back to the ones above). Sources: research notes in docs/REFERENCE.md.
+    --  bermFraction: share of the displaced mud pushed into berms (Poisson-like ratio,
+    --    Alvarado et al. 2022: sand ~0.5, wet clay ~0.35); bermDepthRef > 0: the share
+    --    grows with rut depth (x depth / bermDepthRef, clamped 0.4..1.6): bulldozing in
+    --    frictional soil grows with depth squared, so sand berms grow with deep ruts
+    --  maxSlope: steepest wall (rise/run) before it slumps: dry sand ~35 deg (0.7,
+    --    Sumner 1999 25 deg, SCM default 40 deg), wet mud ~58 deg (1.6, Sumner 63 deg)
+    --  soilN: Bekker sinkage exponent n (clay 0.5, sandy loam 0.7, dry sand 1.1), see soil
+    --  soften: mud softens with passes (MudRunner): allowed depth x (1 + soften x (passes-1))
+    --  slipBeta: slip sinkage, the tyre carves beta x s / (s + 0.2) x its immersion deeper
+    --    (s = slip ratio; Reece 1965: strong in sand, weak in clay; values to tune)
+    --  spinDig: factor on spinDigRate / spinDigMax
+    kinds = {
+      mud = { bermFraction = 0.35, maxSlope = 1.6, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8 },
+      sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4 },
+    },
+    -- Soil memory (Bekker multi-pass rule, Chrono SCM yield memory): a cell remembers how
+    -- many tyre passes it took and how deep the first one went (z1). Pass N may carve down
+    -- to z1 x N^(2 / (2n + 1)) (x the soften factor), not straight to the tyre bottom:
+    -- after 4 identical axles ~4x z1 in clay, ~2.4x in dry sand, so sand packs and stops
+    -- deepening while mud keeps giving. A tyre sinking further than that rides a little
+    -- into the drawn surface (as vanilla BeamNG mud looks). The hard floor caps it all.
+    -- A pass = one wheel crossing the cell; the same wheel again after passGap s counts as
+    -- a new pass. Spin digging is not limited (it is the same pass).
+    soil = { enabled = true, passGap = 0.6 },
   },
   report = {
     -- wheel/body reports per second; swept stamps keep ruts continuous. 30 Hz cost 38 ms
@@ -654,7 +694,7 @@ P.sssSaved = nil
 P.stats = {
   layerMapMs = 0, distMs = 0, sinkMs = 0, materialsMs = 0, syncSectorsMs = 0, startMs = 0,
   sunkVertices = 0, orientation = 'none', lastFrameMs = 0, maxFrameMs = 0, maxFrameAge = 0,
-  slowCalls = 0, prepared = 0, stamps = 0, rays = 0, rayHits = 0, lastError = '',
+  slowCalls = 0, prepared = 0, stamps = 0, skippedSmall = 0, rays = 0, rayHits = 0, lastError = '',
 }
 M.statsTable = P.stats
 
@@ -2084,23 +2124,31 @@ end
 
 -- lift: m the terrain was left above the full sink (physics 'heavy' rut floor); the
 -- current lift (sinkLift) goes down where ruts are dug, sinkLift0 is the start value
-function P.recordSink(idx, raw, lift)
+-- base: the full sink level (raw - sink depth, before the clamp). Floor writes use it as
+-- an absolute reference (physics.lua): the height grid rounds every write to
+-- maxHeight / 65536 (1.5 mm on gridmap_v2), and relative writes (current - old lift + new
+-- lift) drifted measured -3.4 cm over 20 lower/raise cycles.
+function P.recordSink(idx, raw, lift, base)
   if P.sinkCount >= P.sinkCapacity then
     local nc = max(65536, P.sinkCapacity * 2)
     local ni, nr = ffi.new('int32_t[?]', nc), ffi.new('float[?]', nc)
     local nl, nl0 = ffi.new('float[?]', nc), ffi.new('float[?]', nc)
+    local nb = ffi.new('float[?]', nc)
     if P.sinkCount > 0 then
       ffi.copy(ni, P.sinkIdx, P.sinkCount * 4)
       ffi.copy(nr, P.sinkRaw, P.sinkCount * 4)
       ffi.copy(nl, P.sinkLift, P.sinkCount * 4)
       ffi.copy(nl0, P.sinkLift0, P.sinkCount * 4)
+      ffi.copy(nb, P.sinkBase, P.sinkCount * 4)
     end
     P.sinkIdx, P.sinkRaw, P.sinkLift, P.sinkLift0, P.sinkCapacity = ni, nr, nl, nl0, nc
+    P.sinkBase = nb
   end
   P.sinkIdx[P.sinkCount] = idx
   P.sinkRaw[P.sinkCount] = raw
   P.sinkLift[P.sinkCount] = lift or 0
   P.sinkLift0[P.sinkCount] = lift or 0
+  P.sinkBase[P.sinkCount] = base or raw
   P.sinkCount = P.sinkCount + 1
 end
 
@@ -2272,7 +2320,7 @@ function P.sinkPass()
             nr = clampRaw
           end
           tb:setHeightGrid(gx, gy, nr)
-          P.recordSink(base + gx, raw, lift)
+          P.recordSink(base + gx, raw, lift, raw - d)
           if gx < bx0 then bx0 = gx end
           if gx > bx1 then bx1 = gx end
           if gy < by0 then by0 = gy end
@@ -2918,6 +2966,12 @@ function P.prepareTile(tx, ty)
   local peakLo, peakHi = ffi.new('uint8_t[?]', NW * NW), ffi.new('uint8_t[?]', NW * NW)
   ffi.fill(peakLo, NW * NW, 128)
   ffi.fill(peakHi, NW * NW, 128)
+  -- soil memory (stamp.soil): passes, last wheel and time, first-pass depth (2.5 mm steps)
+  local passN, passKey, passT, z1 = nil, nil, nil, nil
+  if cfg.stamp.soil and cfg.stamp.soil.enabled then
+    passN, z1 = ffi.new('uint8_t[?]', NW * NW), ffi.new('uint8_t[?]', NW * NW)
+    passKey, passT = ffi.new('uint16_t[?]', NW * NW), ffi.new('float[?]', NW * NW)
+  end
   for j = 0, N do
     local s = j / CPS
     local sj = floor(s); if sj > TS - 1 then sj = TS - 1 end
@@ -2952,6 +3006,7 @@ function P.prepareTile(tx, ty)
     vRest = vRest, vFloor = vFloor, vMem = vMem, sqPatched = sqPatched, sqMat = sqMat,
     rest = rest, floor = flo, rut = rut, track = track, soft = soft,
     peakLo = peakLo, peakHi = peakHi, relaxing = false,
+    passN = passN, passKey = passKey, passT = passT, z1 = z1,
     matList = matList, rutted = false, dirty = true, state = 'active',
     lastUse = simTime, lastBuild = -huge, obj = nil, built = false,
   }
@@ -3499,6 +3554,28 @@ end
 local function carve(gcx, gcy, t, idx, bottom, tr, dig, digFloor, fb)
   local rest, fl = t.rest[idx], t.floor[idx]
   if fl > rest then fl = rest end
+  -- soil memory (stamp.soil): this pass may carve down to z1 x N^e at most
+  local soil = P.soil
+  if soil and t.passN then
+    local want = rest - bottom
+    if want > 0 then
+      local n = t.passN[idx]
+      if n == 0 or t.passKey[idx] ~= soil.key or simTime - t.passT[idx] > soil.gap then
+        if n < 255 then n = n + 1; t.passN[idx] = n end
+        t.passKey[idx] = soil.key
+      end
+      t.passT[idx] = simTime
+      -- first pass: z1 follows the deepest point of the tyre's own passage
+      if n == 1 then
+        local q = ceil(want / 0.0025)
+        if q > 255 then q = 255 end
+        if q > t.z1[idx] then t.z1[idx] = q end
+      else
+        local allowed = t.z1[idx] * 0.0025 * n ^ soil.e * (1 + soil.soften * (n - 1))
+        if want > allowed then bottom = rest - allowed end
+      end
+    end
+  end
   local cur = decodeZ(t, idx)
   -- spinning tyre: dig below the current surface, at most down to digFloor
   if dig and dig > 0 then
@@ -3526,7 +3603,7 @@ end
 -- of the whole tile), so older ruts elsewhere keep their shape.
 function P.slump(gx0, gy0, gx1, gy1)
   local st = cfg.stamp
-  local maxStep = st.maxSlope * CELL
+  local maxStep = (P.kSlope or st.maxSlope) * CELL
   local rate = st.slumpRate
   if rate <= 0 or gx1 < gx0 or gy1 < gy0 or gx1 - gx0 > 300 or gy1 - gy0 > 300 then return end
   local W = N + 1
@@ -3672,7 +3749,7 @@ local function stampFootprint(cx, cy, cz, axx, axy, fwx, fwy, R, tyres, tr, dig,
       end
     end
   end
-  P.distributeBerm(nB, wsum, removed * st.bermFraction)
+  P.distributeBerm(nB, wsum, removed * (P.kBerm or st.bermFraction))
   return gx0, gy0, gx1, gy1
 end
 
@@ -3779,8 +3856,34 @@ local function stampSwept(p0x, p0y, p0z, dx, dy, dz, L, axx, axy, fwx, fwy, R, t
       end
     end
   end
-  P.distributeBerm(nB, wsum, removed * st.bermFraction)
+  P.distributeBerm(nB, wsum, removed * (P.kBerm or st.bermFraction))
   return gx0, gy0, gx1, gy1
+end
+
+-- Per-kind stamp rules (stamp.kinds) for the stamps that follow: berm share, wall slope
+-- and the soil memory state of one wheel (key = vehicle and wheel: a pass identity).
+P.soilState = {}
+function P.setStampKind(kind, depth, key)
+  local st = cfg.stamp
+  local K = st.kinds and st.kinds[kind] or nil
+  local bf = K and K.bermFraction or st.bermFraction
+  if K and (K.bermDepthRef or 0) > 0 then bf = bf * clamp((depth or 0) / K.bermDepthRef, 0.4, 1.6) end
+  P.kBerm = bf
+  P.kSlope = K and K.maxSlope or st.maxSlope
+  local so = st.soil
+  if key and so and so.enabled and K and K.soilN then
+    local S = P.soilState
+    S.key, S.gap = key, so.passGap or 0.6
+    S.e, S.soften = 2 / (2 * K.soilN + 1), K.soften or 0
+    P.soil = S
+  else
+    P.soil = nil
+  end
+  return K
+end
+
+function P.kindAtWorld(x, y)
+  return M.layerKindAt(floor((x - ter.ox) / ter.sq + 0.5), floor((y - ter.oy) / ter.sq + 0.5))
 end
 
 -- swept tyre stamp from the previous report to the current one (continuous at speed)
@@ -4138,6 +4241,7 @@ function M.onMudReport(vid, w, nodes)
         -- stamp starts at the last stamped (predicted) end, so the rut stays continuous.
         -- Velocity from the last two reports (actual positions), lightly smoothed.
         local tgx, tgy = px, py
+        local pzs = pz -- hub height the stamp uses (lowered by slip sinkage below)
         if prev and prev.ax then
           local dtv = simTime - prev.at
           if dtv > 1e-3 and dtv < 0.3 then
@@ -4178,14 +4282,25 @@ function M.onMudReport(vid, w, nodes)
           local rdt = prev and clamp(simTime - prev.t, 0, 0.1) or (1 / 30)
           local dig = (st.spinDigRate or 0) * spin * rdt * ls
           local digMax = (st.spinDigMax or 0) * sqrt(ls)
+          -- ground kind under the hub: berms, wall slope, soil memory, slip sinkage
+          local K = P.setStampKind(P.kindAtWorld(px, py), d, (vid % 2000) * 32 + wi % 32)
+          if K then
+            local sd = K.spinDig or 1
+            dig, digMax = dig * sd, digMax * sd
+            -- slip sinkage: s = slip ratio, saturating (Reece 1965, Baek et al. 2020)
+            local sr = spin / max(0.5, om * R)
+            if (K.slipBeta or 0) > 0 and sr > 0.02 and d > 0 then
+              pzs = pz - K.slipBeta * sr / (sr + 0.2) * min(d, R * 0.5)
+            end
+          end
           if prev then prev.still = still end
           if still then
             -- skip
           elseif prev and simTime - prev.t < 0.35 and (tgx - prev.x) ^ 2 + (tgy - prev.y) ^ 2 < st.maxSweep * st.maxSweep then
-            P.stampWheel(prev.x, prev.y, prev.z, tgx, tgy, pz, axx, axy, fwx, fwy, R, Wt, tr, false, dig, digMax)
+            P.stampWheel(prev.x, prev.y, prev.z, tgx, tgy, pzs, axx, axy, fwx, fwy, R, Wt, tr, false, dig, digMax)
           else
             tgx, tgy = px, py -- jump or first report: no prediction from a stale speed
-            P.stampWheel(px, py, pz, px, py, pz, axx, axy, fwx, fwy, R, Wt, tr, true, dig, digMax)
+            P.stampWheel(px, py, pzs, px, py, pzs, axx, axy, fwx, fwy, R, Wt, tr, true, dig, digMax)
           end
         end
         -- tyre mud only on soft ground: the tile meshes (and so the vehicle's reports)
@@ -4198,7 +4313,7 @@ function M.onMudReport(vid, w, nodes)
         end
         if not (prev and prev.still) then
           prev = prev or {}
-          prev.x, prev.y, prev.z = tgx, tgy, pz
+          prev.x, prev.y, prev.z = tgx, tgy, pzs
           prev.cx, prev.cy = px, py
         end
         prev.ax, prev.ay, prev.at = px, py, simTime
@@ -4216,10 +4331,12 @@ function M.onMudReport(vid, w, nodes)
   end
   -- body dents only where they are drawn (vehicles within meshRange, lod < 3): the
   -- chassis nodes under the mud were ~25 stamps per frame with 7 trucks
+  P.soil = nil
   if type(nodes) == 'table' and (vs.lod or 1) < 3 then
     for k = 1, #nodes - 3, 4 do
       local cid, x, y, z = nodes[k], nodes[k + 1], nodes[k + 2], nodes[k + 3]
       if isFinite(cid) and isFinite(x) and isFinite(y) and isFinite(z) then
+        P.setStampKind(P.kindAtWorld(x, y)) -- wall slope of the kind (no soil memory)
         local prev = vs.lastNode[cid]
         if prev and simTime - prev.t < 0.35 and (x - prev.x) ^ 2 + (y - prev.y) ^ 2 < st.maxSweep * st.maxSweep then
           P.stampBody(prev.x, prev.y, prev.z, x, y, z)
@@ -4232,6 +4349,8 @@ function M.onMudReport(vid, w, nodes)
       end
     end
   end
+  -- later stamps (relax, other callers) use the global rules
+  P.soil, P.kBerm, P.kSlope = nil, nil, nil
 end
 
 -------------------------------------------------------------------------------
@@ -4587,6 +4706,27 @@ function P.tileInView(t)
   return (dx * v.fx + dy * v.fy + dz * v.fz) / d >= v.cosA - TILE * 0.75 / d
 end
 
+-- Mesh-on-screen snapshot per tile (heights as last uploaded) for minVisibleChange.
+function P.snapshotShown(t)
+  local NW = N + 1
+  local sh = t.shown
+  if not sh then sh = ffi.new('float[?]', NW * NW); t.shown = sh end
+  for idx = 0, NW * NW - 1 do sh[idx] = decodeZ(t, idx) end
+end
+
+-- largest |height now - height on screen| of a tile (m); huge without a snapshot
+function P.shownChange(t)
+  local sh = t.shown
+  if not sh then return huge end
+  local mx = 0
+  for idx = 0, (N + 1) * (N + 1) - 1 do
+    local d = decodeZ(t, idx) - sh[idx]
+    if d < 0 then d = -d end
+    if d > mx then mx = d end
+  end
+  return mx
+end
+
 P.rebuildList = {}
 function P.rebuildTiles()
   local tm = P.mod('tileMesh')
@@ -4639,10 +4779,16 @@ function P.rebuildTiles()
         local gap = minGap + (max(minGap, farGap) - minGap) * f
         -- no tyre on it for 0.3 s: only settling changes it (relax), slowly
         if t.lastStamp and simTime - t.lastStamp > 0.3 then gap = max(gap, settleGap) end
-        local seen = dc <= digNear and P.tileInView(t)
+        local inView = P.tileInView(t)
+        local seen = dc <= digNear and inView
         t.digNow = seen and t.lastFresh ~= nil and simTime - t.lastFresh < freshWin
         -- a rut being deepened in view (axles behind): first in line after the fresh fronts
         t.seenDeepen = seen and not t.digNow and t.rutted and t.lastStamp ~= nil and simTime - t.lastStamp < 1
+        -- out of view, already meshed, no border change: defer (deadline below)
+        if not inView and t.obj and t.built and t.pendSince and not t.borderDirty
+          and simTime - t.pendSince < (cfg.ring.outViewMaxDefer or 4) then
+          gap = huge
+        end
         if not t.digNow then gap = max(gap, deepenGap) end
         -- new ruts all under a vehicle body (front/middle axles) are hidden by it: wait
         -- until they come out behind it (rut lag counts from then), at most bodyMaxWait
@@ -4661,8 +4807,15 @@ function P.rebuildTiles()
           -- tiles being dug right now first (nearest the camera first), then the rest;
           -- look-ahead meshes for untouched tiles come last
           local dug = t.rutted and t.lastStamp and simTime - t.lastStamp < 1
-          -- order: fresh fronts in view, then deepening in view, then the rest (nearest first)
-          t.prio = dc * dc + (t.digNow and 0 or (t.seenDeepen and 1e5 or 1e6)) + (dug and 0 or 1e7)
+          -- order: fresh fronts in view (nearest first), then earliest deadline: the change
+          -- became visible (visSince / pendSince) + the target latency of its class
+          if t.digNow then
+            t.prio = dc * dc + (dug and 0 or 1e7)
+          else
+            local since = t.visSince or t.pendSince or simTime
+            local target = inView and (cfg.ring.inViewTarget or 0.3) or (cfg.ring.outViewTarget or 1.5)
+            t.prio = 1e5 + (since + target - simTime) * 1e3 + dc + (dug and 0 or 1e7)
+          end
         end
       end
     end
@@ -4709,10 +4862,25 @@ function P.rebuildTiles()
     elseif not dig and not P.takeBuildToken() then
       break -- over the mesh replace cap: stays dirty, nearest first next frame
     else
-      if dig then digDone = digDone + 1; P.buildTokens = max(0, P.buildTokens - 1) end
-      done = done + 1
-      local meshes = tm.buildTile(t, P.borderRule(t, false))
-      if tm.present(t, meshes) then
+      local minVis = cfg.ring.minVisibleChange or 0
+      local skip = minVis > 0 and hadMesh and t.built and t.state == 'active' and not t.borderDirty
+        and not t.freshPend and P.shownChange(t) < minVis
+      local meshes = nil
+      if skip then
+        -- change too small to see: no upload (the mesh keeps the snapshot's heights)
+        P.stats.skippedSmall = (P.stats.skippedSmall or 0) + 1
+        if not dig then P.buildTokens = P.buildTokens + 1 end -- the token was not used
+        t.pendSince, t.visSince, t.bigChange = nil, nil, nil
+        if t.ndsq and t.ndsq > 0 then tclear(t.dsq); t.ndsq = 0 end
+        t.dirty = false
+        t.lastBuild = simTime
+      else
+        if dig then digDone = digDone + 1; P.buildTokens = max(0, P.buildTokens - 1) end
+        done = done + 1
+        meshes = tm.buildTile(t, P.borderRule(t, false))
+      end
+      if meshes and tm.present(t, meshes) then
+        if minVis > 0 and t.obj then P.snapshotShown(t) end
         -- rut lag readout: visible changes only, from when they were made (or came out
         -- from under the vehicle)
         if t.pendSince and t.bigChange then P.noteLag(simTime - max(t.bigSince or t.pendSince, t.visSince or 0), P.camDist2(t)) end
@@ -5177,7 +5345,7 @@ function M.memoryEstimate()
   local perTile = NW * (4 + 4 + 1 + 1 + 1 + 1) + N * N + (TS + 1) * (TS + 1) * 9 + TS * TS * 2 + 600
   local nt = P.activeCount + P.frozenCount
   local S = ter and ter.size or 0
-  local terrain = (rows and S * S or 0) + (dist and S * S or 0) + P.sinkCapacity * 8
+  local terrain = (rows and S * S or 0) + (dist and S * S or 0) + P.sinkCapacity * 20
   local verts, corners = 0, 0
   local tm = P.mod('tileMesh')
   if tm and tm.geometry then verts, corners = tm.geometry() end
@@ -5497,6 +5665,7 @@ function M.clearRuts()
       ffi.fill(t.track, NW * NW, 0)
       ffi.fill(t.peakLo, NW * NW, 128)
       ffi.fill(t.peakHi, NW * NW, 128)
+      if t.passN then ffi.fill(t.passN, NW * NW, 0); ffi.fill(t.z1, NW * NW, 0) end
       t.relaxing = false
       t.rutted = false
       t.dirty = true

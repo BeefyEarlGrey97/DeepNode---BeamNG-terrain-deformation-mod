@@ -23,6 +23,17 @@ They explain most design decisions; please extend this file when you measure som
   forced sector rebuilds, 11 of ~200 rebuilds); two frames or more: none seen.
 - createMesh time is mostly per face corner (~0.2 µs) and per call (a 590-vertex / 3120-corner
   tile: 1.08 ms exact, 1.41 ms padded to 4518 corners).
+- First-draw cost split (2026-10-31, gridmap_v2, 441-vertex mesh 12 m in front of a static camera,
+  `user/lua/ge/extensions/dntestEng.lua`, 12-14 samples per case): `RenderShadows` on the upload
+  frame +0.65-0.76 ms for a never-drawn object, for a re-upload into the SAME object with the same
+  sizes, for a never-drawn material, and with `collisionType 'None'` set before `createMesh` (read
+  back as `None`; createMesh 1.10 vs 1.21 ms, the only difference). `Engine.Render.getShaderGenerationCount()`
+  rose only twice (first new materials). So the cost is paid per `createMesh` event, not per object
+  or material, and is not shader generation.
+- Several uploads in one frame (same objects re-uploaded, k per frame): `RenderShadows` +0.80 /
+  +1.24 / +2.33 / +4.13 ms for k = 1 / 2 / 4 / 8, ~0.5-0.6 ms each: nearly linear. Batching
+  uploads into fewer frames does not cut this cost; fewer uploads do.
+- `PSSMLightShadowMap.lastSplitCastersEnabled = false`: no change (1.68 vs 1.69 ms per upload frame).
 - ProceduralMesh has object type bits 0 and 8 (`SOTStaticObject`, `SOTStaticShape`), the same as
   TSStatic: a render view's `shadowCasterObjectTypeBlacklistMask` cannot leave only the mud out.
 
@@ -30,6 +41,12 @@ They explain most design decisions; please extend this file when you measure som
 
 - `tb:setHeightGrid` + `tb:updateGrid` take effect for physics at once; `updateGrid` costs 1–2.5 ms
   whatever the box size: merge all writes of a frame into one call.
+- Heights are stored rounded to `maxHeight / 65536` (gridmap_v2: maxHeight 100, step 1.5 mm).
+  Read-modify-write drifts downwards: 20 cycles of `h - 0.13` then `h + 0.13` ended 3.4 cm low;
+  10 x `-0.004` gave -4.6 cm. Write absolute heights from a saved reference.
+- `core_environment.reset()` / `reloadGroundModels()` (also mission start, ground-model file
+  change, the ground-model debug panel's "Default") rebuild `core_environment.groundModels` from
+  the files: live `be:setGroundModel` retunes are lost (measured: MUD defaultDepth 0.25 -> 0.15).
 - Creating a second `TerrainBlock` at runtime and calling its `update*` methods crashed the game.
 - `digSdf`/`placeSdf` is an experimental forward-lit SDF renderer, not usable for mud.
 
@@ -40,6 +57,11 @@ They explain most design decisions; please extend this file when you measure som
 - With the terrain left at the mud surface (terrain-first) the engine draws decal roads exactly as vanilla.
 
 ## Other
+
+- `Engine.Render.DecalMgr.addDecal(pos, normal, rot, template, scale, texIndex, flags, alpha)` with
+  the level's `tireTrackDecal` / `puddles_decal` templates returned instances but nothing showed,
+  neither over a raised ProceduralMesh nor on the terrain beside it (2026-10-31, one try): the
+  tread-decal idea (research VIS-2/T14) is open.
 
 - `DynamicShapeBatch` instances shape files (per-instance transforms only).
 - `SurfaceMaskClipmap` only feeds the grass (foliage) shader.

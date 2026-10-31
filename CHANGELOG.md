@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+Research follow-up (terrain deformation techniques review, 2026-10-31): what BeamNG 0.40's Lua
+allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleaved A/B, runs 2-5
+of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
+
+### Added
+- Soil memory (`stamp.soil`): every rut cell counts tyre passes and keeps the first pass's depth;
+  pass N carves at most z1 x N^(2/(2n+1)) (Bekker's multi-pass rule) instead of straight to the
+  tyre bottom. The heavy terrain floor follows the rut, so repeated passes deepen by a bounded,
+  kind-dependent amount: sand packs, mud keeps giving (`soften`).
+- Per-kind rut rules (`stamp.kinds`): berm share (sand 0.5 growing with depth, mud 0.35), wall
+  slope (sand ~35°, mud ~58°), slip sinkage (`slipBeta`: a slipping tyre carves deeper, most in
+  sand) and spin-dig factor.
+- Deadline-first rebuild queue: after fresh rut fronts, waiting rebuilds are served by deadline
+  (change became visible + `ring.inViewTarget` / `outViewTarget`); deepening of meshed tiles out
+  of the camera's view waits until it comes into view (at most `ring.outViewMaxDefer` s).
+- `ring.minVisibleChange` (6 mm): a tile re-upload whose largest change against the mesh on screen
+  is smaller is skipped (~47 uploads per run, ~4 %).
+
+### Fixed
+- Heavy physics floor heights are written absolute from the sink pass's reference. The height
+  grid rounds every write (1.5 mm steps on gridmap_v2) and the relative writes drifted down
+  (-3.4 cm after 20 lower/raise cycles, measured).
+- Heavy ground models are applied again after the game reloads its ground models
+  (`core_environment.reset()` / mission start / ground-model file change / debug panel
+  "Default"); before, heavy mode silently fell back to the vanilla values.
+- Benchmark harness (`tools/benchmark/ge_extensions/dntestRun.lua`): reset with `map.safeTeleport`
+  facing the captured heading and the arcade gearbox set again (trucks drove backwards in
+  reverse gear after a reset).
+
 ## [0.1.4] — 2026-10-29 — 4.3 MB download (DDS tyre textures)
 
 ### Changed

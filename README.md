@@ -34,8 +34,8 @@ Two repeatable tests with 8 Percheron 8x8 trucks (`tools/benchmark`, see [docs/B
 
 Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributions welcome on the `test` branch.
 
-1. Frame rate: ~45 fps with 8 trucks in vanilla physic mode (75–79 with the mod off); every mesh upload also costs engine shadow and reflection time.
-2. Ruts deepened by the axles behind the front wheel can lag up to ~4 s under heavy load.
+1. Frame rate: ~45 fps with 8 trucks in vanilla physic mode (75–79 with the mod off); every mesh upload also costs engine shadow and reflection time (~0.6 ms per `createMesh`, linear in uploads per frame: measured 2026-10-31).
+2. Ruts deepened by the axles behind the front wheel can lag under heavy load (deadline-first queue 2026-10-31: worst ~1 s with 4 trucks, 8 trucks not re-measured).
 3. Rut updates are 30–40 Hz for fresh ruts in view, not for every wheel.
 4. Sand is still fully meshed (no terrain-first drawing for sand yet).
 5. Vanilla physics mode: full mud mesh, high memory growth; the experimental decal overlay looks duller than the engine decals (alpha clip).
@@ -44,6 +44,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 8. Heavy physics slows Percherons to ~3–4 m/s in deep mud.
 9. johnson_valley benchmark not yet achieve internal goals.
 10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
+12. Research follow-ups still open (layer-map rut material, engine tread decals, ground-model speed calibration, rut persistence): see docs/OPEN_ISSUES.md §13.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
 
 ## Contributing and forking

@@ -45,11 +45,11 @@ local function resetAll()
   for _, e in ipairs(load() or {}) do
     local v = getObjectByID(e.id)
     if v then
-      -- rotation from the captured heading (object rotation can be stale; dir = q * (0,-1))
-      local th = -math.atan2(e.d[1], -e.d[2])
-      v:setPositionRotation(e.p[1], e.p[2], e.p[3], 0, 0, math.sin(th / 2), math.cos(th / 2))
-      v:queueLuaCommand('obj:requestReset(RESET_PHYSICS)')
+      -- safeTeleport resets physics and faces the captured heading (quatFromDir = forward)
+      local rot = quatFromDir(vec3(e.d[1], e.d[2], 0), vec3(0, 0, 1))
+      map.safeTeleport(v:getID(), e.p[1], e.p[2], e.p[3], rot.x, rot.y, rot.z, rot.w, nil, nil, nil, true, true)
       v:queueLuaCommand('ai.setMode("disabled")')
+      v:queueLuaCommand('if controller.mainController.setGearboxMode then controller.mainController.setGearboxMode("arcade") end')
     end
   end
 end

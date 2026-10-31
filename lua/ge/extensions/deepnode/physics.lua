@@ -23,7 +23,12 @@
 -- Engine facts (measured): tb:setHeightGrid + tb:updateGrid take effect for physics at
 -- once (a parked truck dropped with the terrain); updateGrid costs 1-2.5 ms whatever the
 -- box size, so all writes of a frame go into one call, charged to the upload budget
--- (tileMesh.canUpload kind 'F').
+-- (tileMesh.canUpload kind 'F'). Heights are rounded to maxHeight / 65536 per write
+-- (1.5 mm on gridmap_v2): a read-modify-write lost ~1.7 mm per lower/raise cycle
+-- (-3.4 cm after 20), so floor heights are written absolute from the sink pass's base.
+-- core_environment.reset() / reloadGroundModels() rebuild groundModels with the level's
+-- values (mission restart, environment reset, ground-model file change, the debug
+-- panel's "Default"): the heavy values are checked once a second and put back.
 
 local M = {}
 
@@ -38,6 +43,8 @@ for _, k in ipairs(KEYS) do KEYSET[k] = true end
 
 local ctx, P = nil, nil
 local saved = {}     -- ground model name -> original values
+local applied = {}   -- ground model name -> { e = engine entry, vals = heavy values }
+local watchAcc = 0
 local pending = {}   -- sink record number -> { gx, gy, lift }
 local npend = 0
 local acc = 0
@@ -84,10 +91,16 @@ local function applyGroundModels(layers)
     local name = L.soft and L.gm and tostring(L.gm):upper() or ''
     local vals = h.groundModels and h.groundModels[L.kind]
     local e = gms[name]
-    if name ~= '' and vals and e and e.cdata and not saved[name] then
+    -- reapply when the entry was rebuilt (core_environment reload) or a value moved back
+    local a = applied[name]
+    local stale = a and (a.e ~= e or (e and e.cdata and not M.matches(e.cdata, vals)))
+    if name ~= '' and vals and e and e.cdata and (not saved[name] or stale) then
       local o = {}
       for _, k in ipairs(KEYS) do o[k] = e.cdata[k] end
+      -- the originals: the first time from the engine; after a reload the engine holds
+      -- the level's values again, so they are the originals once more
       saved[name] = o
+      applied[name] = { e = e, vals = vals }
       local list = {}
       for k, v in pairs(vals) do
         if KEYSET[k] and tonumber(v) then
@@ -97,6 +110,32 @@ local function applyGroundModels(layers)
       end
       be:setGroundModel(name, e.cdata)
       log('I', 'deepnode', sfmt('heavy physics: ground model %s (%s): %s', name, tostring(L.kind), table.concat(list, ', ')))
+    end
+  end
+end
+
+-- engine entry holds the heavy values (float rounding allowed)
+function M.matches(cd, vals)
+  for k, v in pairs(vals) do
+    if KEYSET[k] and tonumber(v) and math.abs((tonumber(cd[k]) or 0) - tonumber(v)) > 1e-3 * math.max(1, math.abs(tonumber(v))) then
+      return false
+    end
+  end
+  return true
+end
+
+local layersSeen = nil
+local reapplied = 0
+local function watchGroundModels()
+  local gms = core_environment and core_environment.groundModels
+  if not gms or not layersSeen then return end
+  for name, a in pairs(applied) do
+    local e = gms[name]
+    if e ~= a.e or (e and e.cdata and not M.matches(e.cdata, a.vals)) then
+      log('I', 'deepnode', 'heavy physics: ground model ' .. name .. ' was reloaded by the game, applying again')
+      reapplied = reapplied + 1
+      applyGroundModels(layersSeen)
+      return
     end
   end
 end
@@ -112,6 +151,7 @@ local function restoreGroundModels()
   end
   if next(saved) then log('I', 'deepnode', 'ground models restored') end
   saved = {}
+  applied = {}
 end
 
 -------------------------------------------------------------------------------
@@ -153,7 +193,8 @@ local function wantedLift(gx, gy, k, h)
     end
   end
   if zmin == huge then return lift0 end
-  local V = terrainZ(gx, gy) - P.sinkLift[k] -- full sink level
+  local ter = ctx.ter
+  local V = P.sinkBase[k] + (ter.localZ and ter.oz or 0) -- full sink level (absolute)
   local l = zmin - (h.floorMargin or 0.03) - V
   if l < 0 then return 0 end
   if l > lift0 then return lift0 end
@@ -224,6 +265,7 @@ local function write(h)
     return
   end
   local tb = ctx.ter.tb
+  local clampRaw = ctx.ter.clampRaw or 0
   local maxV = h.floorMaxVerts or 600
   local n = 0
   local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
@@ -232,7 +274,10 @@ local function write(h)
     if n >= maxV then break end
     local gx, gy, lift = w[1], w[2], w[3]
     local old = P.sinkLift[k]
-    tb:setHeightGrid(gx, gy, tb:getHeightGrid(gx, gy) - old + lift)
+    -- absolute: full sink level + lift (the sink pass's clamp still holds)
+    local hz = P.sinkBase[k] + lift
+    if hz < clampRaw then hz = clampRaw end
+    tb:setHeightGrid(gx, gy, hz)
     P.sinkLift[k] = lift
     if lift < old then stats.lowered = stats.lowered + 1 else stats.raised = stats.raised + 1 end
     if gx < bx0 then bx0 = gx end
@@ -258,6 +303,11 @@ function M.update(dt)
   local h = heavy()
   if not h or not ctx.ter then return end
   acc = acc + (dt or 0)
+  watchAcc = watchAcc + (dt or 0)
+  if watchAcc >= 1 then
+    watchAcc = 0
+    watchGroundModels()
+  end
   if acc >= 1 / max(0.5, h.floorHz or 5) then
     acc = 0
     collect(h)
@@ -274,6 +324,8 @@ function M.start(main, layers)
   P = main.private
   pending, npend, acc = {}, 0, 0
   for k in pairs(stats) do stats[k] = 0 end
+  layersSeen = layers
+  reapplied = 0
   if heavy() then applyGroundModels(layers) end
 end
 
@@ -304,6 +356,7 @@ function M.stats()
   for k, v in pairs(stats) do s[k] = v end
   s.pending = npend
   s.mode = M.mode()
+  s.reapplied = reapplied
   s.groundModels = 0
   for _ in pairs(saved) do s.groundModels = s.groundModels + 1 end
   return s

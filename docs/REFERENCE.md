@@ -190,6 +190,18 @@ BeamNG's own physics:
   and gentle: they hold a light steering input for a while and can be climbed. Terrain
   comes back up only when the ruts reset and no vehicle is within 8 m.
   Cost: one terrain update per frame at most (1-3 ms, measured), inside the upload budget.
+  Floor heights are written absolute (full sink level from the sink pass + lift): the height grid
+  rounds every write to maxHeight / 65536, and the old relative writes drifted (ENGINE_FINDINGS).
+  The heavy ground-model values are checked once a second and applied again when the game reloads
+  its ground models (environment reset, mission start, ground-model file change).
+* Soil memory and per-kind ruts (`stamp.soil`, `stamp.kinds`): each rut cell counts tyre passes
+  and remembers the first pass's depth; pass N may carve at most z1 x N^(2/(2n+1)) (Bekker's
+  multi-pass rule: ~4x after 4 axles in clay, ~2.4x in dry sand), times a softening factor for
+  mud. The terrain floor follows the rut, so this also bounds how deep the trucks sink over
+  repeated passes. Sand has wider berms that grow with depth, gentler walls (35° vs 58°),
+  stronger slip sinkage and spin digging. Measured 2026-10-31 (4 Percherons, gridmap_v2): mud
+  cells passed twice 0.147 m mean depth, four times 0.180 m; sand reached its 0.15 m floor by the
+  second pass.
 * Rut guide (`physics.heavy.rutGuide`): the terrain grid cannot hold a 0.3 m wide rut,
   so the rut walls of the mud mesh act on the tyres as the ground would. With every
   wheel report the mod fits the slope of the rut relief across the tyre (5 samples over
@@ -493,6 +505,9 @@ Lengths are metres, speeds m/s, times seconds.
 | `bodyMaxWait` / `bodyHideMargin` | 0.6 / 0.5 | New ruts all under a vehicle body (box + margin) wait up to this long |
 | `bigChange` / `smallChangeWait` | 0.02 / 0.4 | Rut changes below 2 cm wait up to 0.4 s |
 | `borderRebuildGap` | 5 | A tile whose only change is a neighbour's mesh waits this long |
+| `minVisibleChange` | 0.006 | A tile re-upload whose largest height change against the mesh on screen is below this (m) is skipped (data keeps the change) |
+| `inViewTarget` / `outViewTarget` | 0.3 / 1.5 | Target latency (s) of a waiting rebuild in / out of the camera view: the queue serves the earliest deadline first after fresh rut fronts |
+| `outViewMaxDefer` | 4 | Deepening of a meshed tile out of view waits until it comes into view, at most this long (s) |
 | `ownMeshRadius` | 3 | Untouched tiles this close to a footprint box get their own mesh ahead of the wheels |
 | `maxMeshBuildsPerSec` | 40 | Tile + sector mesh replaces per second at most (caps engine memory growth) |
 | `farLod` | 3 | Vehicles without an active ring report at 1/farLod rate |
@@ -560,6 +575,15 @@ Lengths are metres, speeds m/s, times seconds.
 | `trackDepthGain` | 2.0 | Extra roughness per metre of depth |
 | `jitterZ` | 0.015 | Height jitter of the roughest ruts |
 | `jitterXY` | 0.03 | Sideways jitter of the roughest ruts |
+| `kinds.<kind>.bermFraction` | mud 0.35, sand 0.5 | Berm share per ground kind (kind of the terrain square under the hub) |
+| `kinds.<kind>.bermDepthRef` | sand 0.1 | > 0: berm share x clamp(immersion / bermDepthRef, 0.4, 1.6) (sand berms grow with deep ruts) |
+| `kinds.<kind>.maxSlope` | mud 1.6, sand 0.7 | Steepest wall per kind (about 58° / 35°) |
+| `kinds.<kind>.soilN` | mud 0.5, sand 1.1 | Bekker sinkage exponent n for the soil memory |
+| `kinds.<kind>.soften` | mud 0.1, sand 0 | Allowed depth x (1 + soften x (passes - 1)): mud softens with passes |
+| `kinds.<kind>.slipBeta` | mud 0.2, sand 1.0 | Slip sinkage: the stamp's hub is lowered by beta x s / (s + 0.2) x immersion (s = slip ratio) |
+| `kinds.<kind>.spinDig` | mud 0.8, sand 1.4 | Factor on `spinDigRate` / `spinDigMax` |
+| `soil.enabled` | true | Soil memory: pass N carves at most z1 x N^(2/(2n+1)) deep (z1 = first pass depth) |
+| `soil.passGap` | 0.6 | The same wheel over a cell again after this many seconds is a new pass |
 
 ### report
 

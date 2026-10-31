@@ -31,7 +31,20 @@ the shared budget). Every mod material has `castShadows 0`; the extra `RenderSha
 padding, -2 % createMesh time, twice the memory growth), deferring colour-only tyre flushes
 (colour already rides along with coverage steps: same flush count).
 
+Measured 2026-10-31 (research tests, `tools/benchmark/ge_extensions/dntestEng.lua`, see
+ENGINE_FINDINGS): the shadow-pass cost is paid per `createMesh` call (also re-uploads into the same
+object, also with `collisionType 'None'`, no shader generation) and grows almost linearly with
+uploads per frame (~0.5-0.6 ms each): fewer uploads is the only Lua-side lever; batching is not.
+`lastSplitCastersEnabled` off: no change. Upload depth histogram (4 trucks, 5687 tile uploads):
+largest rut depth 12-20 cm in 83 %, < 5 cm in 6 % (a depth ladder by rut depth saves little
+with heavy trucks); largest change < 1 cm in 7.6 %, < 3 cm in 14 % (`ring.minVisibleChange`
+now skips the sub-6 mm ones). The remaining fix is engine side: an in-place ProceduralMesh update.
+
 ## 2. Deepening lag under load
+
+2026-10-31: deadline-first queue (`ring.inViewTarget` / `outViewTarget`, out-of-view deepening
+deferred up to `outViewMaxDefer`): worst near rut lag 1.5-3.9 s -> 0.8-1.0 s with 4 trucks. Not
+re-measured with 8 trucks.
 
 Fresh rut fronts in view rebuild at 30–40 Hz outside the governor; ruts deepened by the axles
 behind rebuild at `ring.deepenRebuildHz` (8) inside the upload budget and can wait up to ~4 s with
@@ -96,6 +109,20 @@ with 8 trucks at 20 Hz. Measured 2026-10-28: compiling and running a 1 KB report
 The tyre textures are procedural now (`bake_tyremud.py`, `bake_tyresand.py`, `bake_tyrefilm.py`,
 no game asset read). `clods.texDir`/`texBase` still name BeamNG's decal-road mud set as the
 fallback normal map of a kind without its own `texN` (none in the shipped config).
+
+## 13. Research follow-ups not done yet (2026-10-31)
+
+From the terrain-deformation techniques review (IDs as in that review):
+- T7 / PHYS-7 (rut terrain material through the layer map, `setMaterialIdxWs` +
+  `updateGridMaterials`): not tried (device-loss risk named in the review, two engine crashes from
+  terrain experiments already in ENGINE_FINDINGS).
+- T14 / VIS-2 / VIS-6 (engine `DecalMgr` tread decals): one try showed no decal at all (see
+  ENGINE_FINDINGS); needs the right template / flags first.
+- T3, T5 (graphics API comparison), T8, T9 (D3D12 soak), T10 (updateGrid box span), T18 (LOD
+  outer table), PHYS-1 (calibrating `dragAnisotropy` / `flowBehaviorIndex` against sinkage and
+  resistance targets), MEM-3 (rut persistence), VIS-4 / VIS-5 (bow wave, standing water).
+- Soil memory values (`stamp.kinds.*.soilN/soften/slipBeta`) are literature starting points, not
+  tuned against driving tests; with Percherons the sand ruts reach the 0.15 m floor by pass 2.
 
 ## 12. Tyre coat colour and sand look
 
