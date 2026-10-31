@@ -581,6 +581,34 @@ local defaults = {
   -- rut shape still comes from the mud meshes.
   overlay = {
     enabled = false,
+    -- Decal roads DeepNode hides over soft ground (roads.mode 'off', hideOnMud) drawn again in
+    -- screen space from a world-space road map: on whatever surface is there, so they sink
+    -- into the ruts (deepnode_overlay, roadStampP / roadDrawP.hlsl). One pass per material
+    -- (at most 8 materials).
+    roads = {
+      enabled = true,
+      -- the map holds two road layers side by side (2 x mapSize by mapSize, RGBA16F, plus a
+      -- copy of it): 1024 = 2 x 16.8 MB of video memory, 18.75 cm texels over 192 m
+      mapSize = 1024,       -- texels per side and layer
+      span = 192,           -- m covered by the road map around the camera
+      recentreMargin = 48,  -- m: the road map follows the camera this close to an edge
+      quadsPerFrame = 24,   -- road quads painted per frame (shader limit 24)
+      margin = 0.25,        -- m painted beyond the road edges (filtered values run on)
+      edgeFade = 12,        -- m: roads fade out towards the map edge
+      srgb = false,         -- decode sRGB in the shader (the shipped colour maps are BC7 sRGB DDS: the GPU decodes them)
+      swapUV = false, flipU = false, flipV = false,
+      normalStrength = 1.0, -- road normal map tilt
+      relief = 1.0,
+      alphaGain = 1.0,
+      minNormalZ = 0.5,     -- no road on faces steeper than this
+      zAbove = 0.12,        -- m: drawn on surfaces up to this far above the road's own height (berms)
+      zBelow = 1.5,         -- m: and down to this far below it (ruts)
+      groundAlbedo = { 0.2, 0.17, 0.13 }, -- light level under the roads where no soft ground colour is known
+      skipMatch = { 'invisible' },
+      wetMatch = { 'mud' }, -- materials with a wet sky reflection (wetGloss) on top of their metallic one
+      wetGloss = 0.08,
+      lowPriorityOnTop = false, -- engine order: higher renderPriority numbers draw over lower ones
+    },
     mapSize = 2048,         -- texels per side of the rut map
     span = 128,             -- m covered by the map (6.25 cm texels at 2048)
     recentreMargin = 24,    -- m: the map follows the camera when it gets this close to an edge (prints are lost)

@@ -139,6 +139,19 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
 - After `reload_lua` with the MCP free camera active, `core_camera.getPosition*` returned
   (0, 0, 0) until the camera mode was set again (`set_camera orbit`).
 
+### Road look (2026-10-31)
+
+- A PostEffect has 6 texture slots (`texture` 0-5; slot 6+ reads back empty).
+- Scene depth decodes without the normal buffer: `realToEyeLinearDepth(ndcToRealDepth(depth,
+  projParams.zw), projParams)` with `#prepass[Depth]` alone (frees `#prepass[RT0]`'s slot).
+- Decal road materials name `.png` files; the game ships `.dds` (colour BC7_UNORM_SRGB, opacity /
+  roughness / AO BC4, normal BC5, 13 mips). Bound to a PostEffect slot the colour map arrives
+  linear (the GPU decodes sRGB): a second `pow(2.2)` darkened it.
+- Decal road draw order: on gridmap_v2 the engine draws mud_large (renderPriority 18) and
+  mud_water (19) over the dirt roads (14): higher numbers on top.
+- `mud_water` is a metallic (0.49) light-grey decal at 0.5 x 0.93 opacity: a wet, darker,
+  reflective film, not a light colour.
+
 ## Other
 
 - `Engine.Render.DynamicDecalMgr.addDecals` (box-projected colour decals, one frame) projects onto

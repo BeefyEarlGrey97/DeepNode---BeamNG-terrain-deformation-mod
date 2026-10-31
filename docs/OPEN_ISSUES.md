@@ -165,6 +165,13 @@ Not done yet:
   (120 s) erases prints with the ruts.
 - Tyre pass: rubber albedo is a guess (`tyreAlbedo`); `tyreCoat` (shader coat, the way to drop
   the tyre mud meshes) is untuned.
+- Road look (`overlay.roads`, 2026-10-31): only two roads per texel, so where three decals
+  overlap one is lost (faint stair-step edges along the 18.75 cm texel grid remain there); the
+  roughness and AO maps are not used (6 texture slots: scene, depth, road map, colour, opacity,
+  normal), gloss comes from the metallic factor and `wetGloss`; light is the scene colour over a
+  mean ground albedo per map window; GPU cost not measured (vsync 60); only drawn within the
+  192 m map (fades over the last 12 m); checked on gridmap_v2 only; with the overlay off the
+  roads over soft ground stay hidden.
 
 ## 15. Grass blinks next to digging (heavy mode)
 

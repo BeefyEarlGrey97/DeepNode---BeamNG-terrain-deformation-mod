@@ -43,6 +43,14 @@ local STAMP_PATH = SHADER_DIR .. 'rutStampP.hlsl'
 local COPY_PATH = SHADER_DIR .. 'rutCopyP.hlsl'
 local OVER_PATH = SHADER_DIR .. 'rutOverlayP.hlsl'
 local TYRE_PATH = SHADER_DIR .. 'tyreWetP.hlsl'
+local RSTAMP_PATH = SHADER_DIR .. 'roadStampP.hlsl'
+local RDRAW_PATH = SHADER_DIR .. 'roadDrawP.hlsl'
+local FX_RSTAMP, FX_RCOPY, FX_RDRAW = 'deepnode_roadStampFX', 'deepnode_roadCopyFX', 'deepnode_roadDrawFX'
+local SH_RSTAMP, SH_RDRAW = 'deepnode_roadStampShader', 'deepnode_roadDrawShader'
+local SB_RDRAW = 'deepnode_roadDrawSB'
+local RTARGET, RTMP = '#deepnode_road', '#deepnode_roadTmp'
+local MAX_QUADS = 24
+local MAX_ROAD_MATS = 8
 local COMMON_PATH = SHADER_DIR .. 'dnCommon.h.hlsl'
 local MAX_SEG = 16
 local MAX_WHEELS = 16
@@ -61,7 +69,7 @@ local shift = nil             -- pending window move { texels x, texels y, z bas
 local clr, clrN = {}, 0       -- pending erase rects (rut tiles DeepNode reset), x0 y0 x1 y1 each
 local anyPrint = false
 local stampOn, overOn, tyreOn = nil, nil, nil
-local vals = { [FX_STAMP] = {}, [FX_OVER] = {}, [FX_TYRE] = {} } -- [effect name][uniform] = formatted value
+local vals = { [FX_STAMP] = {}, [FX_OVER] = {}, [FX_TYRE] = {}, [FX_RSTAMP] = {} } -- [effect name][uniform] = formatted value
 local sun = { x = 0, y = 0, z = 1, t = -1 }
 local stats = { queued = 0, painted = 0, dropped = 0, recentres = 0, frames = 0, carried = 0, tyres = 0 }
 -- arc length along each tyre path, keyed by the hub point where the next report starts
@@ -98,6 +106,7 @@ end
 -- the frame's count) are not pushed.
 local function setConst(fxName, name, a, b, c, d)
   local t = vals[fxName]
+  if not t then t = {}; vals[fxName] = t end
   local e = t[name]
   if not e then e = { '$' .. name }; t[name] = e end
   e[7] = true
@@ -111,14 +120,14 @@ end
 local function pushConsts(fxName)
   local fx = find(fxName)
   if not fx then return end
-  for _, e in pairs(vals[fxName]) do
+  for _, e in pairs(vals[fxName] or {}) do
     if e[7] then fx:setShaderConst(e[1], e[2]) end
   end
 end
 
 -- start of a frame's constants for an effect: entries must be set again to be pushed
 local function beginConsts(fxName)
-  for _, e in pairs(vals[fxName]) do e[7] = false end
+  for _, e in pairs(vals[fxName] or {}) do e[7] = false end
 end
 
 -- PostEffect on/off without disable(): a disabled effect may drop its named target
@@ -170,7 +179,8 @@ local function makeStateBlock(name, samplers)
   sb.zWriteEnable = false
   sb.samplersDefined = true
   for i = 1, #samplers do
-    sb:setField('samplerStates', i - 1, samplers:sub(i, i) == 'l' and 'SamplerClampLinear' or 'SamplerClampPoint')
+    local c = samplers:sub(i, i)
+    sb:setField('samplerStates', i - 1, c == 'l' and 'SamplerClampLinear' or (c == 'w' and 'SamplerWrapLinear' or 'SamplerClampPoint'))
   end
   -- no blending: the passes read the scene and write the changed colour
   sb.blendDefined = true
@@ -178,6 +188,23 @@ local function makeStateBlock(name, samplers)
   sb:setField('blendSrc', 0, 'GFXBlendOne')
   sb:setField('blendDest', 0, 'GFXBlendZero')
   if new then sb:registerObject(name) end
+end
+
+-- PostEffect with fields { {name, value} } and up to 6 texture slots (created or updated in place)
+local function effect(name, fields, textures)
+  local fx = find(name)
+  local new = not fx
+  if new then fx = createObject('PostEffect') end
+  fx.allowReflectPass = false
+  for i = 1, #fields do fx:setField(fields[i][1], 0, fields[i][2]) end
+  for i = 0, 5 do fx:setField('texture', i, textures[i + 1] or '') end
+  if new then
+    fx.isEnabled = false
+    fx:registerObject(name)
+  elseif fx.reload then
+    fx:reload()
+  end
+  return fx
 end
 
 local function makeEffects()
@@ -200,21 +227,6 @@ local function makeEffects()
       onEnabled = function() return true end })
   end
   local size = floor(oc.mapSize)
-  local function effect(name, fields, textures)
-    local fx = find(name)
-    local new = not fx
-    if new then fx = createObject('PostEffect') end
-    fx.allowReflectPass = false
-    for i = 1, #fields do fx:setField(fields[i][1], 0, fields[i][2]) end
-    for i = 0, 5 do fx:setField('texture', i, textures[i + 1] or '') end
-    if new then
-      fx.isEnabled = false
-      fx:registerObject(name)
-    elseif fx.reload then
-      fx:reload()
-    end
-    return fx
-  end
   -- higher renderPriority runs first: stamp (map -> tmp), copy (tmp -> map), overlay, tyres
   local function mapPass(name, shader, prio, src, dst)
     return effect(name, {
@@ -572,6 +584,475 @@ local function sendTyres(wm)
   return n
 end
 
+-------------------------------------------------------------------------------
+-- decal roads over soft ground, drawn from a world-space road map (overlay.roads)
+-------------------------------------------------------------------------------
+-- The decal roads main hid over soft ground (roads.hideOnMud) are cut into quads (between
+-- two edge points of the road) at start. A road map (#deepnode_road, roadStampP.hlsl) over
+-- rc.span m around the camera stores per texel the road position (along, across), its start /
+-- end fade and its id (material slot and draw rank); the quads are painted into it as the map
+-- window moves (only the quads over the newly covered strip: the old content is shifted).
+-- roadDrawP.hlsl draws each material in its own pass from the map onto the depth buffer's
+-- surface: the road lies on the mud as dug, ruts included.
+local rc = nil           -- cfg overlay.roads
+local roadOn = false
+local rmats = {}         -- slot + 1 -> { name, col, opa, nrm, tint = {r, g, b, a} }
+-- quads: { ax, ay, bx, by, hw0, hw1, v0, v per m, fade0, fade1, side, id, x0, y0, x1, y1, rank, slot, z0, z1 }
+local rquads = {}
+local rgrid = {}         -- 16 m bucket key -> { quad index, ... }
+local RB = 16
+local rwin = { x0 = 0, y0 = 0, z = 0, span = 256, size = 2048, set = false }
+local rq, rqh, rqt = {}, 1, 0
+local rshift = nil
+local rclear = 0
+local rmark, rmarkN = {}, 0
+local rslots = {}        -- slot -> true while quads of it lie in the window
+local rground = { 0.2, 0.17, 0.13 }
+local rstampOn, rdrawOn = nil, {}
+local rstats = { roads = 0, quads = 0, painted = 0, recentres = 0, materials = 0, skippedMats = 0 }
+
+local function bucketKey(bx, by) return (by + 32768) * 65536 + (bx + 32768) end
+
+local function matTexture(m, names)
+  for _, n in ipairs(names) do
+    local ok, v = pcall(function() return m:getField(n, 0) end)
+    if ok and v and v ~= '' then return tostring(v) end
+  end
+  return ''
+end
+
+local function colorFactor(m)
+  local ok, v = pcall(function() return m:getField('baseColorFactor', 0) end)
+  v = ok and tostring(v or '') or ''
+  local r, g, b, a = v:match('([%d%.%-]+)%s+([%d%.%-]+)%s+([%d%.%-]+)%s*([%d%.%-]*)')
+  if r then return { tonumber(r) or 1, tonumber(g) or 1, tonumber(b) or 1, tonumber(a) or 1 } end
+  return { 1, 1, 1, 1 }
+end
+
+-- quads of the roads main hid; returns the number of roads taken
+local function buildRoads()
+  rmats, rquads, rgrid = {}, {}, {}
+  local slotOf = {}
+  local roads = {}
+  local prios = {}
+  for _, road in ipairs(P.roadsHidden or {}) do
+    local okM, mat = pcall(function() return tostring(road:getField('material', 0) or '') end)
+    mat = okM and mat or ''
+    local lmat = mat:lower()
+    local skip = mat == ''
+    for _, t in ipairs(rc.skipMatch or {}) do
+      if t ~= '' and lmat:find(tostring(t):lower(), 1, true) then skip = true end
+    end
+    local mo = not skip and find(mat)
+    if mo then
+      local slot = slotOf[mat]
+      if slot == nil then
+        local col = matTexture(mo, { 'baseColorMap', 'colorMap', 'diffuseMap' })
+        if col ~= '' and #rmats < MAX_ROAD_MATS then
+          slot = #rmats
+          local function num(f, d)
+            local ok, v = pcall(function() return mo:getField(f, 0) end)
+            return ok and tonumber(v) or d
+          end
+          local tint = colorFactor(mo)
+          tint[4] = tint[4] * num('opacityFactor', 1)
+          local met = num('metallicFactor', 0)
+          local gloss = met
+          for _, t in ipairs(rc.wetMatch or {}) do
+            if t ~= '' and lmat:find(tostring(t):lower(), 1, true) then gloss = gloss + (rc.wetGloss or 0) end
+          end
+          rmats[slot + 1] = { name = mat, col = col, opa = matTexture(mo, { 'opacityMap' }),
+            nrm = matTexture(mo, { 'normalMap' }), tint = tint, met = met, gloss = min(1, gloss),
+            nstr = num('normalMapStrength', 1) }
+        else
+          slot = false
+          rstats.skippedMats = rstats.skippedMats + 1
+        end
+        slotOf[mat] = slot
+      end
+      if slot then
+        local prio = tonumber(road:getField('renderPriority', 0)) or 10
+        prios[prio] = true
+        roads[#roads + 1] = { road = road, slot = slot, prio = prio }
+      end
+    end
+  end
+  -- draw ranks: distinct priorities, higher renderPriority numbers on top (higher rank; checked
+  -- against the engine's own drawing on gridmap_v2: mud_large 18 / mud_water 19 cover the dirt
+  -- roads 14); at most 7 ranks (ids up to 56 keep the fade in half floats, roadStampP.hlsl)
+  local plist = {}
+  for pr in pairs(prios) do plist[#plist + 1] = pr end
+  tsort(plist, function(a, b) if rc.lowPriorityOnTop then return a > b end return a < b end)
+  local rankOf = {}
+  for i, pr in ipairs(plist) do rankOf[pr] = min(6, i - 1) end
+  local margin = rc.margin or 0.25
+  for _, e in ipairs(roads) do
+    local road = e.road
+    local okC, ec = pcall(function() return road:getEdgeCount() end)
+    ec = okC and tonumber(ec) or 0
+    local Lx, Ly, Rx, Ry, Mx, My, Mz, D = {}, {}, {}, {}, {}, {}, {}, {}
+    local n, dist = 0, 0
+    for i = 0, ec - 1 do
+      local okE, l, r = pcall(function() return road:getLeftEdgePosition(i), road:getRightEdgePosition(i) end)
+      if okE and l and r and l.x == l.x and r.x == r.x then
+        local mx, my = (l.x + r.x) * 0.5, (l.y + r.y) * 0.5
+        local dd = n > 0 and sqrt((mx - Mx[n]) ^ 2 + (my - My[n]) ^ 2) or 0
+        if n == 0 or dd > 1e-3 then
+          dist = dist + dd
+          n = n + 1
+          Lx[n], Ly[n], Rx[n], Ry[n], Mx[n], My[n], Mz[n], D[n] = l.x, l.y, r.x, r.y, mx, my, (l.z + r.z) * 0.5, dist
+        end
+      end
+    end
+    if n >= 2 then
+      local texLen = tonumber(road:getField('textureLength', 0)) or 5
+      if texLen <= 0.01 then texLen = 5 end
+      local fs, fe = 0, 0
+      local sef = tostring(road:getField('startEndFade', 0) or '')
+      local a, b = sef:match('([%d%.%-]+)%s+([%d%.%-]+)')
+      if a then fs, fe = max(0, tonumber(a) or 0), max(0, tonumber(b) or 0) end
+      local function fadeAt(s)
+        local f = 1
+        if fs > 0 then f = min(f, s / fs) end
+        if fe > 0 then f = min(f, (dist - s) / fe) end
+        return max(0, min(1, f))
+      end
+      local rank = rankOf[e.prio] or 0
+      local id = 1 + e.slot + 8 * rank
+      local mt = rmats[e.slot + 1]
+      mt.rank = max(mt.rank or 0, rank)
+      mt.minTexLen = min(mt.minTexLen or math.huge, texLen)
+      for i = 1, n - 1 do
+        local ax, ay, bx, by = Mx[i], My[i], Mx[i + 1], My[i + 1]
+        local fx, fy = bx - ax, by - ay
+        local fl = sqrt(fx * fx + fy * fy)
+        fx, fy = fx / fl, fy / fl
+        -- the right edge on the clockwise side (fy, -fx) of start -> end?
+        local wx, wy = (Rx[i] - Lx[i]) + (Rx[i + 1] - Lx[i + 1]), (Ry[i] - Ly[i]) + (Ry[i + 1] - Ly[i + 1])
+        local side = (wx * fy - wy * fx) >= 0 and 1 or -1
+        local hw0 = sqrt((Rx[i] - Lx[i]) ^ 2 + (Ry[i] - Ly[i]) ^ 2) * 0.5
+        local hw1 = sqrt((Rx[i + 1] - Lx[i + 1]) ^ 2 + (Ry[i + 1] - Ly[i + 1]) ^ 2) * 0.5
+        mt.minWidth = min(mt.minWidth or math.huge, max(0.5, 2 * min(hw0, hw1)))
+        local v0 = D[i] / texLen
+        local q = { ax, ay, bx, by, hw0, hw1, v0 - floor(v0), 1 / texLen, fadeAt(D[i]), fadeAt(D[i + 1]), side, id,
+          min(Lx[i], Rx[i], Lx[i + 1], Rx[i + 1]) - margin, min(Ly[i], Ry[i], Ly[i + 1], Ry[i + 1]) - margin,
+          max(Lx[i], Rx[i], Lx[i + 1], Rx[i + 1]) + margin, max(Ly[i], Ry[i], Ly[i + 1], Ry[i + 1]) + margin,
+          rank, e.slot, Mz[i], Mz[i + 1] }
+        rquads[#rquads + 1] = q
+        local qi = #rquads
+        for gy = floor(q[14] / RB), floor(q[16] / RB) do
+          for gx = floor(q[13] / RB), floor(q[15] / RB) do
+            local k = bucketKey(gx, gy)
+            local bl = rgrid[k]
+            if not bl then bl = {}; rgrid[k] = bl end
+            bl[#bl + 1] = qi
+          end
+        end
+      end
+    end
+  end
+  rstats.roads, rstats.quads, rstats.materials = #roads, #rquads, #rmats
+  return #roads
+end
+
+local function byRank(a, b)
+  local qa, qb = rquads[a], rquads[b]
+  if qa[17] ~= qb[17] then return qa[17] < qb[17] end
+  return a < b
+end
+
+-- queue the quads over the window rect, minus those inside the old rect (nil: all), by rank;
+-- also finds the material slots present and the ground colour under the roads
+local function queueRoads(x0, y0, x1, y1, ox0, oy0, ox1, oy1)
+  rmarkN = rmarkN + 1
+  local mark = rmarkN
+  local add = {}
+  for k in pairs(rslots) do rslots[k] = nil end
+  local gr, gg, gb, gn = 0, 0, 0, 0
+  local ter = ctx.ter
+  for gy = floor(y0 / RB), floor(y1 / RB) do
+    for gx = floor(x0 / RB), floor(x1 / RB) do
+      local bl = rgrid[bucketKey(gx, gy)]
+      if bl then
+        for _, qi in ipairs(bl) do
+          if rmark[qi] ~= mark then
+            rmark[qi] = mark
+            local q = rquads[qi]
+            if q[15] >= x0 and q[13] <= x1 and q[16] >= y0 and q[14] <= y1 then
+              rslots[q[18]] = true
+              local inside = ox0 and q[13] >= ox0 and q[15] <= ox1 and q[14] >= oy0 and q[16] <= oy1
+              if not inside then add[#add + 1] = qi end
+              -- ground colour under the roads (every 7th quad)
+              if qi % 7 == 0 and ter and ctx.groundColorAt and ctx.layerAt then
+                local mx, my = (q[1] + q[3]) * 0.5, (q[2] + q[4]) * 0.5
+                local e = ctx.layerAt(floor((mx - ter.ox) / ter.sq + 0.5), floor((my - ter.oy) / ter.sq + 0.5))
+                local r, g, b = ctx.groundColorAt(mx, my, e)
+                if r then gr, gg, gb, gn = gr + r, gg + g, gb + b, gn + 1 end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  if gn > 0 then
+    rground[1], rground[2], rground[3] = gr / gn, gg / gn, gb / gn
+  else
+    local g = rc.groundAlbedo or { 0.2, 0.17, 0.13 }
+    rground[1], rground[2], rground[3] = g[1], g[2], g[3]
+  end
+  tsort(add, byRank)
+  for _, qi in ipairs(add) do
+    rqt = rqt + 1
+    rq[rqt] = qi
+  end
+end
+
+-- road map window centred on (x, y), snapped to 16 m (whole texels at 12.5 cm and up)
+local function roadRecentre(x, y, z)
+  local half = rwin.span * 0.5
+  local z0 = floor(z)
+  local x0 = floor((x - half) / 16 + 0.5) * 16
+  local y0 = floor((y - half) / 16 + 0.5) * 16
+  local tex = rwin.span / rwin.size
+  if rwin.set and rclear == 0 then
+    local ox0, oy0 = rwin.x0, rwin.y0
+    local p = rshift
+    rshift = { (p and p[1] or 0) + (x0 - ox0) / tex, (p and p[2] or 0) + (y0 - oy0) / tex,
+      (p and p[3] or 0) + rwin.z - z0 }
+    rwin.x0, rwin.y0, rwin.z = x0, y0, z0
+    queueRoads(x0, y0, x0 + rwin.span, y0 + rwin.span, ox0, oy0, ox0 + rwin.span, oy0 + rwin.span)
+  else
+    rclear = max(rclear, 2)
+    rqh, rqt = 1, 0
+    rwin.x0, rwin.y0, rwin.z = x0, y0, z0
+    queueRoads(x0, y0, x0 + rwin.span, y0 + rwin.span)
+  end
+  rwin.set = true
+  rstats.recentres = rstats.recentres + 1
+end
+
+local function drawName(slot) return FX_RDRAW .. slot end
+
+local function makeRoadEffects()
+  local shS = SH_RSTAMP .. '_' .. sourceRev(RSTAMP_PATH)
+  local shD = SH_RDRAW .. '_' .. sourceRev(RDRAW_PATH)
+  local shC = SH_COPY .. '_' .. sourceRev(COPY_PATH)
+  makeShader(shS, RSTAMP_PATH)
+  makeShader(shD, RDRAW_PATH)
+  if not find(shC) then makeShader(shC, COPY_PATH) end
+  shaderNames[#shaderNames + 1] = shS
+  shaderNames[#shaderNames + 1] = shD
+  -- scene, depth, road map (linear), colour / opacity / normal maps (wrapping, mipmapped)
+  makeStateBlock(SB_RDRAW, 'pplwww')
+  local size = floor(rwin.size)
+  local function mapPass(name, shader, prio, src, dst)
+    return effect(name, {
+      { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', prio },
+      { 'shader', shader }, { 'stateBlock', SB_STAMP }, { 'target', dst },
+      { 'targetSize', (2 * size) .. ' ' .. size }, { 'targetFormat', 'GFXFormatR16G16B16A16F' },
+      { 'targetClear', 'PFXTargetClear_None' } }, { src })
+  end
+  rawset(_G, FX_RSTAMP .. 'Callbacks', { setShaderConsts = function() pushConsts(FX_RSTAMP) end,
+    onEnabled = function() return true end })
+  -- after the rut map passes (60, 59), before the rut overlay (50): prints draw over roads
+  local st = mapPass(FX_RSTAMP, shS, '58', RTARGET, RTMP)
+  local cp = mapPass(FX_RCOPY, shC, '57', RTMP, RTARGET)
+  st:enable(); cp:enable()
+  setSkip(st, false); setSkip(cp, false)
+  rstampOn = true
+  rdrawOn = {}
+  -- material passes in rank order (a road under another one is drawn first); higher
+  -- renderPriority runs first
+  local order = {}
+  for slot = 0, #rmats - 1 do order[#order + 1] = slot end
+  tsort(order, function(a, b)
+    local ra, rb = rmats[a + 1].rank or 0, rmats[b + 1].rank or 0
+    if ra ~= rb then return ra < rb end
+    return a < b
+  end)
+  local prioOf = {}
+  for k, slot in ipairs(order) do prioOf[slot] = sfmt('%.2f', 56.9 - (k - 1) * 0.1) end
+  for slot = 0, #rmats - 1 do
+    local m = rmats[slot + 1]
+    local name = drawName(slot)
+    rawset(_G, name .. 'Callbacks', { setShaderConsts = function() pushConsts(name) end,
+      onEnabled = function() return true end })
+    local fx = effect(name, {
+      { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', prioOf[slot] },
+      { 'shader', shD }, { 'stateBlock', SB_RDRAW }, { 'target', '$backBuffer' } },
+      { '$backBuffer', '#prepass[Depth]', RTARGET, m.col, m.opa, m.nrm })
+    fx:enable()
+    setSkip(fx, true)
+    rdrawOn[slot] = false
+  end
+end
+
+local function killRoadEffects()
+  for _, n in ipairs({ FX_RSTAMP, FX_RCOPY, SB_RDRAW }) do kill(n) end
+  rawset(_G, FX_RSTAMP .. 'Callbacks', nil)
+  for slot = 0, MAX_ROAD_MATS - 1 do
+    kill(drawName(slot))
+    rawset(_G, drawName(slot) .. 'Callbacks', nil)
+    vals[drawName(slot)] = nil
+  end
+  vals[FX_RSTAMP] = {}
+  roadOn = false
+end
+
+local function startRoads()
+  roadOn = false
+  rc = oc.roads
+  if not (rc and rc.enabled) or not P.roadsHidden or #P.roadsHidden == 0 then return false end
+  rwin.span, rwin.size, rwin.set = rc.span or 256, floor(rc.mapSize or 2048), false
+  rq, rqh, rqt, rshift, rclear, rmark, rmarkN = {}, 1, 0, nil, 0, {}, 0
+  rslots = {}
+  for k in pairs(rstats) do rstats[k] = 0 end
+  local t0 = os.clock()
+  if buildRoads() == 0 then return false end
+  makeRoadEffects()
+  -- warm-up as for the rut map: paint in the first frames after creating the effects was lost
+  if readCam() then roadRecentre(camX, camY, camZ - 3) end
+  rclear = 10
+  roadOn = true
+  log('I', 'deepnode', sfmt('road look on: %d roads, %d quads, %d materials (%d skipped) over %d m, %.0f ms',
+    rstats.roads, rstats.quads, rstats.materials, rstats.skippedMats, floor(rwin.span), (os.clock() - t0) * 1000))
+  return true
+end
+
+-- vehicle footprints near the camera for the road passes (no road painted on a vehicle)
+local rveh = { n = 0 }
+local function roadVehicles()
+  local n = 0
+  for i = 0, be:getObjectCount() - 1 do
+    if n >= 8 then break end
+    local veh = be:getObject(i)
+    local bb = veh and veh.getSpawnWorldOOBB and veh:getSpawnWorldOOBB()
+    if bb and bb.getCenter and bb.getPoint then
+      local c = bb:getCenter()
+      if (c.x - camX) ^ 2 + (c.y - camY) ^ 2 < 10000 then
+        local d = veh:getDirectionVector()
+        local dl = sqrt(d.x * d.x + d.y * d.y)
+        if dl > 0.1 then
+          local fx, fy = d.x / dl, d.y / dl
+          local hl, hw, zmin = 0, 0, math.huge
+          for k = 0, 7 do
+            local p = bb:getPoint(k)
+            local rx, ry = p.x - c.x, p.y - c.y
+            hl = max(hl, abs(rx * fx + ry * fy))
+            hw = max(hw, abs(-rx * fy + ry * fx))
+            zmin = min(zmin, p.z)
+          end
+          n = n + 1
+          local e = rveh[n] or {}
+          rveh[n] = e
+          e[1], e[2], e[3], e[4], e[5], e[6], e[7] = c.x, c.y, hl + 0.1, hw + 0.1, fx, fy, zmin
+        end
+      end
+    end
+  end
+  rveh.n = n
+end
+
+local function roadFrame()
+  if not roadOn then return end
+  local st, cp = find(FX_RSTAMP), find(FX_RCOPY)
+  if not (st and cp) then roadOn = false; return end
+  local m = rc.recentreMargin or 64
+  if not rwin.set or camX < rwin.x0 + m or camY < rwin.y0 + m or camX > rwin.x0 + rwin.span - m
+      or camY > rwin.y0 + rwin.span - m then
+    roadRecentre(camX, camY, camZ - 3)
+  end
+  -- paint pass: clear, queued quads and / or a window move, or nothing
+  beginConsts(FX_RSTAMP)
+  setConst(FX_RSTAMP, 'dnWin', rwin.x0, rwin.y0, rwin.span, rwin.z)
+  local sh = rshift
+  rshift = nil
+  setConst(FX_RSTAMP, 'dnShift', sh and sh[1] or 0, sh and sh[2] or 0, sh and sh[3] or 0, 0)
+  local n
+  if rclear > 0 then
+    rclear = rclear - 1
+    setConst(FX_RSTAMP, 'dnCtl', 0, 1, rc.margin or 0.25, rwin.size)
+    n = -1
+  else
+    n = min(min(rc.quadsPerFrame or 24, MAX_QUADS), rqt - rqh + 1)
+    local bz = rwin.z
+    local ids = {}
+    for i = 0, n - 1 do
+      local q = rquads[rq[rqh + i]]
+      setConst(FX_RSTAMP, 'dnA' .. i, q[1], q[2], q[3], q[4])
+      setConst(FX_RSTAMP, 'dnB' .. i, q[5], q[6], q[7], q[8] * q[11])
+      setConst(FX_RSTAMP, 'dnC' .. i, q[9], q[10], q[19] - bz, q[20] - bz)
+      ids[i + 1] = q[12]
+    end
+    for k = 0, 5 do
+      setConst(FX_RSTAMP, 'dnId' .. k, ids[k * 4 + 1] or 0, ids[k * 4 + 2] or 0, ids[k * 4 + 3] or 0, ids[k * 4 + 4] or 0)
+    end
+    rqh = rqh + n
+    if rqh > rqt then rqh, rqt = 1, 0 end
+    setConst(FX_RSTAMP, 'dnCtl', n, 0, rc.margin or 0.25, rwin.size)
+    rstats.painted = rstats.painted + n
+  end
+  local want = n ~= 0 or sh ~= nil
+  if want ~= rstampOn then setSkip(st, not want); setSkip(cp, not want); rstampOn = want end
+
+  -- draw passes: only the materials with quads in the window
+  roadVehicles()
+  local dbg = rc.debug or 0
+  for slot = 0, #rmats - 1 do
+    local name = drawName(slot)
+    local fx = find(name)
+    local on = fx ~= nil and rslots[slot] == true
+    if fx and on ~= rdrawOn[slot] then setSkip(fx, not on); rdrawOn[slot] = on end
+    if on then
+      local mt = rmats[slot + 1]
+      beginConsts(name)
+      setConst(name, 'dnWin', rwin.x0, rwin.y0, rwin.span, rwin.size)
+      setConst(name, 'dnZ', rwin.z, rc.zAbove or 0.12, rc.zBelow or 1.5, 1 / max(0.5, mt.minWidth or 2))
+      setConst(name, 'dnPass', slot, mt.opa ~= '' and 1 or 0, mt.nrm ~= '' and (rc.normalStrength or 1) * mt.nstr or 0, dbg)
+      setConst(name, 'dnTint', mt.tint[1], mt.tint[2], mt.tint[3], mt.tint[4])
+      setConst(name, 'dnMat', mt.met, mt.gloss, 0, 0)
+      setConst(name, 'dnSun', sun.x, sun.y, sun.z, oc.ambient)
+      setConst(name, 'dnGround', rground[1], rground[2], rground[3], rc.srgb and 1 or 0)
+      setConst(name, 'dnUV', rc.swapUV and 1 or 0, rc.flipU and 1 or 0, rc.flipV and 1 or 0, 1 / max(0.5, mt.minTexLen or 5))
+      setConst(name, 'dnLook', rc.minNormalZ or 0.5, rc.edgeFade or 12, rc.relief or 1, rc.alphaGain or 1)
+      setConst(name, 'dnVehN', rveh.n, 0, 0, 0)
+      for k = 1, rveh.n do
+        local e = rveh[k]
+        setConst(name, 'dnVeh' .. (k - 1), e[1], e[2], e[3], e[4])
+      end
+      for k = 0, 3 do
+        local a = k * 2 + 1 <= rveh.n and rveh[k * 2 + 1] or nil
+        local b = k * 2 + 2 <= rveh.n and rveh[k * 2 + 2] or nil
+        setConst(name, 'dnVehD' .. k, a and a[5] or 1, a and a[6] or 0, b and b[5] or 1, b and b[6] or 0)
+      end
+      for k = 0, 1 do
+        local z = {}
+        for j = 1, 4 do
+          local e = k * 4 + j <= rveh.n and rveh[k * 4 + j] or nil
+          z[j] = e and e[7] or 0
+        end
+        setConst(name, 'dnVehZ' .. k, z[1], z[2], z[3], z[4])
+      end
+    end
+  end
+end
+
+function M.roadStats()
+  local s = {}
+  for k, v in pairs(rstats) do s[k] = v end
+  s.on, s.pending = roadOn, rqt - rqh + 1
+  s.window = { rwin.x0, rwin.y0, rwin.span }
+  s.ground = { rground[1], rground[2], rground[3] }
+  local sl = {}
+  for k in pairs(rslots) do sl[#sl + 1] = k end
+  s.slots = sl
+  local mats = {}
+  for i, m in ipairs(rmats) do mats[i] = m.name end
+  s.mats = mats
+  return s
+end
+
 function M.start(main)
   ctx = main
   P = main.private
@@ -600,6 +1081,8 @@ function M.start(main)
   P.overlayStamp = stampSoft
   P.overlayClear = clearRect
   active = true
+  local okR, errR = pcall(startRoads)
+  if not okR then log('E', 'deepnode', 'road look failed: ' .. tostring(errR)) end
   log('I', 'deepnode', sfmt('rut overlay on: %d^2 map over %d m', floor(oc.mapSize), floor(oc.span)))
   return true
 end
@@ -607,6 +1090,7 @@ end
 function M.stop()
   if P then P.overlayStamp, P.overlayClear = nil, nil end
   active = false
+  killRoadEffects()
   for _, n in ipairs({ FX_STAMP, FX_COPY, FX_OVER, FX_TYRE, SB_STAMP, SB_OVER }) do kill(n) end
   for _, n in ipairs(shaderNames) do
     kill(n)
@@ -630,6 +1114,18 @@ function M.reloadShaders()
     if fx then
       fx:setField('shader', 0, name)
       if fx.reload then fx:reload() end
+    end
+  end
+  if roadOn then
+    local name = SH_RDRAW .. '_' .. sourceRev(RDRAW_PATH)
+    makeShader(name, RDRAW_PATH)
+    shaderNames[#shaderNames + 1] = name
+    for slot = 0, #rmats - 1 do
+      local fx = find(drawName(slot))
+      if fx then
+        fx:setField('shader', 0, name)
+        if fx.reload then fx:reload() end
+      end
     end
   end
   return true
@@ -719,6 +1215,7 @@ function M.frame()
 
   local dbg = oc.debug or 0
   updateSun(os.clock())
+  roadFrame()
   local useSh = oc.useShadowMask and 1 or 0
 
   -- tyre pass: only while wet / coated wheels are in view

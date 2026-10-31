@@ -7,6 +7,12 @@ allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleave
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
 ### Added
+- Decal roads on the mud follow the ruts (overlay `roads`, with the experimental ground look on
+  and `roads.mode` off): the roads DeepNode hides over soft ground are drawn again in screen
+  space from a world-space road map (two layers per texel, one pass per road material), on the
+  rut floors and berms as dug; tyre prints draw over them. Not on kerbs, walkways or vehicles
+  (height band around the road's own surface). gridmap_v2: 230 roads, 6017 quads, 7 materials;
+  render thread +0.1-0.17 ms, 34 MB video memory.
 - Wet sky sheen (overlay `wetSheen` 0.3): wet mud ruts mirror the sky at grazing angles
   (flat-water Fresnel x a smooth wetness; the per-groove wetness first gave blue streaks).
 - No puddles under vehicles: the footprints of up to 8 vehicles near the camera mask the water
