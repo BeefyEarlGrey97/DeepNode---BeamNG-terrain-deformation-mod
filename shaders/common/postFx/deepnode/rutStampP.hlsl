@@ -9,7 +9,9 @@
 //   b = undisturbed ground z (the surface before the rut) - baseZ (m),
 //   a = position across the tyre (-1..1 inside the print, up to +-2 on the berm beside it)
 //       + 4 x surface kind (0 mud, 1 sand, 2 mud carried onto hard ground, 3 sand dust,
-//       4 mud splat thrown by a spinning wheel)
+//       4 mud splat thrown by a spinning wheel, 5 grass track, 6 dirt track, 7 wet track;
+//       a wet track keeps its paint time (s, mod 64) in g instead of the phase and is erased
+//       here once older than the drying time)
 // The phase continues from one wheel report to the next (arc length at the segment start
 // comes from Lua), so the print pattern continues along curved tracks.
 // A newer print replaces what was under it; a berm only covers untouched ground or berms.
@@ -31,6 +33,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnClr1;
     uniform float4 dnClr2;
     uniform float4 dnClr3;
+    uniform float4 dnTime;  // time (s, mod 64), drying time of wet tracks (s)
     uniform float4 dnA0;
     uniform float4 dnA1;
     uniform float4 dnA2;
@@ -122,7 +125,12 @@ float storedLat(float a)
             float lat = dot(d, float2(-fw.y, fw.x)) / hw;                              \
             float kind4 = 4.0 * dnC##i.x;                                              \
             bool oldPrint = res.r > 0.0 && abs(storedLat(res.a)) <= 1.0;               \
-            if (dnC##i.x > 3.5) {                                                  \
+            if (dnC##i.x > 6.5) {                                                  \
+                bool wetOk = res.r <= 0.0 || round(res.a / 4.0) == 7.0;            \
+                float cw = (1.0 - smoothstep(max(hw - edge, 0.0), hw, dist)) * dnC##i.y;\
+                if (dist < hw && wetOk && cw >= res.r * 0.5)                       \
+                    res = float4(max(cw, 0.02), dnTime.x, dnB##i.y, clamp(lat, -1.0, 1.0) + kind4);\
+            } else if (dnC##i.x > 3.5) {                                           \
                 float sc = dist < hw ? splatCover(p, lat, dnC##i.y) : 0.0;         \
                 if (sc > 0.1) res = res.r > 0.0 ? float4(sc, res.g, res.b, storedLat(res.a) + kind4) : float4(sc, 0.0, dnB##i.y, clamp(lat, -1.0, 1.0) + kind4);\
             } else if (dist < hw) {                                                \
@@ -154,6 +162,12 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     if (all(src >= 0) && src.x < (int)w && src.y < (int)h) {
         res = prevMapTex.Load(int3(src, 0));
         if (res.r > 0.0) res.b += dnShift.z;
+    }
+    // wet tracks dry: erase them once older than the drying time
+    if (res.r > 0.0 && round(res.a / 4.0) == 7.0) {
+        float age = dnTime.x - res.g;
+        age -= 64.0 * floor(age / 64.0);
+        if (age > dnTime.y) res = 0;
     }
     int nc = (int)dnShift.w;
     if (nc > 0 && all(p >= dnClr0.xy) && all(p <= dnClr0.zw)) res = 0;

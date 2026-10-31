@@ -47,7 +47,9 @@ local COMMON_PATH = SHADER_DIR .. 'dnCommon.h.hlsl'
 local MAX_SEG = 16
 local MAX_WHEELS = 16
 -- surface kinds stored in the map (rutStampP.hlsl)
-local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT, KIND_GRASS, KIND_DIRT = 0, 1, 2, 3, 4, 5, 6
+local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT, KIND_GRASS, KIND_DIRT, KIND_WET = 0, 1, 2, 3, 4, 5, 6, 7
+-- wet tracks: time of the last one, of the last drying pass (wheel time)
+local lastWet, lastDryPass = -1e9, -1e9
 local random = math.random
 
 local ctx, P, oc = nil, nil, nil
@@ -458,14 +460,17 @@ local function onWheel(vid, W)
   local hard = wheelNow - (W.mudT or -1e9) > cc.afterSoft
   local coat = W.coat or 0
   local carry = cc.enabled and coat >= cc.minCoat
-  if hard and (carry or tr.enabled) and win.set then
+  local wt = oc.wetTracks
+  local wetness = wt.enabled and max(W.wet or 0, W.water or 0) or 0
+  local wetTrack = not carry and wetness >= wt.minWet
+  if hard and (carry or wetTrack or tr.enabled) and win.set then
     local q = W.ovCarry
     if not q then
       W.ovCarry = { cx, cy, cz }
     else
       local dx, dy = cx - q[1], cy - q[2]
       local d2 = dx * dx + dy * dy
-      local step = carry and cc.step or tr.step
+      local step = (carry or wetTrack) and cc.step or tr.step
       if d2 > 25 then
         q[1], q[2], q[3] = cx, cy, cz
       elseif d2 >= step * step then
@@ -476,6 +481,10 @@ local function onWheel(vid, W)
             local kind = (W.kind == 'sand') and KIND_DUST or KIND_CARRY
             stamp(q[1], q[2], q[3], cx, cy, cz, axx / al, axy / al, W.R, W.tyres, kind, min(1, coat * cc.perCoat), 1)
             stats.carried = stats.carried + 1
+          elseif wetTrack then
+            stamp(q[1], q[2], q[3], cx, cy, cz, axx / al, axy / al, W.R, W.tyres, KIND_WET, min(1, wetness * wt.perWet), 1)
+            lastWet = wheelNow
+            stats.wetTracks = (stats.wetTracks or 0) + 1
           else
             -- only on the terrain itself (not on a road mesh or bridge over it)
             local kind = not (P.onRoadAt and P.onRoadAt(cx, cy)) and surfaceKind(cx, cy)
@@ -565,6 +574,7 @@ function M.start(main)
   for k in pairs(stats) do stats[k] = 0 end
   sun.t = -1
   surfaceKindOf = {}
+  lastWet, lastDryPass = -1e9, -1e9
   -- no grass / dirt tracks on decal roads laid over such terrain
   if oc.tracks and oc.tracks.enabled and P.buildRoadMask then
     local okR, nr, ms = pcall(P.buildRoadMask)
@@ -612,7 +622,7 @@ function M.isActive() return active end
 function M.stats()
   return { queued = stats.queued, painted = stats.painted, dropped = stats.dropped, recentres = stats.recentres,
     carried = stats.carried, tyres = stats.tyres, splats = stats.splats or 0, merged = stats.merged or 0,
-    tracks = stats.tracks or 0,
+    tracks = stats.tracks or 0, wetTracks = stats.wetTracks or 0,
     pending = qTail - qHead + 1,
     window = { win.x0, win.y0, win.span, win.z } }
 end
@@ -681,7 +691,13 @@ function M.frame()
     stats.painted = stats.painted + n
     if n > 0 then anyPrint = true end
   end
-  local wantStamp = n ~= 0 or moved or nc > 0
+  -- drying: a paint pass now and then while wet tracks may be left (erases dried texels)
+  local dryPass = false
+  if wheelNow - lastWet < oc.wetTracks.dryTime + 10 and wheelNow - lastDryPass > 3 then
+    dryPass, lastDryPass = true, wheelNow
+  end
+  setConst(FX_STAMP, 'dnTime', wheelNow % 64, oc.wetTracks.dryTime, 0, 0)
+  local wantStamp = n ~= 0 or moved or nc > 0 or dryPass
   if wantStamp ~= stampOn then setSkip(st, not wantStamp); setSkip(cp, not wantStamp); stampOn = wantStamp end
 
   local dbg = oc.debug or 0
@@ -718,6 +734,7 @@ function M.frame()
   setConst(FX_OVER, 'dnSplat', sp.color[1], sp.color[2], sp.color[3], sp.opacity)
   local tr = oc.tracks
   setConst(FX_OVER, 'dnPress', tr.grassDarken, tr.grassDesat, tr.dirtDarken, tr.relief)
+  setConst(FX_OVER, 'dnTime', wheelNow % 64, oc.wetTracks.dryTime, oc.wetTracks.darken, 0)
   local g = oc.grain
   setConst(FX_OVER, 'dnGrain', g.size, g.height, g.printDensity, g.churnSize)
   setConst(FX_OVER, 'dnKindX', oc.sand.relief or 1, oc.sand.crumbHeight or 1, oc.mud.crumbLift or 0.12,

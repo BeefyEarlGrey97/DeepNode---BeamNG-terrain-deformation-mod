@@ -7,6 +7,9 @@ allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleave
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
 ### Added
+- Wet tracks (overlay `wetTracks`, after MudRunner's wet decals): tyres wet from water leave
+  dark glossy prints on hard ground that dry out patchily within ~55 s (the map stores the paint
+  time; a paint pass every few seconds erases dried texels).
 - Tracks on hard terrain (overlay `tracks`): clean wheels on grass terrain leave flattened, paler
   tracks, on dirt / gravel compacted ones, picked by the terrain material name; none on decal
   roads (a road mask is scanned when the overlay starts) or off the terrain.

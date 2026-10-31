@@ -623,6 +623,10 @@ local defaults = {
                grass = { 'grass', 'meadow', 'field', 'lawn', 'moss', 'weed' },
                dirt = { 'dirt', 'gravel', 'soil', 'ground', 'forest', 'trail', 'track', 'mud', 'sand' },
                grassDarken = 0.22, grassDesat = 0.25, dirtDarken = 0.12 },
+    -- wet tracks: a tyre wet from water (wetness >= minWet) leaves dark glossy prints on hard
+    -- ground (strength wetness x perWet) that dry out over dryTime s (< 60, the map keeps the
+    -- paint time mod 64 s)
+    wetTracks = { enabled = true, minWet = 0.15, perWet = 1.3, dryTime = 55, darken = 0.35 },
     -- mud splats thrown by wheels spinning in mud (slip above minSpin m/s): perSpin splats per s
     -- per m/s of slip (at most maxPerSec), landing up to reach m behind the wheel (full reach at
     -- fullSpin m/s), radius sizeMin..sizeMax m; tinted like the carried mud
