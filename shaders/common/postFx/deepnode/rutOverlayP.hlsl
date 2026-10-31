@@ -49,7 +49,22 @@ cbuffer perDraw : register(b0)
     uniform float4 dnCarryG;  // brightness gain of the mud stain, of the dust, of the splats, unused
     uniform float4 dnSplat;   // mud splats: tint colour (rgb), opacity
     uniform float4 dnTime;    // time (s, mod 64), drying time of wet tracks (s), wet darkening, wet sky sheen
-    uniform float4 dnPress;   // tracks on hard terrain: grass darkening, grass desaturation, dirt darkening, relief (x mud)
+    uniform float4 dnPress;
+    // no water under vehicles: up to 8 vehicle footprints (centre xy, half length, half width;
+    // dnVehD = forward xy per pair), count in dnVehN.x
+    uniform float4 dnVehN;
+    uniform float4 dnVeh0;
+    uniform float4 dnVeh1;
+    uniform float4 dnVeh2;
+    uniform float4 dnVeh3;
+    uniform float4 dnVeh4;
+    uniform float4 dnVeh5;
+    uniform float4 dnVeh6;
+    uniform float4 dnVeh7;
+    uniform float4 dnVehD0;
+    uniform float4 dnVehD1;
+    uniform float4 dnVehD2;
+    uniform float4 dnVehD3;   // tracks on hard terrain: grass darkening, grass desaturation, dirt darkening, relief (x mud)
     uniform float4 dnGrain;   // crumb size (m), crumb height (x size), print crumb density, churn noise size (m)
     uniform float4 dnKindX;   // sand relief (x mud), sand crumb height (x mud), crumb lift mud, crumb lift sand
     uniform float4 dnWater;   // puddle amount (0..1), depth where water starts (m), murk, deepest rut (m)
@@ -99,6 +114,25 @@ float4 skyColour()
         if (gs.w >= 0.99999) acc += float4(tex2Dlod(sceneTex, float4(u, 0, 0)).rgb, 1);
     }
     return acc.w > 0.0 ? float4(acc.rgb / acc.w, acc.w) : float4(0, 0, 0, 0);
+}
+
+// 1 inside a vehicle footprint (with a soft margin), else 0: a sunk vehicle's ruts hold no
+// water around its wheels (the water would show through between the tyres)
+#define VEH(i, D)                                                                       \
+    if (i < nv) {                                                                       \
+        float2 c = p - dnVeh##i.xy;                                                     \
+        float2 f = D;                                                                   \
+        float2 q = float2(abs(dot(c, f)), abs(dot(c, float2(-f.y, f.x))));              \
+        float2 e = q - dnVeh##i.zw;                                                     \
+        cov = max(cov, 1.0 - saturate(max(e.x, e.y) / 0.6));                              \
+    }
+float underVehicle(float2 p)
+{
+    int nv = (int)dnVehN.x;
+    float cov = 0.0;
+    VEH(0, dnVehD0.xy) VEH(1, dnVehD0.zw) VEH(2, dnVehD1.xy) VEH(3, dnVehD1.zw)
+    VEH(4, dnVehD2.xy) VEH(5, dnVehD2.zw) VEH(6, dnVehD3.xy) VEH(7, dnVehD3.zw)
+    return cov;
 }
 
 float4 mainP(PFXVertToPix IN) : SV_Target
@@ -304,7 +338,10 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     // wet sheen from every direction: the wet surface mirrors the sky at grazing angles
     // (Schlick, water F0 0.02; sky sampled from the top of the screen as for the puddles)
     if (wet > 0.05 && dnTime.w > 0.0) {
-        float fresM = 0.02 + 0.98 * pow(1.0 - saturate(dot(nt, V)), 5.0);
+        // flat-water normal (0,0,1): per-pixel normals (relief, depth-buffer facets) made the
+        // Fresnel spike on every streak and mesh edge (blue speckle); a wet film is smooth
+        float fresM = 0.02 + 0.98 * pow(1.0 - saturate(V.z), 5.0);
+        fresM = min(fresM, 0.35) * slopeK;
         float4 skyM = skyColour();
         float3 skyC = skyM.w > 0.0 ? skyM.rgb : sunLight * amb * 1.2 * float3(0.7, 0.82, 1.0);
         outC = lerp(outC, skyC * 0.8, saturate(fresM * wet * dnTime.w));
@@ -316,7 +353,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         float patch = dnNoise(wf * 0.35 + 3.3) * 0.7 + dnNoise(wf * 1.1 + 8.1) * 0.3;
         float level = -dnWater.y - (1.0 - dnWater.x) * 0.25 - (1.0 - patch) * 0.12;
         float depthW = level - dz;  // water depth over this pixel (m)
-        float wk = smoothstep(0.0, 0.015, depthW) * inside;
+        float wk = smoothstep(0.0, 0.015, depthW) * inside * (1.0 - underVehicle(wp.xy));
         if (wk > 0.0) {
             // flat water: ripples (slow, animated), murky brown body, sky sheen, sun glint
             float t = accumTime * 0.6;

@@ -591,7 +591,8 @@ local defaults = {
     grooveDark = 0.4,       -- darkening of the deepest pressed parts
     ambient = 0.45,         -- ambient share in the relight ratio
     highlight = 1.0,        -- sun highlight on wet ground
-    wetSheen = 0.6,         -- sky reflection on wet ground at grazing angles (x Fresnel x wetness)
+    wetSheen = 0,           -- sky reflection on wet ground at grazing angles (x Fresnel x wetness); off:
+                            -- it read as blue streaks on the patchy wet field (2026-10-31)
     useShadowMask = true,   -- engine screen shadow mask (#sunShadowMask): no relief / highlight in shadow
     groundAlbedo = 0.3,     -- ground albedo guess: light level for the sun highlight = scene / this
     fadeStart = 35,         -- m from the camera

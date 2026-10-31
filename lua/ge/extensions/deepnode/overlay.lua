@@ -754,6 +754,36 @@ function M.frame()
   setConst(FX_OVER, 'dnTime', wheelNow % 64, oc.wetTracks.dryTime, oc.wetTracks.darken, oc.wetSheen or 0)
   local g = oc.grain
   setConst(FX_OVER, 'dnGrain', g.size, g.height, g.printDensity, g.churnSize)
+  -- vehicle footprints near the camera (no puddles under them): bounding box from the vehicle
+  local nv = 0
+  if (oc.puddles or 0) > 0 then
+    local dirs = {}
+    for i = 0, be:getObjectCount() - 1 do
+      if nv >= 8 then break end
+      local veh = be:getObject(i)
+      local p = veh and veh:getPosition()
+      if p and (p.x - camX) ^ 2 + (p.y - camY) ^ 2 < 3600 then
+        local d = veh:getDirectionVector()
+        local dl = sqrt(d.x * d.x + d.y * d.y)
+        if dl > 0.1 then
+          local bb = veh.getSpawnWorldOOBB and veh:getSpawnWorldOOBB()
+          local hl, hw = 4, 1.3
+          if bb and bb.getHalfExtents then
+            local he = bb:getHalfExtents()
+            hl, hw = max(he.x, he.y), min(he.x, he.y)
+          end
+          setConst(FX_OVER, 'dnVeh' .. nv, p.x, p.y, hl, hw)
+          dirs[#dirs + 1] = d.x / dl
+          dirs[#dirs + 1] = d.y / dl
+          nv = nv + 1
+        end
+      end
+    end
+    for k = 0, 3 do
+      setConst(FX_OVER, 'dnVehD' .. k, dirs[k * 4 + 1] or 1, dirs[k * 4 + 2] or 0, dirs[k * 4 + 3] or 1, dirs[k * 4 + 4] or 0)
+    end
+  end
+  setConst(FX_OVER, 'dnVehN', nv, 0, 0, 0)
   setConst(FX_OVER, 'dnKindX', oc.sand.relief or 1, oc.sand.crumbHeight or 1, oc.mud.crumbLift or 0.12,
     oc.sand.crumbLift or 0.12)
   setConst(FX_OVER, 'dnWater', oc.puddles or 0, oc.puddleDepth or 0.1, oc.puddleMurk or 0.7, oc.maxDepth or 1.2)
