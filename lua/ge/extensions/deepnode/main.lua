@@ -266,6 +266,12 @@ local defaults = {
     shoulderFactor = 0.25,  -- tyre shoulder radius as a fraction of tyre width
     maxSweep = 3.0,         -- longer jumps between reports are treated as teleports (m)
     bodyRadius = 0.16,      -- dent radius under a chassis node (m)
+    -- hull: the body's collision triangles under the undisturbed surface are stamped too
+    -- (P.stampHull: bumpers, sills, skid plates, panels plow the mud, not only nodes)
+    hull = true,
+    hullEdge = 0.08,        -- m: triangle edges are rounded off over this width
+    hullSkin = 0.01,        -- m: dent bottom below the triangle
+    hullStep = 0.15,        -- m: sweep step between two reports
     bodySkin = 0.03,        -- dent bottom below the node centre (m)
     bodyBermWidth = 0.12,
     bodyBermFraction = 0.3,
@@ -314,6 +320,7 @@ local defaults = {
     -- per report, 0.74 m at 40 km/h) kept the same rut lag as 20 Hz with 7 trucks
     rateHz = 15,
     maxBodyNodes = 48,
+    maxHullTris = 64,       -- body collision triangles reported per vehicle at most (deepest first)
     waterHz = 5,            -- tyre-in-water checks per second
     boxHz = 10,             -- footprint box updates per second
     candidateHz = 10,       -- how often chassis nodes near the mud are looked up
@@ -4200,6 +4207,131 @@ function P.stampBody(x0, y0, z0, x1, y1, z1)
   P.slump(gx0 - 1, gy0 - 1, gx1 + 1, gy1 + 1)
 end
 
+-- Hull stamp: the lower envelope of one body collision triangle (bumper, sill, skid plate,
+-- tank, panel), so every part of the vehicle in the mud plows it, not only the tyres and
+-- the chassis nodes. A cell vertex under the triangle is carved to the triangle's height
+-- there; next to it (vertical or steep panels, whose footprint is a line) to the nearest
+-- point of the triangle rounded off over stamp.hullEdge m, like the edge of a plate. The
+-- displaced volume goes into a berm round the footprint (bodyBermWidth, bodyBermFraction).
+local hullPX, hullPY, hullPZ = {}, {}, {}
+local function nearestOnSeg(px, py, ax, ay, az, bx, by, bz)
+  local sx, sy = bx - ax, by - ay
+  local l2 = sx * sx + sy * sy
+  local t = 0
+  if l2 > 1e-10 then
+    t = ((px - ax) * sx + (py - ay) * sy) / l2
+    if t < 0 then t = 0 elseif t > 1 then t = 1 end
+  end
+  local qx, qy = ax + sx * t, ay + sy * t
+  return (px - qx) ^ 2 + (py - qy) ^ 2, az + (bz - az) * t
+end
+function P.stampHullTri(x1, y1, z1, x2, y2, z2, x3, y3, z3)
+  local st = cfg.stamp
+  local r, rw, skin = st.hullEdge or 0.08, st.bodyBermWidth, st.hullSkin or 0.01
+  local ext = r + rw
+  local gx0 = ceil((min(x1, x2, x3) - ext - ter.ox) / CELL)
+  local gx1 = floor((max(x1, x2, x3) + ext - ter.ox) / CELL)
+  local gy0 = ceil((min(y1, y2, y3) - ext - ter.oy) / CELL)
+  local gy1 = floor((max(y1, y2, y3) + ext - ter.oy) / CELL)
+  if gx1 < gx0 or gy1 < gy0 or gx1 - gx0 > 60 or gy1 - gy0 > 60 then return end
+  -- barycentric set-up in the ground plane (degenerate for a vertical panel: edges only)
+  local e1x, e1y, e2x, e2y = x2 - x1, y2 - y1, x3 - x1, y3 - y1
+  local den = e1x * e2y - e2x * e1y
+  local flat = abs(den) > 1e-6
+  local inv = flat and 1 / den or 0
+  local removed, nB, wsum = 0, 0, 0
+  local tr = floor(clamp(st.trackBase, 0, 1) * 255)
+  for gcy = gy0, gy1 do
+    local y = ter.oy + gcy * CELL
+    for gcx = gx0, gx1 do
+      local x = ter.ox + gcx * CELL
+      local d2, zc = huge, 0
+      if flat then
+        local px, py = x - x1, y - y1
+        local b = (px * e2y - e2x * py) * inv
+        local c = (e1x * py - px * e1y) * inv
+        if b >= 0 and c >= 0 and b + c <= 1 then d2, zc = 0, z1 + b * (z2 - z1) + c * (z3 - z1) end
+      end
+      if d2 > 0 then
+        local da, za = nearestOnSeg(x, y, x1, y1, z1, x2, y2, z2)
+        local db, zb = nearestOnSeg(x, y, x2, y2, z2, x3, y3, z3)
+        local dc, zz = nearestOnSeg(x, y, x3, y3, z3, x1, y1, z1)
+        d2, zc = da, za
+        if db < d2 then d2, zc = db, zb end
+        if dc < d2 then d2, zc = dc, zz end
+      end
+      if d2 < ext * ext then
+        local t, idx = vertexRef(gcx, gcy)
+        if t and t.rest[idx] - t.floor[idx] > 0.002 then
+          local d = sqrt(d2)
+          if d < r then
+            removed = removed + carve(gcx, gcy, t, idx, zc - skin + (r - sqrt(r * r - d * d)), tr)
+          else
+            local w = bump((d - r) / rw)
+            if w > 0 then
+              nB = nB + 1
+              bermGX[nB], bermGY[nB], bermW[nB] = gcx, gcy, w
+              wsum = wsum + w
+            end
+          end
+        end
+      end
+    end
+  end
+  P.distributeBerm(nB, wsum, removed * st.bodyBermFraction)
+  return gx0, gy0, gx1, gy1
+end
+
+-- hull triangles of one report (stride 10: id, 3 x xyz), swept from their last report in
+-- steps of at most hullStep m so a moving bumper leaves a continuous furrow
+function P.stampHull(vs, tris)
+  local st = cfg.stamp
+  local stepMax = st.hullStep or 0.15
+  local last = vs.lastTri
+  if not last then last = {}; vs.lastTri = last end
+  local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
+  for k = 1, #tris - 9, 10 do
+    local id = tris[k]
+    local ok = isFinite(id)
+    for q = 1, 9 do if not isFinite(tris[k + q]) then ok = false end end
+    if ok then
+      for q = 0, 2 do
+        hullPX[q + 1], hullPY[q + 1], hullPZ[q + 1] = tris[k + 1 + q * 3], tris[k + 2 + q * 3], tris[k + 3 + q * 3]
+      end
+      P.setStampKind(P.kindAtWorld(hullPX[1], hullPY[1]))
+      local prev = last[id]
+      local n = 1
+      if prev and simTime - prev.t < 0.35 then
+        local m2 = 0
+        for q = 1, 3 do m2 = max(m2, (hullPX[q] - prev[q * 3 - 2]) ^ 2 + (hullPY[q] - prev[q * 3 - 1]) ^ 2) end
+        if m2 < st.maxSweep * st.maxSweep then n = min(8, max(1, ceil(sqrt(m2) / stepMax))) else prev = nil end
+      else
+        prev = nil
+      end
+      for s = (prev and 1 or n), n do
+        local f = s / n
+        local function lp(q, c, v) return prev and prev[q * 3 - 3 + c] + (v - prev[q * 3 - 3 + c]) * f or v end
+        local gx0, gy0, gx1, gy1 = P.stampHullTri(
+          lp(1, 1, hullPX[1]), lp(1, 2, hullPY[1]), lp(1, 3, hullPZ[1]),
+          lp(2, 1, hullPX[2]), lp(2, 2, hullPY[2]), lp(2, 3, hullPZ[2]),
+          lp(3, 1, hullPX[3]), lp(3, 2, hullPY[3]), lp(3, 3, hullPZ[3]))
+        if gx0 then
+          if gx0 < bx0 then bx0 = gx0 end
+          if gy0 < by0 then by0 = gy0 end
+          if gx1 > bx1 then bx1 = gx1 end
+          if gy1 > by1 then by1 = gy1 end
+        end
+      end
+      prev = last[id] or {}
+      for q = 1, 3 do prev[q * 3 - 2], prev[q * 3 - 1], prev[q * 3] = hullPX[q], hullPY[q], hullPZ[q] end
+      prev.t = simTime
+      last[id] = prev
+      P.stats.hullStamps = (P.stats.hullStamps or 0) + 1
+    end
+  end
+  if bx0 <= bx1 then P.slump(bx0 - 1, by0 - 1, bx1 + 1, by1 + 1) end
+end
+
 -- Half-liquid mud: fresh ruts and berms settle back over a few seconds towards the
 -- undisturbed surface but keep a share of their deepest/highest state, so a track
 -- stays as a soft trough. Per vertex, active tiles only (frozen ruts stay as left).
@@ -4451,7 +4583,7 @@ P.REPORT_STRIDE = 15
 -- wheels flat stride 15: i, hub xyz, axle xyz, forward x y, wheel load (N), radius, width, immersion,
 -- slip, |omega|
 -- nodes flat stride 4: cid, x, y, z
-function M.onMudReport(vid, w, nodes)
+function M.onMudReport(vid, w, nodes, tris)
   if not running then return end
   local vs = P.vehs[vid]
   if not vs then return end
@@ -4591,6 +4723,9 @@ function M.onMudReport(vid, w, nodes)
         vs.lastNode[cid] = prev
       end
     end
+  end
+  if type(tris) == 'table' and #tris >= 10 and (vs.lod or 1) < 3 and cfg.stamp.hull ~= false then
+    P.stampHull(vs, tris)
   end
   -- later stamps (relax, other callers) use the global rules
   P.soil, P.kBerm, P.kSlope = nil, nil, nil

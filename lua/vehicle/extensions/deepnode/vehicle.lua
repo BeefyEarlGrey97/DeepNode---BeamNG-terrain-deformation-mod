@@ -40,6 +40,13 @@ local hubSet = {}
 local bodyNodes = {}
 local cands, ncand = {}, 0
 local found, foundS = {}, {}
+-- Collision triangles of the body (not tyres, rims or pressure triangles): their lower
+-- envelope is stamped into the mud, so bumpers, sills, skid plates, tanks and panels plow
+-- it, not only the nodes. triA/B/C: node cids; triSrc: v.data.triangles index (broken check)
+local triA, triB, triC, triSrc = {}, {}, {}, {}
+local nodeTris = {}      -- cid -> { tri, ... }
+local candTri, ncandTri = {}, 0
+local triMark, triMarkN, triDepth = {}, 0, {}
 local vehMass, wheelLoad = 0, 1000
 local accCand, accReport, accWater, accStats, accBox = 0, 0, 0, 0, 0
 -- LOD: 1 = full rates (vehicles in an active ring), 2+ = divided rates (far vehicles)
@@ -250,6 +257,30 @@ local function collectNodes()
     end
   end
   wheelLoad = vehMass * 9.81 / max(1, #wheelList)
+end
+
+local function collectTris()
+  triA, triB, triC, triSrc, nodeTris = {}, {}, {}, {}, {}
+  candTri, ncandTri, triMark, triDepth = {}, 0, {}, {}
+  local tris = v.data.triangles
+  if not tris then return end
+  local wheelNode = {}
+  for _, n in pairs(v.data.nodes) do
+    if n.cid and (n.wheelID or hubSet[n.cid]) then wheelNode[n.cid] = true end
+  end
+  for i, t in pairs(tris) do
+    local a, b, c = t.id1, t.id2, t.id3
+    if type(a) == 'number' and type(b) == 'number' and type(c) == 'number' and not t.pressure
+        and t.triangleType ~= 2 and not wheelNode[a] and not wheelNode[b] and not wheelNode[c] then
+      local k = #triA + 1
+      triA[k], triB[k], triC[k], triSrc[k] = a, b, c, i
+      for _, cid in ipairs({ a, b, c }) do
+        local l = nodeTris[cid]
+        if not l then l = {}; nodeTris[cid] = l end
+        l[#l + 1] = k
+      end
+    end
+  end
 end
 
 -------------------------------------------------------------------------------
@@ -473,6 +504,33 @@ local function refreshCandidates()
     cands[ncand] = found[k]
   end
   for k = ncand + 1, #cands do cands[k] = nil end
+  -- hull triangles at any candidate node (all found nodes, not only the capped ones)
+  ncandTri = 0
+  triMarkN = triMarkN + 1
+  local tcap = REP.maxHullTris or 64
+  for k = 1, nf do
+    local cid = found[k]
+    local l = nodeTris[cid]
+    if l then
+      for q = 1, #l do
+        local ti = l[q]
+        if triMark[ti] ~= triMarkN then
+          triMark[ti] = triMarkN
+          ncandTri = ncandTri + 1
+          candTri[ncandTri] = ti
+          triDepth[ti] = foundS[cid]
+        elseif foundS[cid] > triDepth[ti] then
+          triDepth[ti] = foundS[cid]
+        end
+      end
+    end
+  end
+  for k = ncandTri + 1, #candTri do candTri[k] = nil end
+  if ncandTri > tcap then
+    table.sort(candTri, function(a, b) return triDepth[a] > triDepth[b] end)
+    for k = tcap + 1, ncandTri do candTri[k] = nil end
+    ncandTri = tcap
+  end
 end
 
 local function fmtNum(x) return sfmt('%.3f', x) end
@@ -530,9 +588,30 @@ local function sendReport()
     local d = deep[k]
     nparts[#nparts + 1] = sfmt('%d,%s,%s,%s', d.cid, fmtNum(d.x), fmtNum(d.y), fmtNum(d.z))
   end
-  if #wparts == 0 and #nparts == 0 then return end
-  obj:queueGameEngineLua(sfmt('if deepnode_main then deepnode_main.onMudReport(%d,{%s},{%s}) end',
-    vid, table.concat(wparts, ','), table.concat(nparts, ',')))
+  -- hull triangles with a corner under the undisturbed surface (same rate as the nodes)
+  local tparts = {}
+  if ncandNow > 0 then
+    for k = 1, ncandTri do
+      local ti = candTri[k]
+      if not obj:isTriangleBroken(triSrc[ti]) then
+        local p1, p2, p3 = obj:getNodePosition(triA[ti]), obj:getNodePosition(triB[ti]), obj:getNodePosition(triC[ti])
+        local x1, y1, z1 = op.x + p1.x, op.y + p1.y, op.z + p1.z
+        local x2, y2, z2 = op.x + p2.x, op.y + p2.y, op.z + p2.z
+        local x3, y3, z3 = op.x + p3.x, op.y + p3.y, op.z + p3.z
+        local lx, ly, lz = x1, y1, z1
+        if z2 < lz then lx, ly, lz = x2, y2, z2 end
+        if z3 < lz then lx, ly, lz = x3, y3, z3 end
+        local rest = sample(lx, ly)
+        if rest and lz < rest and isFinite(x1 + y1 + z1 + x2 + y2 + z2 + x3 + y3 + z3) then
+          tparts[#tparts + 1] = sfmt('%d,%s,%s,%s,%s,%s,%s,%s,%s,%s', ti, fmtNum(x1), fmtNum(y1), fmtNum(z1),
+            fmtNum(x2), fmtNum(y2), fmtNum(z2), fmtNum(x3), fmtNum(y3), fmtNum(z3))
+        end
+      end
+    end
+  end
+  if #wparts == 0 and #nparts == 0 and #tparts == 0 then return end
+  obj:queueGameEngineLua(sfmt('if deepnode_main then deepnode_main.onMudReport(%d,{%s},{%s},{%s}) end',
+    vid, table.concat(wparts, ','), table.concat(nparts, ','), table.concat(tparts, ',')))
 end
 
 -- Water on the tyres: share of tread nodes under water (0..1), hub under water = 1.
@@ -593,6 +672,7 @@ function M.configure(p)
   ncand = 0
   collectWheels()
   collectNodes()
+  collectTris()
   clustersDirty, clusterAge = true, HULL_GAP
   lastBox = nil
   configured = true
@@ -695,12 +775,14 @@ end
 
 local function onReset()
   ncand = 0
+  ncandTri = 0
   guideT = -1
   accCand, accReport = 0, 0
   waterForce = true -- new wheel tables start dry: send the real state once
   if configured then
     collectWheels()
     collectNodes()
+    collectTris()
     clustersDirty, clusterAge = true, HULL_GAP
     lastBox = nil
     sendWheelDefs()

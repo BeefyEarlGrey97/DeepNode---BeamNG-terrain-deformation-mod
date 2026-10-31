@@ -596,6 +596,10 @@ Lengths are metres, speeds m/s, times seconds.
 | `bodySkin` | 0.03 | Dent bottom below the chassis node |
 | `bodyBermWidth` | 0.12 | Width of the ring around a dent |
 | `bodyBermFraction` | 0.3 | Share of dent mud that ends in the ring |
+| `hull` | true | Stamp the body's collision triangles under the surface (bumpers, sills, panels plow the mud) |
+| `hullEdge` | 0.08 | m: triangle edges rounded off over this width (a vertical panel cuts a groove this wide) |
+| `hullSkin` | 0.01 | m: dent bottom below the triangle |
+| `hullStep` | 0.15 | m: sweep step between two reports |
 | `trackBase` | 0.25 | Roughness of any rut |
 | `trackSpinGain` | 0.08 | Extra roughness per m/s of wheel spin |
 | `trackDepthGain` | 2.0 | Extra roughness per metre of depth |
@@ -617,6 +621,7 @@ Lengths are metres, speeds m/s, times seconds.
 |---|---|---|
 | `rateHz` | 15 | Wheel and chassis reports per second (vehicles within 40 m of the camera; further: half, beyond meshRange 1/farLod) |
 | `maxBodyNodes` | 48 | Chassis nodes reported for dents at most |
+| `maxHullTris` | 64 | Body collision triangles reported per vehicle at most (deepest first) |
 | `waterHz` | 5 | Tyre-in-water checks per second |
 | `boxHz` | 10 | Footprint box updates per second (sent only when the box moved) |
 | `candidateHz` | 10 | How often chassis nodes near the mud are looked up |

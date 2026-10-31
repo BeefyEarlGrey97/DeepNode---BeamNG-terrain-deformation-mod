@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- Every part of the vehicle plows the mud, not only the tyres and the chassis nodes: the body's
+  collision triangles (not tyres, rims or pressure triangles) with a corner under the
+  undisturbed surface are stamped as their lower envelope, edges rounded off over
+  `stamp.hullEdge`, swept between reports in `stamp.hullStep` steps, displaced volume into a
+  berm (`stamp.hull`, `report.maxHullTris` 64, deepest first). gridmap_v2: a Land Cruiser
+  flipped onto its roof left a roof-shaped dent.
+
 ### Changed
 - Decal roads on the mud are real geometry again, drawn by the engine with the road's own
   material (`roads.mode` 'overlay', new `roads.overlayOriginal` / `roads.overlayOnRuts`, now the
