@@ -384,6 +384,7 @@ function M.uploadCensus(reset)
 end
 -- size classes (pool.tileClasses, pool.decalMinCorners; set in M.setContext)
 local TILE_CLASSES, DEC_MIN_CORNERS = 6, 96
+local function decalMod() return extensions and extensions.deepnode_decals end
 local function padMeshes(chunk, meshes)
   local tileN = not chunk.sx and chunk.N
   local key = #meshes
@@ -393,7 +394,8 @@ local function padMeshes(chunk, meshes)
     padLen[2 * i - 1], padLen[2 * i] = nv, nc
     local capV, capC
     local maxV, maxC = tileN and (tileN + 1) * (tileN + 1), tileN and 6 * tileN * tileN
-    if m.material:find('^deepnode_dec_') then
+    local isDec = m.material:find('^deepnode_dec_') ~= nil or (decalMod() and decalMod().isMat(m.material))
+    if isDec then
       -- decal overlay (deepnode_decals): small, own power-of-two classes. Overlay strips
       -- have ~2 corners per vertex (clipped polygons, measured 1.95 on gridmap_v2): the
       -- classes pair verts = corners / 2. With the grid rule (verts = corners / 4) a
@@ -413,7 +415,7 @@ local function padMeshes(chunk, meshes)
       capC = pow2(max(nc, 4 * nv), 3072)
       capV = capC / 4
     end
-    noteSize(capV, capC, nc, m.material:find('^deepnode_dec_') ~= nil, nv)
+    noteSize(capV, capC, nc, isDec, nv)
     -- signature of the padded buffer sizes (submeshes in order), see byKey
     key = (key * 131071 + capV * 977 + capC) % 4503599627370496
     if nv > 0 and (capV > nv or capC > nc) then

@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed
+- Decal roads on the mud are real geometry again, drawn by the engine with the road's own
+  material (`roads.mode` 'overlay', new `roads.overlayOriginal` / `roads.overlayOnRuts`, now the
+  default). Terrain-first: the level's decal roads stay visible on undug ground (exactly
+  vanilla); the mud mesh around ruts carries a copy of every road over it, clipped to the strip
+  and stacked in the engine's draw order, so the road pattern drapes over the rut walls and
+  berms. Replaces the screen-space road look (roads hidden + redrawn from a road map), which
+  looked nothing like the engine's decals (own lighting) and showed the vehicle mask boxes
+  around every truck. gridmap_v2: no visible edge between the engine's decal and the copies.
+- Decal copies use the engine's UV mapping: v runs negative along the road
+  (v = -distance / textureLength, measured with a UV test texture), distance along the middle
+  line in 3D. The old copies had the pattern mirrored along the road, so it broke at every rut
+  band edge.
+
 ## [0.2.0] — 2026-10-31 — ground look, decal roads in the ruts, faster with 8 trucks
 
 Research follow-up (terrain deformation techniques review, 2026-10-31): what BeamNG 0.40's Lua

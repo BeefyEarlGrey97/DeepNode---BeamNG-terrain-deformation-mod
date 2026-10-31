@@ -37,6 +37,7 @@ local byTile = {}       -- tile key -> { road, ... } (renderPriority order)
 local cache = {}        -- tile key -> { [road.idx] = { u = float[], d = float[] } }
 local hidden = {}       -- DecalRoad objects hidden by us
 local matOf = {}        -- original material name -> overlay material name
+local matSet = {}       -- material name -> is an overlay material (M.isMat cache)
 local enabled = false
 local stats = { coarseIn = 0, fineIn = 0, clipVerts = 0, roads = 0, hiddenRoads = 0, partial = 0, tiles = 0, tris = 0, clipped = 0, builds = 0, ms = 0, cacheTiles = 0 }
 
@@ -55,6 +56,13 @@ local function overlayMaterial(name)
   if have ~= nil then return have or nil end
   local src = scenetree.findObject(name)
   if not src then matOf[name] = false; return nil end
+  -- roads.overlayOriginal: the road's own material (translucent, drawn and lit by the
+  -- engine exactly as the level's decal road over a mesh; measured on gridmap_v2 against
+  -- the engine's decal: same light and colour on matte ground). No copy.
+  if ctx.cfg.roads.overlayOriginal ~= false then
+    matOf[name] = name
+    return name
+  end
   local dst = 'deepnode_dec_' .. name
   local R = ctx.cfg.roads
   local fields = { { 'version', '1.5' }, { 'castShadows', '0' } }
@@ -137,21 +145,22 @@ local function addRoad(road, P)
   local okC, ec = pcall(function() return road:getEdgeCount() end)
   ec = okC and tonumber(ec) or 0
   if ec < 2 then return end
-  local L, R, Mx, My, D = {}, {}, {}, {}, {}
+  local L, R, Mx, My, Mz, D = {}, {}, {}, {}, {}, {}
   local n, soft, dist = 0, 0, 0
   for i = 0, ec - 1 do
     local okE, l, r = pcall(function() return road:getLeftEdgePosition(i), road:getRightEdgePosition(i) end)
     if okE and l and r and isFinite(l.x) and isFinite(l.y) and isFinite(r.x) and isFinite(r.y) then
-      local mx, my = (l.x + r.x) * 0.5, (l.y + r.y) * 0.5
+      local mx, my, mz = (l.x + r.x) * 0.5, (l.y + r.y) * 0.5, (l.z + r.z) * 0.5
       if n > 0 then
-        local dd = sqrt((mx - Mx[n]) ^ 2 + (my - My[n]) ^ 2)
+        -- texture distance along the middle line in 3D, as the engine's decal (matters on ramps)
+        local dd = sqrt((mx - Mx[n]) ^ 2 + (my - My[n]) ^ 2 + (mz - Mz[n]) ^ 2)
         if dd < 1e-3 then goto continue end
         dist = dist + dd
       end
       n = n + 1
       L[n] = { l.x, l.y }
       R[n] = { r.x, r.y }
-      Mx[n], My[n], D[n] = mx, my, dist
+      Mx[n], My[n], Mz[n], D[n] = mx, my, mz, dist
       if P.softAtWorld(mx, my) then soft = soft + 1 end
     end
     ::continue::
@@ -218,7 +227,7 @@ local function mapPoint(e, segs, x, y)
       if score < bestScore then
         bestScore = score
         bestU = u
-        bestD = D[i] + t * sqrt(sl2)
+        bestD = D[i] + t * (D[i + 1] - D[i])
       end
     end
   end
@@ -320,7 +329,9 @@ local function ov(out, normals, key, lift, il, vi, V, u, d)
   -- lift: per road (layer order)
   if stampA[vi] == key then return stampV[vi] end
   local Nn = normals[vi + 1]
-  local r = out:vert(V.x, V.y, V.z + lift, Nn.x, Nn.y, Nn.z, u, d * il)
+  -- v runs negative along the road (measured against the engine's decal with a UV test
+  -- texture: v = -distance / textureLength, u = 0 at the left edge)
+  local r = out:vert(V.x, V.y, V.z + lift, Nn.x, Nn.y, Nn.z, u, -d * il)
   stampA[vi] = key
   stampV[vi] = r
   return r
@@ -345,13 +356,18 @@ function M.overlay(b, squaresOnly, tileKey)
   local tiles = ctx.tiles
   local coarse2 = (0.6 * ter.sq) ^ 2
   local um = ctx.cfg.roads.overlayCellMargin or 0.12
+  -- roads.overlayOnRuts: the decal also on rut and track cells, clipped exactly to the
+  -- strip, so it follows the dug surface (terrain-first: the mesh only covers the squares
+  -- around ruts; the engine's decal shows on the terrain everywhere else)
+  local onRuts = ctx.cfg.roads.overlayOnRuts ~= false
+  if onRuts then squaresOnly = false end
   local nsub = b.nsub
   local tris = 0
   local lastOut = {}
   local dedup = {}
   for si = 1, nsub do
     local s = b.subs[si]
-    if s.nf > 0 and not s.material:find('^deepnode_dec_') then
+    if s.nf > 0 and not s.material:find('^deepnode_dec_') and not M.isMat(s.material) then
       local verts, normals, faces = s.verts, s.normals, s.faces
       ensureStamp(s.nv)
       -- only the faces added since the last call (sector builds call this per tile)
@@ -386,7 +402,7 @@ function M.overlay(b, squaresOnly, tileKey)
           -- no decal where a tyre or the chassis touched the mud (rut, berm, track):
           -- the decal pattern is churned away there, and a decal never lies over a rut
           local t = tiles[k]
-          if t and t.rutted then
+          if t and t.rutted and not onRuts then
             local rut, track = t.rut, t.track
             if rut[la] ~= 128 or rut[lb] ~= 128 or rut[lc] ~= 128 or track[la] ~= 0 or track[lb] ~= 0 or track[lc] ~= 0 then
               list = nil
@@ -419,7 +435,7 @@ function M.overlay(b, squaresOnly, tileKey)
                   and da >= -0.3 and db >= -0.3 and dc >= -0.3 and da <= e.len + 0.3 and db <= e.len + 0.3 and dc <= e.len + 0.3
               end
               local il = 1 / e.texLen
-              if not coarse and not inside then
+              if not coarse and not inside and not onRuts then
                 -- rut cell over the strip edge: left out
               elseif inside then
                 -- shared vertices: one overlay vertex per mud vertex and road
@@ -452,7 +468,7 @@ function M.overlay(b, squaresOnly, tileKey)
                       local nx, ny, nz = PA[o + 4], PA[o + 5], PA[o + 6]
                       local nl = sqrt(nx * nx + ny * ny + nz * nz)
                       if nl < 1e-6 then nx, ny, nz, nl = 0, 0, 1, 1 end
-                      r = out:vert(PA[o + 1], PA[o + 2], PA[o + 3] + e.lift, nx / nl, ny / nl, nz / nl, PA[o + 7], PA[o + 8] * il)
+                      r = out:vert(PA[o + 1], PA[o + 2], PA[o + 3] + e.lift, nx / nl, ny / nl, nz / nl, PA[o + 7], -PA[o + 8] * il)
                       dd[key] = r
                       stats.clipVerts = stats.clipVerts + 1
                     end
@@ -487,7 +503,7 @@ function M.hasRoads(k) return byTile[k] ~= nil end
 -------------------------------------------------------------------------------
 function M.start(main)
   ctx = main
-  roads, byTile, cache, hidden, matOf = {}, {}, {}, {}, {}
+  roads, byTile, cache, hidden, matOf, matSet = {}, {}, {}, {}, {}, {}
   for k in pairs(stats) do stats[k] = 0 end
   local cfgR = main.cfg.roads or {}
   enabled = cfgR.enabled ~= false and (cfgR.mode or 'overlay') == 'overlay'
@@ -518,7 +534,10 @@ function M.start(main)
   -- the surface of a tile mesh drawn over it
   local top = (main.cfg.sectors.drop or 0.015) - 0.002
   local step = R.overlayLiftStep or 0.001
-  if #prios > 1 then step = min(step, (top - (R.overlayLift or 0.008) - 0.0006) / (#prios - 1)) end
+  -- terrain-first: sectors sit a few mm over the terrain, no drop to stay under
+  if #prios > 1 and not main.terrainFirst() then
+    step = min(step, (top - (R.overlayLift or 0.008) - 0.0006) / (#prios - 1))
+  end
   for _, e in ipairs(roads) do
     e.lift = (R.overlayLift or 0.008) + rankOf[e.prio] * step + (e.idx % 3) * 0.0003
   end
@@ -552,10 +571,22 @@ function M.stop(objectsAlive)
   end
   roads, byTile, cache, hidden = {}, {}, {}, {}
   matOf = {}
+  matSet = {}
   enabled = false
 end
 
 function M.isEnabled() return enabled end
+-- material of a decal overlay submesh (copy or the road's own material)
+function M.isMat(name)
+  if not enabled then return false end
+  local v = matSet[name]
+  if v == nil then
+    v = false
+    for _, n in pairs(matOf) do if n == name then v = true; break end end
+    matSet[name] = v
+  end
+  return v
+end
 function M.materialNames()
   local list = {}
   for _, n in pairs(matOf) do if n then list[#list + 1] = n end end

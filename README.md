@@ -42,14 +42,14 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 3. Rut updates are 30–40 Hz for fresh ruts in view, not for every wheel.
 4. Sand: terrain-first in heavy mode since 2026-10-31; vanilla physics mode still meshes all sand.
 5. Vanilla physics mode: full mud mesh, high memory growth; the experimental decal overlay looks duller than the engine decals (alpha clip).
-6. Dug areas lose the decal-road pattern; the change at the rut edge is visible up close.
+6. Decal roads over ruts are copies drawn forward-lit with the road's own material; the end fades (`startEndFade`) are approximated by narrowing the strip.
 7. Tyre mud costs ~1.6 ms per frame with 8 trucks.
 8. Heavy physics slows Percherons to ~3–4 m/s in deep mud.
 9. johnson_valley benchmark not yet achieve internal goals.
 10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
 12. Research follow-ups still open (layer-map rut material, engine tread decals, ground-model speed calibration, rut persistence): see docs/OPEN_ISSUES.md §13.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
-13. Experimental ground look: GPU cost not measured exactly, puddle level is noise, night/rain unchecked; decal roads drawn in the ruts keep two roads per texel (faint stair edges where three overlap): see docs/OPEN_ISSUES.md §14.
+13. Experimental ground look: GPU cost not measured exactly, puddle level is noise, night/rain unchecked: see docs/OPEN_ISSUES.md §14.
 14. Heavy mode: grass within ~24 m of a digging truck still blinks about once a second (every terrain update rebuilds the groundcover there; was ~4-5 times a second): docs/OPEN_ISSUES.md §15.
 
 ## Contributing and forking

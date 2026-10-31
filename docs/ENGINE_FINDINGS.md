@@ -68,6 +68,22 @@ They explain most design decisions; please extend this file when you measure som
 - `DecalRoad.overObjects` drapes by a physics raycast onto collision meshes, not render meshes.
 - `zBias` is a depth bias, not a vertical lift.
 - With the terrain left at the mud surface (terrain-first) the engine draws decal roads exactly as vanilla.
+- UV mapping (measured 2026-10-31 with a UV test texture on a DecalRoad and on a ProceduralMesh
+  copy): u = 0 at the left edge, 1 at the right; v = -distance / textureLength, the distance
+  measured along the middle line from the road's start. The copy then matched the decal within
+  ~3 % brightness on matte ground (the rest was `startEndFade`, a vertex alpha a ProceduralMesh
+  cannot carry).
+- The exe documents "DecalRoads are rendered in descending renderPriority order": higher numbers
+  first, lower numbers on top.
+- A ProceduralMesh with a road's own (translucent) material is drawn forward-lit after the
+  opaque scene; the engine's decal blends into the G-buffer (normals, roughness) before
+  lighting (`AL_NormalsVisualize` shows the decal's normals, not the mesh copy's). On glossy wet
+  ground the forward copy keeps more of the ground's sheen. On the mod's rut mesh next to the
+  engine's decal no edge was visible on gridmap_v2.
+- Copies laid on the terrain must follow its triangles: gridmap_v2's mud pit has furrows in the
+  1 m heightmap, and a copy sampled every 0.5 m along the road sank under them in stripes.
+- A screen-space redraw of decal roads cannot match them: no albedo buffer, own lighting
+  (2026-10-31 A/B on gridmap_v2: the overlay road was far paler and flatter than the decal).
 
 ## Custom shaders (2026-10-31, D3D12 backend, gridmap_v2)
 

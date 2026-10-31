@@ -116,7 +116,13 @@ local defaults = {
     -- undisturbed mud (above), 'off' = no decal roads on the mud. Default off: the overlay is
     -- experimental (GUI "Experimental decal road"); off hides the decal roads on soft ground
     -- (P.coverRoads)
-    mode = 'off',
+    mode = 'overlay',
+    -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
+    -- the level's decal); false = alpha-clipped matte copies (old look)
+    overlayOriginal = true,
+    -- overlay: also on rut and track cells, clipped to the strip: the decal follows the
+    -- dug surface. Terrain-first: the engine's own decal draws everywhere else
+    overlayOnRuts = true,
     hideOnMud = true,       -- mode off: no decal road shows on soft ground (P.coverRoads)
     overlayAlphaRef = 110,  -- overlays are alpha-clipped (opaque pass); 0 = translucent (slow, sorts badly)
     overlayLift = 0.008,    -- m over the mud (4 mm z-fought beyond ~10 m); one overlayLiftStep per renderPriority level
