@@ -120,9 +120,14 @@ From the terrain-deformation techniques review (IDs as in that review):
   terrain experiments already in ENGINE_FINDINGS).
 - T14 / VIS-2 / VIS-6 (engine `DecalMgr` tread decals): one try showed no decal at all (see
   ENGINE_FINDINGS); needs the right template / flags first.
-- T3, T5 (graphics API comparison), T8, T9 (D3D12 soak), T10 (updateGrid box span), T18 (LOD
-  outer table), PHYS-1 (calibrating `dragAnisotropy` / `flowBehaviorIndex` against sinkage and
-  resistance targets), MEM-3 (rut persistence), VIS-4 / VIS-5 (bow wave, standing water).
+- T3, T5 (graphics API comparison), T8, T9 (D3D12 soak), PHYS-1 (calibrating `dragAnisotropy` /
+  `flowBehaviorIndex` against resistance targets; sinkage is inside the 10-30 cm target: mud ruts
+  0.15-0.18 m, sand 0.15 m), MEM-3 (rut persistence: conflicts with `reset.idleSeconds`), VIS-4 /
+  VIS-5 (bow wave, standing water).
+- Done or settled 2026-10-31: T1/T2/T4/T6/T17 (upload cost, ENGINE_FINDINGS), T10 (updateGrid
+  span: no box split needed), T11 + MEM-2, T13 + `minVisibleChange`, T16 + PHYS-2, T18 (no LOD via
+  the outer table), PERF-2 (jit.v), PERF-4, PHYS-3/4/5/6. Dropped: VIS-1 (dynamic decals paint the
+  tyres), PERF-6 (span does not matter), PERF-7 (no effect). PERF-8: draft in ENGINE_REQUEST.md.
 - Soil memory values (`stamp.kinds.*.soilN/soften/slipBeta`) are literature starting points, not
   tuned against driving tests; with Percherons the sand ruts reach the 0.15 m floor by pass 2.
 

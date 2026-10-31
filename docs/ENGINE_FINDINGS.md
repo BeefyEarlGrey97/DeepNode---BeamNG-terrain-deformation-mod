@@ -23,6 +23,9 @@ They explain most design decisions; please extend this file when you measure som
   forced sector rebuilds, 11 of ~200 rebuilds); two frames or more: none seen.
 - createMesh time is mostly per face corner (~0.2 µs) and per call (a 590-vertex / 3120-corner
   tile: 1.08 ms exact, 1.41 ms padded to 4518 corners).
+- `createMesh({ {lod0 submesh}, {lod1 submesh} })` (two outer entries, as Track Builder passes):
+  only the first entry drew, close up, at 120 m and from a low side view (lod1 placed 2 m higher
+  to tell them apart). No coarse far level through the outer table (research T18).
 - First-draw cost split (2026-10-31, gridmap_v2, 441-vertex mesh 12 m in front of a static camera,
   `user/lua/ge/extensions/dntestEng.lua`, 12-14 samples per case): `RenderShadows` on the upload
   frame +0.65-0.76 ms for a never-drawn object, for a re-upload into the SAME object with the same

@@ -106,3 +106,5 @@ against a mod-off run from the same session before drawing conclusions.
 |---|---|---|---|---|---|---|
 | 2026-10-31 | gridmap_v2, 4 trucks | heavy | before research changes, runs 2-5 x 2 sets | 76.1 (59.7) | near 0.12 s avg, max 1.5-3.9 s; front 0.09 s | +5-15 MB per run |
 | 2026-10-31 | gridmap_v2, 4 trucks | heavy | soil memory + kinds + deadline queue + minVisibleChange | 78.3 (62.3) | near 0.12 s avg, max 0.6-3.0 s (0.8-1.0 s runs 3-5); front 0.09 s | +3-19 MB per run |
+| 2026-10-31 | gridmap_v2, 4 trucks | heavy | final A/B: a8ddbc0 (session start) | 75.6 (58.0) | worst near 1.5-3.9 s, median ~2.0 s; front 0.09 s | ~20.5 MB per runs 2-5 |
+| 2026-10-31 | gridmap_v2, 4 trucks | heavy | final A/B: f03cc18 + docs (soil memory, kinds, deadline queue, minVisibleChange, terrain-first sand, JIT fixes) | 77.7 (62.2) | worst near 0.46-3.3 s, median ~0.75 s; front 0.09 s | ~17 MB per runs 2-5 |
