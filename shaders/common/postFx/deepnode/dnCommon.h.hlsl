@@ -37,6 +37,23 @@ float dnNoise(float2 p)
     return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
 }
 
+// value noise repeating every `nx` cells in x (rounded): stays seamless where a periodic
+// coordinate (the along-track print coordinate) wraps
+float dnNoiseWrap(float2 p, float nx)
+{
+    float n = max(1.0, round(nx));
+    float2 i = floor(p);
+    float2 f = p - i;
+    float2 u = f * f * (3.0 - 2.0 * f);
+    float i0 = i.x - n * floor(i.x / n);
+    float i1 = i0 + 1.0 - n * floor((i0 + 1.0) / n);
+    float a = dnHash12(float2(i0, i.y));
+    float b = dnHash12(float2(i1, i.y));
+    float c = dnHash12(float2(i0, i.y + 1.0));
+    float d = dnHash12(float2(i1, i.y + 1.0));
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+
 // granular crumbs: at most one round lump per unit cell (present with probability
 // `density`), radius 0.25..0.55 cells, smooth profile rad x (1 - d^2/rad^2)^2 (no hard rim:
 // hemispheres read as rings). Returns height (cells) and its gradient d height / d p.

@@ -68,6 +68,13 @@ Same pits, 4 Percherons: trucks 1-2 of the 8-truck row in the mud pit, 5-6 in th
 vsync off, `bench2.py <label> 5 clear`; compare runs 2-5 (run 1 after a Lua reload is inflated),
 interleave variants by swapping the Lua files and reloading (`reload.sh`).
 
+## 4. gridmap_v2, 6 trucks (2026-10-31)
+
+Same pits, 6 Percherons: trucks 1-3 of the 8-truck row in the mud pit, 5-7 in the sand pit
+(`tools/benchmark/gridmap_spawn6.lua`, removes every other vehicle and rewrites bench_spawn.json),
+orbit cam yaw 160 / pitch 14 / 16 m on truck 1, `bench2.py label 5 clear`, compare runs 2-5.
+Used for the screen-space overlay A/B (`deepnode_main.setRutOverlay(true/false)` between sets).
+
 ## Result log
 
 | date | map | mode | variant | fps (low1) | rut latency | memory |
@@ -108,3 +115,5 @@ against a mod-off run from the same session before drawing conclusions.
 | 2026-10-31 | gridmap_v2, 4 trucks | heavy | soil memory + kinds + deadline queue + minVisibleChange | 78.3 (62.3) | near 0.12 s avg, max 0.6-3.0 s (0.8-1.0 s runs 3-5); front 0.09 s | +3-19 MB per run |
 | 2026-10-31 | gridmap_v2, 4 trucks | heavy | final A/B: a8ddbc0 (session start) | 75.6 (58.0) | worst near 1.5-3.9 s, median ~2.0 s; front 0.09 s | ~20.5 MB per runs 2-5 |
 | 2026-10-31 | gridmap_v2, 4 trucks | heavy | final A/B: f03cc18 + docs (soil memory, kinds, deadline queue, minVisibleChange, terrain-first sand, JIT fixes) | 77.7 (62.2) | worst near 0.46-3.3 s, median ~0.75 s; front 0.09 s | ~17 MB per runs 2-5 |
+| 2026-10-31 | gridmap_v2, 6 trucks | heavy | 36d586e, overlay off | 59.3 (44.3) | near 0.13 s avg, max 3.6-3.8 s; front 0.09 s | ~+20 MB per run |
+| 2026-10-31 | gridmap_v2, 6 trucks | heavy | 36d586e, overlay on (prints + tyre pass) | 58.0 (43.4) | near 0.13 s avg, max 3.5-3.7 s; front 0.09 s | ~0 MB per run |

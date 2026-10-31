@@ -581,11 +581,13 @@ local defaults = {
     queueMax = 512,
     edge = 0.03,            -- m soft print edge
     strength = 1.0,
-    lugsPerMetre = 9,
-    chevron = 1.2,          -- lug phase shift from the tyre centre line to its edge
-    pressDepth = 0.012,     -- m: depth of the lug relief pressed into the print
-    lugWidth = 0.45,        -- lug share of one lug period
-    grooveDark = 0.3,       -- darkening of the deepest pressed parts and the lug edges
+    -- the print has no tread pattern (any wheel, small or big): smear streaks along the
+    -- track, irregular stick-slip ripples across it, a lip squeezed up at the edges
+    phasePerMetre = 4,      -- along-track coordinate scale (pattern repeats every 64 / this m)
+    streaks = 0.65,         -- streak share of the relief (the rest: ripples)
+    pressDepth = 0.025,     -- m: depth of the print relief
+    lip = 0.8,              -- edge lip height, x pressDepth
+    grooveDark = 0.4,       -- darkening of the deepest pressed parts
     ambient = 0.45,         -- ambient share in the relight ratio
     highlight = 1.0,        -- sun highlight on wet ground
     useShadowMask = true,   -- engine screen shadow mask (#sunShadowMask): no relief / highlight in shadow

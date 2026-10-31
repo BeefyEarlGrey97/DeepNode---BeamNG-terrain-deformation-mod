@@ -10,7 +10,7 @@
 --    A print stores its surface kind (mud, sand, or mud / sand dust carried onto hard ground
 --    by a coated tyre) and paints a berm band beside the tyre.
 --  * rutOverlayP.hlsl runs after the opaque scene is lit (PFXBeforeBin ObjTranslucentBin)
---    and rewrites the scene colour ($backBuffer) where the map holds prints: tread relief,
+--    and rewrites the scene colour ($backBuffer) where the map holds prints: print relief,
 --    granular crumbs, wet churned colour and a sun highlight, relit with the sun direction,
 --    and the engine's screen shadow mask (#sunShadowMask); colours change on the lit scene
 --    colour (the light pre-pass G-buffer has no base colour).
@@ -62,8 +62,8 @@ local vals = { [FX_STAMP] = {}, [FX_OVER] = {}, [FX_TYRE] = {} } -- [effect name
 local sun = { x = 0, y = 0, z = 1, t = -1 }
 local stats = { queued = 0, painted = 0, dropped = 0, recentres = 0, frames = 0, carried = 0, tyres = 0 }
 -- arc length along each tyre path, keyed by the hub point where the next report starts
--- (main stores the stamped end point as the next start), so lugs line up from one
--- report to the next
+-- (main stores the stamped end point as the next start), so the print pattern continues
+-- from one report to the next
 local arcAt, arcCount = {}, 0
 local ARC_MAX = 4096
 -- per frame: camera, wheel time, wheels for the tyre pass (nearest first)
@@ -282,8 +282,8 @@ local function stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, str
     local e = queue[qTail]
     if not e then e = {}; queue[qTail] = e end
     e[1], e[2], e[3], e[4] = p0x + ox, p0y + oy, p1x + ox, p1y + oy
-    -- the shader wraps the phase at 64 lugs: send the arc length modulo that period
-    e[5], e[6], e[7], e[8] = ty.w * 0.5, z, heading, s0 % (64 / oc.lugsPerMetre)
+    -- the shader wraps the phase at 64: send the arc length modulo that period
+    e[5], e[6], e[7], e[8] = ty.w * 0.5, z, heading, s0 % (64 / oc.phasePerMetre)
     e[9], e[10], e[11] = kind, strength, berm
     stats.queued = stats.queued + 1
   end
@@ -514,7 +514,7 @@ function M.frame()
   local n = 0
   if clearFrames > 0 then
     clearFrames = clearFrames - 1
-    setConst(FX_STAMP, 'dnCtl', 0, 1, oc.edge, oc.lugsPerMetre)
+    setConst(FX_STAMP, 'dnCtl', 0, 1, oc.edge, oc.phasePerMetre)
     n = -1
   else
     n = min(min(oc.segmentsPerFrame, MAX_SEG), qTail - qHead + 1)
@@ -526,7 +526,7 @@ function M.frame()
     end
     qHead = qHead + n
     if qHead > qTail then qHead, qTail = 1, 0 end
-    setConst(FX_STAMP, 'dnCtl', n, 0, oc.edge, oc.lugsPerMetre)
+    setConst(FX_STAMP, 'dnCtl', n, 0, oc.edge, oc.phasePerMetre)
     stats.painted = stats.painted + n
     if n > 0 then anyPrint = true end
   end
@@ -553,7 +553,7 @@ function M.frame()
   if not wantOver then return end
   setConst(FX_OVER, 'dnWin', win.x0, win.y0, win.span, win.z)
   setConst(FX_OVER, 'dnSun', sun.x, sun.y, sun.z, oc.ambient)
-  setConst(FX_OVER, 'dnTread', oc.lugsPerMetre, oc.chevron, oc.pressDepth, oc.lugWidth)
+  setConst(FX_OVER, 'dnTread', oc.phasePerMetre, oc.streaks, oc.pressDepth, oc.lip)
   setConst(FX_OVER, 'dnLook', oc.strength, oc.fadeStart, oc.fadeLength, oc.highlight)
   setConst(FX_OVER, 'dnMask', oc.zTolerance, oc.minNormalZ, dbg, oc.mapSize)
   setConst(FX_OVER, 'dnOpt', useSh, oc.groundAlbedo, oc.grooveDark, oc.bermZTolerance)

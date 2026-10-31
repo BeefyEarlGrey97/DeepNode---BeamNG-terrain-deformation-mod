@@ -6,6 +6,13 @@ Research follow-up (terrain deformation techniques review, 2026-10-31): what Bea
 allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleaved A/B, runs 2-5
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
+### Changed
+- Tyre prints have no tread pattern any more, so they suit every wheel, small or big: a
+  compacted, wetter band with smear streaks along the track, irregular stick-slip ripples across
+  it and a lip of mud squeezed up at the edges (noise relief, filtered by the pixel footprint).
+  Carried mud on hard ground is a streaky stain. Config: `phasePerMetre`, `streaks`, `lip`
+  replace `lugsPerMetre`, `chevron`, `lugWidth`.
+
 ### Added
 - Screen-space ground and tyre look on top of the tread prints (`overlay`, still experimental,
   off by default), after a Spintires reference: the print map now stores the surface kind and a

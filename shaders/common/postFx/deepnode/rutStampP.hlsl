@@ -5,12 +5,12 @@
 // with PFXTargetClear_None (measured 2026-10-31), hence the copy.
 // Texel (u,v) covers world (x0 + u*span, y0 + v*span). Channels:
 //   r = print strength (0 = untouched; a berm's intensity outside the tyre),
-//   g = lug phase along the track (lugs, mod 64),
+//   g = along-track coordinate (phase units, overlay.phasePerMetre per m, mod 64),
 //   b = ground z - baseZ (m),
 //   a = position across the tyre (-1..1 inside the print, up to +-2 on the berm beside it)
 //       + 4 x surface kind (0 mud, 1 sand, 2 mud carried onto hard ground, 3 sand dust)
 // The phase continues from one wheel report to the next (arc length at the segment start
-// comes from Lua), so lugs line up along curved tracks.
+// comes from Lua), so the print pattern continues along curved tracks.
 // A newer print replaces what was under it; a berm only covers untouched ground or berms.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
@@ -23,7 +23,7 @@ cbuffer perDraw : register(b0)
     uniform float accumTime;
     POSTFX_UNIFORMS
     uniform float4 dnWin;   // x0, y0, span, baseZ
-    uniform float4 dnCtl;   // segment count, clear (> 0.5), edge softness (m), lugs per metre
+    uniform float4 dnCtl;   // segment count, clear (> 0.5), edge softness (m), phase per metre
     uniform float4 dnShift; // window moved: texel offset x, y into the old map, z base change (m), erase rects
     uniform float4 dnClr0;  // erase rects (x0, y0, x1, y1): rut tiles DeepNode reset
     uniform float4 dnClr1;
@@ -112,7 +112,7 @@ float storedLat(float a)
             if (dist < hw) {                                                           \
                 float cov = (1.0 - smoothstep(max(hw - edge, 0.0), hw, dist)) * dnC##i.y; \
                 if (!oldPrint || cov >= 0.5 * res.r) {                                 \
-                    float ph = (dnB##i.w + dot(p - a, fw)) * lugs;                     \
+                    float ph = (dnB##i.w + dot(p - a, fw)) * ppm;                      \
                     res = float4(max(cov, 0.02), ph - 64.0 * floor(ph / 64.0), dnB##i.y, \
                                  clamp(lat, -1.0, 1.0) + kind4);                       \
                 }                                                                      \
@@ -145,7 +145,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     if (nc > 2 && all(p >= dnClr2.xy) && all(p <= dnClr2.zw)) res = 0;
     if (nc > 3 && all(p >= dnClr3.xy) && all(p <= dnClr3.zw)) res = 0;
     float edge = dnCtl.z;
-    float lugs = dnCtl.w;
+    float ppm = dnCtl.w;
     SEG(0)
     SEG(1)
     SEG(2)

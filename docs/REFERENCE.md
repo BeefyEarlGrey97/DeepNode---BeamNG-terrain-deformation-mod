@@ -723,11 +723,11 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.queueMax` | 512 | Waiting prints at most (oldest dropped) |
 | `overlay.edge` | 0.03 | Soft print edge (m) |
 | `overlay.strength` | 1.0 | Overall strength (0 = no visible effect, passes still run) |
-| `overlay.lugsPerMetre` | 9 | Tread lugs per metre along the track |
-| `overlay.chevron` | 1.2 | Lug phase shift from the tyre centre line to its edge |
-| `overlay.pressDepth` | 0.012 | Depth of the lug relief pressed into the print (m) |
-| `overlay.lugWidth` | 0.45 | Lug share of one lug period |
-| `overlay.grooveDark` | 0.3 | Darkening of the pressed grooves and lug edges (reads whatever side the sun is on) |
+| `overlay.phasePerMetre` | 4 | Along-track coordinate scale (the print pattern repeats every 64 / this m) |
+| `overlay.streaks` | 0.65 | Share of smear streaks in the print relief (the rest: stick-slip ripples). No tread pattern: the print suits any wheel |
+| `overlay.pressDepth` | 0.025 | Depth of the print relief (m) |
+| `overlay.lip` | 0.8 | Height of the mud lip squeezed up at the print edge, x pressDepth |
+| `overlay.grooveDark` | 0.4 | Darkening of the deepest pressed parts (reads whatever side the sun is on) |
 | `overlay.ambient` | 0.45 | Ambient share in the relight ratio |
 | `overlay.highlight` | 1.0 | Sun highlight on wet ground |
 | `overlay.useShadowMask` | true | Use the engine screen shadow mask (no relief / highlight in shadow) |
@@ -747,7 +747,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.tyreAlbedo` | 0.06 | Tyre albedo guess (light level for highlight and coat) |
 | `overlay.tyreMudWet` / `tyreMudDry` | 0.7 / 25 | Wetness of a fresh mud coat / seconds its sheen takes to fade after leaving the mud |
 | `overlay.tyreCoat` / `tyreCoatLump` | false / 0.03 | Also draw the tyre mud coat in the shader (tyre mud meshes stay; step towards dropping them) / lump size (m) |
-| `overlay.debug` | 0 | 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask, 5 tyre pixels, 6 tread terms, 7 crumbs |
+| `overlay.debug` | 0 | 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask, 5 tyre pixels, 6 print terms (groove, lip, filters), 7 crumbs |
 
 `deepnode_overlay.reloadShaders()` recompiles the overlay and tyre shaders in place (prints
 stay), for shader work.
