@@ -1,0 +1,176 @@
+diff --git a/lua/ge/extensions/deepnode/main.lua b/lua/ge/extensions/deepnode/main.lua
+index ed2bbd8..46cc219 100644
+--- a/lua/ge/extensions/deepnode/main.lua
++++ b/lua/ge/extensions/deepnode/main.lua
+@@ -531,6 +531,9 @@ local defaults = {
+       -- frame (deepnode_physics): writes are grouped in clusters of floorCluster squares,
+       -- merged into one update while the joint box stays grassReach m clear of grass
+       -- layers; a cluster near grass is written alone at most every grassHold s
++      floorFastHz = 10,    -- floor writes / recomputes per second while wheels dig (terrain-first: the rut shows then)
++      hotAge = 0.4,        -- s: a tile stamped this recently is hot (fast path)
++      grassHoldHot = 0.12, -- s: hot clusters near grass wait at most this long
+       floorCluster = 16,
+       grassReach = 24,     -- measured: a box 16 m from grass still hid some, 24 m none
+       grassHold = 1.0,
+@@ -5029,10 +5032,14 @@ function P.rebuildTiles()
+           gap = huge
+         end
+         if not t.digNow then gap = max(gap, deepenGap) end
+-        -- new ruts all under a vehicle body (front/middle axles) are hidden by it: wait
+-        -- until they come out behind it (rut lag counts from then), at most bodyMaxWait
++        -- new ruts all under a vehicle body (middle / rear axles deepening the rut) are
++        -- hidden by it: wait until they come out behind it (rut lag counts from then), at
++        -- most bodyMaxWait. A fresh rut front never waits: the first wheel's rut must keep
++        -- up with the tyre (seen from the side, the body does not hide the wheels)
+         local wait = false
+-        if t.obj and not t.bigChange and t.pendSince and simTime - t.pendSince < smallWait then
++        if t.digNow then
++          if t.pendSince and not t.visSince then t.visSince = simTime end
++        elseif t.obj and not t.bigChange and t.pendSince and simTime - t.pendSince < smallWait then
+           wait = true
+         elseif t.ndsq and t.ndsq > 0 and t.obj and P.dirtyHidden(t) then
+           wait = simTime - (t.pendSince or simTime) < bodyWait
+diff --git a/lua/ge/extensions/deepnode/physics.lua b/lua/ge/extensions/deepnode/physics.lua
+index 5c3571c..f446cc7 100644
+--- a/lua/ge/extensions/deepnode/physics.lua
++++ b/lua/ge/extensions/deepnode/physics.lua
+@@ -219,9 +219,14 @@ local function collect(h)
+   local clear2 = (h.raiseClear or 8) ^ 2
+   local vpos = nil
+   local keep = nil
++  local now = ctx.simTime and ctx.simTime() or 0
++  local hotAge = h.hotAge or 0.4
+   for key, e in pairs(P.floorTiles) do
+     local gx0, gy0 = e.tx * TS, e.ty * TS
+     local blocked = false
++    -- hot: a wheel is digging this tile now; its floor goes out at once (fast path in write)
++    local t = ctx.tiles[e.ty * ctx.KEY + e.tx]
++    local hot = t and t.lastStamp and now - t.lastStamp < hotAge or false
+     for gy = max(0, gy0), min(S - 1, gy0 + TS) do
+       for gx = max(0, gx0), min(S - 1, gx0 + TS) do
+         local k = P.sinkFind(gy * S + gx)
+@@ -230,7 +235,7 @@ local function collect(h)
+           local cur = P.sinkLift[k]
+           if want < cur - 0.005 then
+             if not pending[k] then npend = npend + 1 end
+-            pending[k] = { gx, gy, want }
++            pending[k] = { gx, gy, want, hot }
+           elseif e.mode == 'reset' and want > cur + 0.005 then
+             -- raising under a tyre would wedge the vehicle: only with nobody near
+             vpos = vpos or vehiclePositions()
+@@ -335,18 +340,33 @@ local function nearGrass(gx0, gy0, gx1, gy1, cs, h)
+   return false
+ end
+ 
+--- write queued vertices: one updateGrid per frame, inside the upload budget
+-local cl, take = {}, {}
++-- write queued vertices: one updateGrid per frame. Terrain-first soil (floorLift >= sink
++-- depth) shows a fresh rut only once the terrain under it is lowered: the mesh lies below the
++-- undug terrain surface. So vertices of hot tiles (a wheel dug them in the last hotAge s) go out
++-- at floorFastHz whatever the upload budget says, and near grass they wait grassHoldHot instead
++-- of grassHold; the rest stays inside the budget. Near-grass and grass-free clusters take turns
++-- (a near-grass cluster only went out in frames without grass-free work: with trucks digging
++-- elsewhere it starved and the rut showed late).
++local cl, clHot, take = {}, {}, {}
++local lastHot, lastFree = -huge, false
+ local function write(h)
++  local anyHot = false
++  for _, w in pairs(pending) do
++    if w[4] then anyHot = true; break end
++  end
+   local tm = extensions and extensions.deepnode_tileMesh
+-  if tm and tm.canUpload and not tm.canUpload('F', 0) then
++  -- hot pass: only the hot clusters, at floorFastHz, outside the budget; else everything
++  -- inside the upload budget
++  local hotPass = anyHot and clock - lastHot >= 1 / max(1, h.floorFastHz or 10)
++  if not hotPass and tm and tm.canUpload and not tm.canUpload('F', 0) then
+     stats.held = stats.held + 1
+     return
+   end
+   local cs = max(2, floor(h.floorCluster or 16))
+-  local hold = h.grassHold or 1.0
++  local holdCold, holdHot = h.grassHold or 1.0, h.grassHoldHot or 0.12
+   -- clusters of the pending vertices: key -> square box
+   for k in pairs(cl) do cl[k] = nil end
++  for k in pairs(clHot) do clHot[k] = nil end
+   for k in pairs(take) do take[k] = nil end
+   for _, w in pairs(pending) do
+     local gx, gy = w[1], w[2]
+@@ -360,21 +380,30 @@ local function write(h)
+       if gx > b[3] then b[3] = gx end
+       if gy > b[4] then b[4] = gy end
+     end
++    if w[4] then clHot[key] = true end
+   end
+   local any, alone = false, nil
+   local ux0, uy0, ux1, uy1 = huge, huge, -huge, -huge
+   for key, b in pairs(cl) do
+-    if not nearGrass(b[1], b[2], b[3], b[4], cs, h) then
++    local hold = clHot[key] and holdHot or holdCold
++    if hotPass and not clHot[key] then
++      -- cold cluster: waits for a budget pass
++    elseif not nearGrass(b[1], b[2], b[3], b[4], cs, h) then
+       local x0, y0, x1, y1 = min(ux0, b[1]), min(uy0, b[2]), max(ux1, b[3]), max(uy1, b[4])
+       if not any or not nearGrass(x0, y0, x1, y1, cs, h) then
+         take[key] = true
+         any = true
+         ux0, uy0, ux1, uy1 = x0, y0, x1, y1
+       end
+-    elseif not alone and clock - (clusterT[key] or -huge) >= hold then
++    elseif clock - (clusterT[key] or -huge) >= hold and (not alone or (clHot[key] and not clHot[alone])) then
+       alone = key
+     end
+   end
++  -- turns: a near-grass cluster due goes out when the grass-free set went out last time
++  if any and alone and lastFree then
++    for k in pairs(take) do take[k] = nil end
++    any = false
++  end
+   if not any then
+     if not alone then
+       stats.grassHeld = stats.grassHeld + 1
+@@ -384,13 +413,18 @@ local function write(h)
+     local ax, ay = alone % CKEY, floor(alone / CKEY)
+     for key in pairs(cl) do
+       local kx, ky = key % CKEY, floor(key / CKEY)
+-      if max(abs(kx - ax), abs(ky - ay)) <= 1 and clock - (clusterT[key] or -huge) >= hold then
++      local hold = clHot[key] and holdHot or holdCold
++      if (clHot[key] or not hotPass) and max(abs(kx - ax), abs(ky - ay)) <= 1 and clock - (clusterT[key] or -huge) >= hold then
+         take[key] = true
+         clusterT[key] = clock
+       end
+     end
+     stats.grassWrites = stats.grassWrites + 1
++    lastFree = false
++  else
++    lastFree = true
+   end
++  if hotPass then lastHot = clock end
+   local tb = ctx.ter.tb
+   local clampRaw = ctx.ter.clampRaw or 0
+   local maxV = h.floorMaxVerts or 600
+@@ -438,7 +472,9 @@ function M.update(dt)
+     watchAcc = 0
+     watchGroundModels()
+   end
+-  if acc >= 1 / max(0.5, h.floorHz or 5) then
++  -- while wheels dig (marked tiles), the floor is recomputed at floorFastHz
++  local hz = next(P.floorTiles) and max(h.floorHz or 5, h.floorFastHz or 10) or (h.floorHz or 5)
++  if acc >= 1 / max(0.5, hz) then
+     acc = 0
+     collect(h)
+   end
+diff --git a/settings/deepnode/config.json b/settings/deepnode/config.json
+index a962cc6..ca4d14b 100644
+--- a/settings/deepnode/config.json
++++ b/settings/deepnode/config.json
+@@ -137,7 +137,8 @@
+     "jitterXY": 0.03,
+     "leadTime": -1,
+     "leadMin": 0.015,
+-    "leadMax": 0.06
++    "leadMax": 0.12,
++    "leadExtra": 0.08
+   },
+   "report": {
+     "rateHz": 20,

@@ -185,3 +185,29 @@ floor there lags up to `grassHold`. Tried without effect: CPU placement copies (
 back), calling updateGrid from other GE hooks, setHeightGrid without updateGrid (physics ignores
 it). Not tried: a longer hold, or no floor writes at all within reach of grass.
 Benchmark impact (pits are 8-9 m from grass on gridmap_v2) not measured yet.
+
+## 16. Rut lags behind trucks in sand / mud at speed (heavy mode, 8 trucks) - open, 2026-10-31
+
+User report: ruts lag behind trucks on sand; requirement: the rut keeps up with the first front wheel
+at 40 km/h with >= 48 fps (8 Percherons). Findings:
+- Heavy mode is terrain-first for mud and sand (config `floorLift` 1.0): a fresh rut mesh lies below
+  the undug terrain surface and only shows once the rut-floor terrain write lowers the terrain there.
+  With 8 trucks those writes were starved (upload budget 'F', 5 Hz collect; ~130 terrain updates per
+  5 runs) and near grass (pits are 8-9 m from grass) also held 1 s, and near-grass clusters only went
+  out in frames without grass-free work.
+- `bodyMaxWait` 1.5 (main 6e7fd28) also holds the fresh front, since the front axle lies inside the
+  vehicle box (front-latency readout 0.10 -> 0.30 s).
+- Attempt (not merged, diff in docs/attempts/2026-10-31-rut-front-fast-floor.diff): fresh fronts
+  (t.digNow) skip the body / small-change waits; hot tiles (stamped < 0.4 s ago) get their floor
+  collected and written at floorFastHz outside the budget, grassHoldHot 0.12 s, near-grass / free
+  clusters take turns; stamp leadMax 0.12 / leadExtra 0.05-0.08. Result: rut lag near 0.03 s, front
+  0.03-0.06 s (was 0.29 / 0.30), ruts visibly up to the wheels, but 37-38 fps (main 52.3) and
+  uploads 13-15k per 5 runs (3.9k); with the fast floor off (hotAge 0) still 38 fps / 14.9k uploads,
+  so the upload count comes from the fresh-front exemption (and maybe the bigger stamp lead), not the
+  terrain writes. Trucks also bog more (avg end speed ~1 m/s in some runs) once the floor keeps up.
+- 2-truck 40 km/h sand pass (`fast_setup` / `fast_run` recipe: Percherons at y -140 north of the pits
+  heading south, dntestRun speed 11.1, dist 215): front axles press ~5 cm, the rear tandem ~12 cm; the
+  mesh rebuilds every frame there and the floor follows the carve within ~0.1 s.
+Next: find why the exemption multiplies uploads (fresh fronts at tileRebuildHz 40 from the user GUI?
+cap fresh uploads per tile, e.g. 15-20 Hz, and keep the hold for the axles behind), then re-add the
+fast floor for hot clusters only.
