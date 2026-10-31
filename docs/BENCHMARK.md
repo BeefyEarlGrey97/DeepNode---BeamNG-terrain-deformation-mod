@@ -123,3 +123,27 @@ against a mod-off run from the same session before drawing conclusions.
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | b1d68f8, overlay on (prints, puddles, splats, carried mud, tyre pass; 0 of 105 581 prints dropped) | 58.3 (44.3) | near 0.13 s avg, max 3.6-3.7 s; front 0.09 s | ~+3 MB per run |
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | d2473d5, overlay on (all defaults) | 56.9 (43.6) | - | runs on before off; the whole set ~2 fps slower than earlier sets (session drift) |
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | d2473d5, overlay off | 57.8 (43.9) | - | same set |
+
+## 5. gridmap_v2, 8 trucks, user GUI settings (2026-10-31c)
+
+8 Percherons (`gridmap_setup.lua`), heavy physics, the user's GUI settings (overlay on, tileRebuildHz 40,
+maxMeshBuildsPerSec 120, uploadEvery 2, loadRadius 70), vsync and the 60 fps limiter off, orbit cam yaw
+160 / pitch 14 / 16 m on truck 1, `bench2.py label 5 clear`, runs 2-5; main and test swapped in turn
+(`git checkout main -- lua`, reload). Static scene with the trucks parked: 76 fps, RenderShadows 3.6 ms
+(driving: 6.2-6.5 ms: the mesh uploads).
+
+| variant | fps (low1) | Lua ms | uploads / 5 runs | terrain updates / 5 runs | commit per run 2-5 |
+|---|---|---|---|---|---|
+| main 39af92b, set A | 48.6 (35.9) | 4.05 | - | - | -6 to -60 MB |
+| main 39af92b, set B | 48.6 (36.6) | 3.53 | 8684 | 167 | -21 to -38 MB |
+| test 855fa6c (road look, grass clusters, HT-55 fix), 2 sets | 47.4 / 47.2 (36.1 / 35.1) | 3.83 / 4.08 | - | - | -94 to +31 MB |
+| same, road look off | 48.3 (36.9) | 3.55 | - | - | -26 to -31 MB |
+| dd5ab4c (cached vehicle boxes / shared constants) | 47.7 (35.6) | 3.60 | - | - | -60 to +6 MB |
+| + sky sampled only for glossy roads | 48.1 (35.2) | 3.68 | 8435 | 99 | -43 to +1 MB |
+| + ring.digEvery 2 (rejected) | 47.5 (34.2) | 4.00 | 8271 | 101 | -57 to +43 MB |
+| + distance-scaled minVisibleChange (rejected: uploads 8891, no change) | 47.4 (35.8) | 3.85 | 8891 | 113 | -58 to +11 MB |
+
+The road look costs ~0.5 fps after the Lua fix (GPU side: 5 material passes); trimming the 257 free
+pooled mesh objects changed nothing (hidden objects cost no render time). In 2 of the test sets one run
+had a mud-lane truck slow down (avg end speed 1.1 m/s, all 8 finished): watch for floor writes held
+near grass (pits lie 8-9 m from grass).

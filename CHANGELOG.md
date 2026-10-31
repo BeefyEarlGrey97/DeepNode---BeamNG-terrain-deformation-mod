@@ -38,6 +38,10 @@ of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -
 - Per-kind print look: sand prints have softer relief and finer, lighter crumbs than mud.
 
 ### Fixed
+- Road look cost ~0.5 ms of GE Lua a frame with 8 trucks (vehicle boxes measured and constants
+  formatted per pass every frame): boxes cached (0.5 s) and moved with the vehicle, constants
+  shared; sky sampled only for glossy roads. 8 Percherons: Lua 4.08 -> 3.6 ms, 47.2 -> 48.1 fps
+  (main without the road look 48.6).
 - Grass flickered next to dug mud in heavy mode (clear on the gridmap_v2 material ramp, whose mud
   strip lies 12-16 m from a grass strip): every rut-floor terrain update makes the engine rebuild
   the groundcover over its box for a frame, and the one merged box per frame spanned all trucks.
