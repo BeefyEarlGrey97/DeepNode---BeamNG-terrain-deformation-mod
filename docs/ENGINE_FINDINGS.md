@@ -114,8 +114,15 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   `#lightinfo`, materials draw forward); shown as colour it was noise-like false colour. A post
   effect has no albedo: colour changes must work on the lit scene colour (scalar darkening,
   chroma gain, multiplicative tint).
-- `ShaderData:reload()` with new `defines` does not change what an existing PostEffect draws:
-  the effect keeps its compiled shader until `PostEffect:reload()` is called on it too.
+- `ShaderData:reload()` with new `defines` does not change what an existing PostEffect draws,
+  and `PostEffect:reload()` did not either (2026-10-31, second check): only a new ShaderData
+  object (new name) set as the effect's `shader` field, then `reload()`, took the new code. A post
+  effect shader that fails to compile logs nothing; the old one keeps drawing. Check offline with
+  the Windows SDK dxc (see REFERENCE.md, overlay).
+- A post effect can declare `uniform float lastFrameExposure;` in its perDraw block and gets a
+  non-zero value (as the light passes); not decoded (tonemapping hides the number).
+- Reflections without matrices: the sky colour can be read from the top rows of `$backBuffer`
+  where `#prepass[Depth]` is far (rut puddles use the mean of 4 such points).
 - Screen derivatives (`ddx`/`ddy`) of the world position and of map values work in a post
   effect; take them before any `discard` / branch. World gradient of a map value = 2x2 solve
   with `ddx(wp.xy)`, `ddy(wp.xy)`.

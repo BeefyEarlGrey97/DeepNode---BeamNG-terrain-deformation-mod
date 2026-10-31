@@ -11,7 +11,10 @@
 //    pre-pass: the G-buffer holds no base colour, #prepass[RT1] is not albedo): churned wet
 //    mud darker and more saturated, damp sand, mud and sand dust carried onto hard ground by
 //    coated tyres as a tinted streaky stain (breaking up as the coat runs out);
-//  * a wet sheen: sun highlight on the wet mud, its light level estimated from the scene.
+//  * a wet sheen: sun highlight on the wet mud, its light level estimated from the scene;
+//  * puddles (MudRunner-style water pooling in ruts): the map stores the undisturbed ground
+//    height, so the shader knows how deep a pixel lies in the rut; below a patchy water level
+//    the mud floor turns into flat murky water with a sky sheen, sun glint and ripples.
 // Fog and translucent objects draw over it afterwards.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
@@ -41,6 +44,8 @@ cbuffer perDraw : register(b0)
     uniform float4 dnDust;    // sand dust on hard ground: tint colour (rgb), opacity
     uniform float4 dnCarryG;  // brightness gain of the mud stain, of the dust, unused, unused
     uniform float4 dnGrain;   // crumb size (m), crumb height (x size), print crumb density, churn noise size (m)
+    uniform float4 dnKindX;   // sand relief (x mud), sand crumb height (x mud), crumb lift mud, crumb lift sand
+    uniform float4 dnWater;   // puddle amount (0..1), depth where water starts (m), murk, deepest rut (m)
 };
 
 #include "../postFx.hlsl"
@@ -74,6 +79,19 @@ float printGroove(float along, float lat, float per, float fs, float fr)
     rip *= dnNoiseWrap(float2(along * 1.25 + 2.0, lat * 1.3), per * 1.25);
     float s = dnTread.y;
     return lerp(0.5, streak, fs) * s + lerp(0.25, rip, fr) * (1.0 - s);
+}
+
+// sky colour for reflections: mean of a few points near the top of the screen that show
+// sky (far depth); w = how many did (0: no sky in view)
+float4 skyColour()
+{
+    float4 acc = 0;
+    [unroll] for (int i = 0; i < 4; i++) {
+        float2 u = float2(0.12 + 0.25 * i, 0.04 + 0.02 * (i & 1));
+        float4 gs = decodeGBuffer(TEX_SAMPLER(prepassDepthTex), TEX_SAMPLER(prepassTex), u, projParams);
+        if (gs.w >= 0.99999) acc += float4(tex2Dlod(sceneTex, float4(u, 0, 0)).rgb, 1);
+    }
+    return acc.w > 0.0 ? float4(acc.rgb / acc.w, acc.w) : float4(0, 0, 0, 0);
 }
 
 float4 mainP(PFXVertToPix IN) : SV_Target
@@ -134,10 +152,10 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     int kind = (int)kindF;
     bool berm = abs(lat) > 1.0;
     bool carried = kind >= 2;
-    // pixels far from the print height belong to something else (vehicles); berms stand
-    // above the tyre bottom by the rut depth
+    // depth below the undisturbed ground: pixels well above it belong to something else
+    // (vehicles; berms stand a little higher), ruts go down to dnWater.w
     float dz = wp.z - (dnWin.w + rp.b);
-    if (dz < -dnMask.x || dz > (berm ? dnOpt.w : dnMask.x)) discard;
+    if (dz < -dnWater.w || dz > (berm ? dnOpt.w : dnMask.x)) discard;
     // geometric ground slope from the depth buffer (the G-buffer normal carries the
     // material's normal map: its bumps punched holes into the prints): fade, no cut
     float3 ng = normalize(cross(dpx, dpy));
@@ -145,6 +163,8 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float slopeK = smoothstep(dnMask.y - 0.1, dnMask.y + 0.1, ng.z);
 
     float str = saturate(r.r);
+    // debug 9: depth below the undisturbed ground (red: 0..0.25 m, green: above it)
+    if (dbg == 9) return float4(saturate(-dz * 4.0), saturate(dz * 10.0), 0, 1);
     // debug 2: coverage (red print, blue berm, green carried)
     if (dbg == 2) {
         float3 c = berm ? float3(0.4, 0.4, 1.6) : (carried ? float3(0.4, 1.6, 0.4) : float3(1.6, 0.4, 0.4));
@@ -164,6 +184,8 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float edgeFade = inside;
     // carried mud is a thin stain on hard ground: no pressed relief
     float2 grad = carried ? float2(0, 0) : dnWorldGrad(drx, dry, dpx.xy, dpy.xy);
+    float reliefK = kind == 1 ? dnKindX.x : 1.0; // sand: softer prints
+    grad *= reliefK;
     // debug 6: print terms (red groove, green lip, blue streak / ripple filters)
     if (dbg == 6) return float4(groove, lip, fs * fr, 1);
 
@@ -178,7 +200,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         if (dens > 0.0 && cf > 0.0) {
             float3 c1 = dnCrumbs(wf / cs, dens);
             float3 c2 = dnCrumbs(wf / (cs * 0.5) + 31.7, dens * 0.8);
-            float hc = dnGrain.y;
+            float hc = dnGrain.y * (kind == 1 ? dnKindX.y : 1.0);
             grad += (c1.yz * hc + c2.yz * hc * 0.7) * cf;
             crumbK = saturate((c1.x + c2.x) * 2.0) * cf;
             // cast shadow: a taller lump a little towards the sun; longer when the sun is low
@@ -198,7 +220,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float lit1 = amb + sh * (1.0 - 0.8 * crumbSh) * saturate(dot(nt, L));
     float ratio = clamp(lit1 / max(lit0, 1e-3), 0.3, 2.0);
     // grooves (deepest pressed parts) darker: the print reads whatever side the sun is on
-    float ao = carried ? 1.0 : 1.0 - dnOpt.z * groove;
+    float ao = carried ? 1.0 : 1.0 - dnOpt.z * groove * reliefK;
 
     // --- surface colour (on the scene colour) ------------------------------------------
     float churn = dnNoise(wf / dnGrain.w) * 0.65 + dnNoise(wf / dnGrain.w * 2.7 + 7.1) * 0.35;
@@ -212,7 +234,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         C2 = scene * (1.0 - K.x * wet);
         C2 = max(lerp(dnLum(C2).xxx, C2, 1.0 + K.y * wet), 0.0);
         // fresh crumbs a little drier than the wet floor under them
-        C2 *= 1.0 + 0.12 * crumbK * (berm ? 1.0 : 0.5);
+        C2 *= 1.0 + (kind == 1 ? dnKindX.w : dnKindX.z) * crumbK * (berm ? 1.0 : 0.5);
     } else {
         // streaky stain of the tyre's coat, breaking up as it runs out
         float4 Cc = kind == 2 ? dnCarry : dnDust;
@@ -235,6 +257,32 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float3 specAdd = sunLight * (sh * spec * wet * dnLook.w * 0.04) * float3(1.0, 0.97, 0.92);
 
     float3 outC = C2 * ratio * ao + specAdd;
+
+    // --- puddles: water pooled in the deepest parts of mud ruts ---------------------------
+    if (kind == 0 && !berm && dnWater.x > 0.0) {
+        // water level below the undisturbed ground: patchy (some ruts dry, some full)
+        float patch = dnNoise(wf * 0.35 + 3.3) * 0.7 + dnNoise(wf * 1.1 + 8.1) * 0.3;
+        float level = -dnWater.y - (1.0 - dnWater.x) * 0.25 - (1.0 - patch) * 0.12;
+        float depthW = level - dz;  // water depth over this pixel (m)
+        float wk = smoothstep(0.0, 0.015, depthW) * inside;
+        if (wk > 0.0) {
+            // flat water: ripples (slow, animated), murky brown body, sky sheen, sun glint
+            float t = accumTime * 0.6;
+            float2 rp1 = float2(dnNoise(wf * 6.0 + t), dnNoise(wf * 6.0 + 17.0 - t)) - 0.5;
+            float3 nw = normalize(float3(rp1 * 0.08, 1.0));
+            float3 Vw = normalize(eyePosWorld - wp);
+            float fres = 0.02 + 0.98 * pow(1.0 - saturate(dot(nw, Vw)), 5.0);
+            float murk = saturate(dnWater.z * (0.5 + depthW * 6.0));
+            float3 body = C2 * ratio * lerp(0.75, 0.35, murk) * float3(0.95, 0.9, 0.8);
+            float sunW = clamp(dnLum(scene) / max(dnOpt.y, 0.02) / max(lit0, 0.05), 0.0, 8.0);
+            float4 skyS = skyColour();
+            float3 sky = skyS.w > 0.0 ? skyS.rgb * 0.85 : sunW * (amb * 1.2) * float3(0.7, 0.82, 1.0);
+            float3 Hw = normalize(L + Vw);
+            float glint = pow(saturate(dot(nw, Hw)), 400.0) * 40.0 * sh;
+            float3 water = lerp(body, sky, fres) + sunW * glint * float3(1.0, 0.97, 0.9) * 0.05;
+            outC = lerp(outC, water, wk);
+        }
+    }
     return float4(lerp(scene, outC, k), 1);
 }
 

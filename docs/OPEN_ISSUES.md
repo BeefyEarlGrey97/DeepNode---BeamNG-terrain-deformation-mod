@@ -151,11 +151,13 @@ speckles (`#prepass[RT1]` is not albedo). Not done yet:
 - GPU cost not measured (fps capped at 120/150; GPU timer not readable). Needs a GPU-bound test
   (higher resolution) or an external GPU profiler. Lua 0.06-0.09 ms, CPU render +~0.15 ms.
 - Not tried in the 4-Percheron benchmark, on johnson_valley, at night or in rain.
-- Multi-axle trucks: later axles overwrite the print with another lug phase; texels where two
-  phases meet show short steps in the pattern (point-sampled phase near the seam).
+- Multi-axle trucks: later axles overwrite the print with another along-track phase; where two
+  meet the streak pattern can step (point-sampled phase near the seam).
 - Prints may sit ~5 cm to one side of the mesh rut centre (mesh grid 0.2 m quantises the rut).
-- Crumbs are subtle at gameplay distance; no puddles in deep ruts yet (Spintires fills ruts with
-  water); sand prints not looked at closely yet.
+- Crumbs are subtle at gameplay distance. Puddles: the water level is a noise field, not a real
+  fill of the rut's lowest parts; a rut whose ground height was unknown when stamped (tile not
+  active) gets no water. The sky reflection falls back to an estimate when no sky shows at the
+  top of the screen (looking down).
 - Tyre pass: rubber albedo is a guess (`tyreAlbedo`); `tyreCoat` (shader coat, the way to drop the
   tyre mud meshes) is untuned and recolours the mesh coat too while both are on.
 - Prints further than 64 m from the camera are dropped (map window 128 m).

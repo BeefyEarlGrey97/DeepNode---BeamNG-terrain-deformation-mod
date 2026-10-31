@@ -6,7 +6,20 @@ Research follow-up (terrain deformation techniques review, 2026-10-31): what Bea
 allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleaved A/B, runs 2-5
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
+### Added
+- Puddles in mud ruts (overlay, after MudRunner's water pooling): the print map now stores the
+  undisturbed ground height, so the shader knows how deep each pixel lies; below a patchy water
+  level (`puddles`, `puddleDepth`) the rut floor turns into murky water with a sky reflection
+  (sampled from the sky at the top of the screen), sun glint and slow ripples.
+- Per-kind print look: sand prints have softer relief and finer, lighter crumbs than mud.
+
+### Fixed
+- `deepnode_overlay.reloadShaders()` did not change what was drawn (the PostEffects kept their
+  compiled shader): it now makes new ShaderData objects and points the effects at them.
+
 ### Changed
+- `overlay.zTolerance` now counts from the undisturbed ground (not the tyre bottom); new
+  `maxDepth`. Overlay constants are formatted only when they change.
 - Tyre prints have no tread pattern any more, so they suit every wheel, small or big: a
   compacted, wetter band with smear streaks along the track, irregular stick-slip ripples across
   it and a lip of mud squeezed up at the edges (noise relief, filtered by the pixel footprint).

@@ -733,11 +733,15 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.useShadowMask` | true | Use the engine screen shadow mask (no relief / highlight in shadow) |
 | `overlay.groundAlbedo` | 0.3 | Ground albedo guess: light level for the highlight = scene / this |
 | `overlay.fadeStart` / `fadeLength` | 35 / 25 | Prints fade out between these distances from the camera (m) |
-| `overlay.zTolerance` | 0.35 | Pixels further than this from the print height are left alone (vehicles over the ruts) |
-| `overlay.bermZTolerance` | 0.7 | Same above a berm (berms stand above the tyre bottom by the rut depth) |
+| `overlay.zTolerance` | 0.35 | Pixels this far above the undisturbed ground are left alone (vehicles over the ruts) |
+| `overlay.bermZTolerance` | 0.5 | Same over a berm (berms stand above the ground) |
+| `overlay.maxDepth` | 1.2 | Deepest rut floor below the undisturbed ground that is drawn (m) |
+| `overlay.puddles` | 0.7 | Water pooling in mud ruts, 0 = none, 1 = every rut deeper than `puddleDepth` (patchy level) |
+| `overlay.puddleDepth` | 0.1 | Rut depth below the undisturbed ground where water starts (m) |
+| `overlay.puddleMurk` | 0.7 | How opaque the muddy water is |
 | `overlay.minNormalZ` | 0.45 | Steeper ground fades out (slope from the depth buffer, not the normal-mapped G-buffer normal) |
 | `overlay.bermReach` | mud 2.4, sand 2.6 | Berm band beside the print, x tyre half width |
-| `overlay.mud` / `overlay.sand` | see config | `darken`, `saturate` (gain), `wet` (0..1), `bermCrumbs` (crumb density on the berms) |
+| `overlay.mud` / `overlay.sand` | see config | `darken`, `saturate` (gain), `wet` (0..1), `bermCrumbs` (crumb density on the berms), `crumbLift` (crumbs lighter than the floor); sand also `relief` and `crumbHeight` (x the mud values: softer prints, fine grains) |
 | `overlay.grain` | size 0.05, height 1.2, printDensity 0.15, churnSize 0.35 | Crumb size (m), crumb height (x size), crumb density in the print, size of the wet/dry mottling (m) |
 | `overlay.carry` | see config | Mud on hard ground: `enabled`, `color` (hue), `gain` (brightness), `opacity`, `minCoat`, `perCoat` (strength = coat x this), `step` (m between prints), `afterSoft` (s off the soft ground) |
 | `overlay.dust` | colour, gain 1.35, opacity 0.45 | Sand carried onto hard ground |
@@ -747,10 +751,13 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.tyreAlbedo` | 0.06 | Tyre albedo guess (light level for highlight and coat) |
 | `overlay.tyreMudWet` / `tyreMudDry` | 0.7 / 25 | Wetness of a fresh mud coat / seconds its sheen takes to fade after leaving the mud |
 | `overlay.tyreCoat` / `tyreCoatLump` | false / 0.03 | Also draw the tyre mud coat in the shader (tyre mud meshes stay; step towards dropping them) / lump size (m) |
-| `overlay.debug` | 0 | 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask, 5 tyre pixels, 6 print terms (groove, lip, filters), 7 crumbs |
+| `overlay.debug` | 0 | 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask, 5 tyre pixels, 6 print terms (groove, lip, filters), 7 crumbs, 9 depth below the undisturbed ground |
 
-`deepnode_overlay.reloadShaders()` recompiles the overlay and tyre shaders in place (prints
-stay), for shader work.
+`deepnode_overlay.reloadShaders()` recompiles the overlay and tyre shaders (new ShaderData
+objects, prints stay), for shader work. Offline syntax check: copy the game's `shaders/common`
+and the mod's `shaders/common/postFx/deepnode` into one tree and run the Windows SDK `dxc.exe
+-T ps_6_0 -E main -D SHADER_STAGE_PS=1 -I <tree> <file>` (the game logs nothing when a post
+effect shader fails to compile; it keeps drawing the old one).
 
 ## Safeguards
 

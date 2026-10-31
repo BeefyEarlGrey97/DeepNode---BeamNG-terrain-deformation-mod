@@ -594,13 +594,20 @@ local defaults = {
     groundAlbedo = 0.3,     -- ground albedo guess: light level for the sun highlight = scene / this
     fadeStart = 35,         -- m from the camera
     fadeLength = 25,
-    zTolerance = 0.35,      -- m: pixels further from the print height are left alone (vehicles)
-    bermZTolerance = 0.7,   -- m: berms stand above the tyre bottom by the rut depth
+    zTolerance = 0.35,      -- m: pixels this far above the undisturbed ground are left alone (vehicles)
+    bermZTolerance = 0.5,   -- m: the same over a berm (berms stand above the ground)
+    maxDepth = 1.2,         -- m: deepest rut floor below the undisturbed ground that is drawn
+    -- puddles in mud ruts: water fills ruts deeper than puddleDepth below the undisturbed ground
+    -- (patchy level, lower when puddles < 1), murk = how opaque the muddy water is
+    puddles = 0.7,
+    puddleDepth = 0.1,
+    puddleMurk = 0.7,
     minNormalZ = 0.45,      -- ground steeper than this fades out (geometric slope from depth)
     bermReach = { mud = 2.4, sand = 2.6 }, -- berm band beside the print, x tyre half width
     -- per soft kind: wet darkening, saturation gain, wetness (0..1), crumb density on the berms
-    mud = { darken = 0.5, saturate = 0.35, wet = 0.9, bermCrumbs = 0.75 },
-    sand = { darken = 0.15, saturate = 0.05, wet = 0.35, bermCrumbs = 0.8 },
+    mud = { darken = 0.5, saturate = 0.35, wet = 0.9, bermCrumbs = 0.75, crumbLift = 0.12 },
+    sand = { darken = 0.15, saturate = 0.05, wet = 0.35, bermCrumbs = 0.8, relief = 0.45, crumbHeight = 0.5,
+             crumbLift = 0.25 },
     grain = { size = 0.05, height = 1.2, printDensity = 0.15, churnSize = 0.35 }, -- crumb size m, height x size
     -- mud a coated tyre leaves on hard ground: tread-shaped stains while coat >= minCoat,
     -- strength coat x perCoat, one print every step m, starting afterSoft s off the soft ground;
@@ -3515,6 +3522,13 @@ local function vertexRef(gcx, gcy)
   local t = tiles[ty * KEY + tx]
   if not t or t.state ~= 'active' then return nil end
   return t, (gcy - ty * N) * (N + 1) + (gcx - tx * N)
+end
+
+-- undisturbed mud surface height at world (x, y) (nil off active tiles): the screen-space
+-- overlay measures rut depth (puddles) from it
+function P.restAt(x, y)
+  local t, idx = vertexRef(floor((x - ter.ox) / CELL + 0.5), floor((y - ter.oy) / CELL + 0.5))
+  return t and t.rest and t.rest[idx] or nil
 end
 
 -- Rut lag: time from the first vertex write into a tile until the tile's new mesh is

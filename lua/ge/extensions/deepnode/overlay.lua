@@ -86,17 +86,32 @@ end
 -- which the engine calls right before the effect renders, as '$name' (measured 2026-10-31:
 -- '$name' set in the callback reaches the shader, the plain name did not). setShaderConst
 -- parses the value string.
+-- One entry per uniform: { '$name', value string, numbers a b c d, live }. A value is only
+-- formatted again when its numbers change; entries not set this frame (segment slots past
+-- the frame's count) are not pushed.
 local function setConst(fxName, name, a, b, c, d)
-  local v
-  if b == nil then v = sfmt('%.6f', a)
-  else v = sfmt('%.6f %.6f %.6f %.6f', a, b, c or 0, d or 0) end
-  vals[fxName][name] = v
+  local t = vals[fxName]
+  local e = t[name]
+  if not e then e = { '$' .. name }; t[name] = e end
+  e[7] = true
+  c, d = c or 0, d or 0
+  if e[3] == a and e[4] == b and e[5] == c and e[6] == d then return end
+  e[3], e[4], e[5], e[6] = a, b, c, d
+  if b == nil then e[2] = sfmt('%.6f', a)
+  else e[2] = sfmt('%.6f %.6f %.6f %.6f', a, b, c, d) end
 end
 
 local function pushConsts(fxName)
   local fx = find(fxName)
   if not fx then return end
-  for name, v in pairs(vals[fxName]) do fx:setShaderConst('$' .. name, v) end
+  for _, e in pairs(vals[fxName]) do
+    if e[7] then fx:setShaderConst(e[1], e[2]) end
+  end
+end
+
+-- start of a frame's constants for an effect: entries must be set again to be pushed
+local function beginConsts(fxName)
+  for _, e in pairs(vals[fxName]) do e[7] = false end
 end
 
 -- PostEffect on/off without disable(): a disabled effect may drop its named target
@@ -257,14 +272,14 @@ end
 
 -- one swept wheel print: hub path p0 -> p1, axle unit vector (xy), tyre radius, tyre list
 -- { {o = offset along the axle, w = width} }, surface kind, strength 0..1, berm reach
--- (x half width, 1 = none)
-local function stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, strength, berm)
+-- (x half width, 1 = none), undisturbed ground z (nil: the tyre bottom)
+local function stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, strength, berm, groundZ)
   if not win.set then return end
   local dx, dy = p1x - p0x, p1y - p0y
   local L = sqrt(dx * dx + dy * dy)
   local heading
   if L > 1e-3 then heading = atan2(dy, dx) else heading = atan2(axx, -axy) end
-  local z = (p0z + p1z) * 0.5 - R - win.z
+  local z = (groundZ or ((p0z + p1z) * 0.5 - R)) - win.z
   if arcCount > ARC_MAX then arcAt, arcCount = {}, 0 end
   for k = 1, #tyres do
     local ty = tyres[k]
@@ -299,8 +314,12 @@ local function stampSoft(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres)
   local kind = KIND_MUD
   if P.kindAtWorld and P.kindAtWorld((p0x + p1x) * 0.5, (p0y + p1y) * 0.5) == 'sand' then kind = KIND_SAND end
   local br = oc.bermReach
+  -- the undisturbed surface (rut depth for puddles); the tyre bottom where it is unknown
+  local rest = P.restAt and P.restAt((p0x + p1x) * 0.5, (p0y + p1y) * 0.5)
+  local bottom = (p0z + p1z) * 0.5 - R
+  if not rest or rest < bottom then rest = bottom end
   stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, 1,
-    kind == KIND_SAND and (br.sand or 1.8) or (br.mud or 1.6))
+    kind == KIND_SAND and (br.sand or 1.8) or (br.mud or 1.6), rest)
 end
 
 -- erase prints over a rut tile that DeepNode reset (idle reset, clear ruts)
@@ -388,6 +407,7 @@ local function packColor(r, g, b)
 end
 
 local function sendTyres(wm)
+  beginConsts(FX_TYRE)
   for k = candN + 1, #order do order[k] = nil end
   for k = 1, candN do order[k] = cand[k] end
   tsort(order, byDist)
@@ -446,16 +466,22 @@ function M.stop()
   if wm and wm.eachWheel then wm.eachWheel(function(_, W) W.ssFrame, W.ovCarry = nil, nil end) end
 end
 
--- recompile the overlay and tyre shaders in place, for shader work: a PostEffect keeps the
--- shader it compiled until it is reloaded itself (ShaderData:reload alone changed nothing,
--- 2026-10-31). The map passes are left alone, so the prints stay.
+-- recompile the overlay and tyre shaders in place, for shader work (prints in the map stay):
+-- a PostEffect kept the shader it compiled through ShaderData:reload() and its own reload()
+-- (2026-10-31), so each call makes new ShaderData objects under new names and points the
+-- effects at them. The map passes are left alone.
+local reloadN = 0
 function M.reloadShaders()
   if not active then return false end
-  makeShader(SH_OVER, OVER_PATH)
-  makeShader(SH_TYRE, TYRE_PATH)
-  for _, name in ipairs({ FX_OVER, FX_TYRE }) do
-    local fx = find(name)
-    if fx and fx.reload then fx:reload() end
+  reloadN = reloadN + 1
+  for _, e in ipairs({ { FX_OVER, SH_OVER, OVER_PATH }, { FX_TYRE, SH_TYRE, TYRE_PATH } }) do
+    local name = e[2] .. '_r' .. reloadN
+    makeShader(name, e[3])
+    local fx = find(e[1])
+    if fx then
+      fx:setField('shader', 0, name)
+      if fx.reload then fx:reload() end
+    end
   end
   return true
 end
@@ -493,6 +519,7 @@ function M.frame()
   end
 
   -- paint pass: clear, queued prints and/or a window move, or nothing
+  beginConsts(FX_STAMP)
   setConst(FX_STAMP, 'dnWin', win.x0, win.y0, win.span, win.z)
   if shift then
     setConst(FX_STAMP, 'dnShift', shift[1], shift[2], shift[3], min(4, clrN))
@@ -565,6 +592,9 @@ function M.frame()
   setConst(FX_OVER, 'dnCarryG', c.gain, d.gain, 0, 0)
   local g = oc.grain
   setConst(FX_OVER, 'dnGrain', g.size, g.height, g.printDensity, g.churnSize)
+  setConst(FX_OVER, 'dnKindX', oc.sand.relief or 1, oc.sand.crumbHeight or 1, oc.mud.crumbLift or 0.12,
+    oc.sand.crumbLift or 0.12)
+  setConst(FX_OVER, 'dnWater', oc.puddles or 0, oc.puddleDepth or 0.1, oc.puddleMurk or 0.7, oc.maxDepth or 1.2)
 end
 
 -- test hook: paint a print without a vehicle (world xy path, ground z, width, kind 0..3)

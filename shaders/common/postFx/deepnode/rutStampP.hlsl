@@ -6,7 +6,7 @@
 // Texel (u,v) covers world (x0 + u*span, y0 + v*span). Channels:
 //   r = print strength (0 = untouched; a berm's intensity outside the tyre),
 //   g = along-track coordinate (phase units, overlay.phasePerMetre per m, mod 64),
-//   b = ground z - baseZ (m),
+//   b = undisturbed ground z (the surface before the rut) - baseZ (m),
 //   a = position across the tyre (-1..1 inside the print, up to +-2 on the berm beside it)
 //       + 4 x surface kind (0 mud, 1 sand, 2 mud carried onto hard ground, 3 sand dust)
 // The phase continues from one wheel report to the next (arc length at the segment start
@@ -93,7 +93,7 @@ float storedLat(float a)
     return a - 4.0 * round(a / 4.0);
 }
 
-// segment i: dnA = start xy, end xy; dnB = half width, z - baseZ, heading (rad), arc length at
+// segment i: dnA = start xy, end xy; dnB = half width, ground z - baseZ, heading (rad), arc length at
 // the start (m); dnC = kind, strength, berm reach (x half width), unused
 #define SEG(i)                                                                         \
     if (i < n) {                                                                       \
