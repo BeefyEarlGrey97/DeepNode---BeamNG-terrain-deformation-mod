@@ -153,8 +153,8 @@ dry-soil look for dusty desert layers, wet glossy tyres. Cost: 6 trucks, about 0
 Not done yet:
 - GPU cost not measured exactly (GPU timer not readable); the A/B fps difference is near the
   session drift.
-- Wet sky sheen (`wetSheen`) is off: it read as blue streaks on the patchy wet field; a smoother
-  wetness field (blurred, not per groove) would be needed first.
+- Wet sky sheen uses the sampled sky colour, so under an overcast or dark sky it follows that; with
+  no sky on screen (looking down) it falls back to an estimate.
 - Puddles: the water level is a noise field, not a real fill of the rut's lowest parts; ruts
   whose ground height was unknown when stamped get no water.
 - Night / rain not checked (gridmap_v2's sky ignores the time of day). johnson_valley only

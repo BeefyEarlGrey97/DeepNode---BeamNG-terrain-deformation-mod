@@ -337,14 +337,17 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float3 outC = C2 * ratio * ao + specAdd;
     // wet sheen from every direction: the wet surface mirrors the sky at grazing angles
     // (Schlick, water F0 0.02; sky sampled from the top of the screen as for the puddles)
-    if (wet > 0.05 && dnTime.w > 0.0) {
+    // smooth wetness for the sheen: the print's kind wetness and coverage only (the per-groove and
+    // churn variation made it streaky)
+    float wetS = (!carried && !splat && !wetT && !pressed) ? K.z * saturate(str) * (berm ? 0.4 : 1.0) : wet;
+    if (wetS > 0.05 && dnTime.w > 0.0) {
         // flat-water normal (0,0,1): per-pixel normals (relief, depth-buffer facets) made the
         // Fresnel spike on every streak and mesh edge (blue speckle); a wet film is smooth
         float fresM = 0.02 + 0.98 * pow(1.0 - saturate(V.z), 5.0);
         fresM = min(fresM, 0.35) * slopeK;
         float4 skyM = skyColour();
         float3 skyC = skyM.w > 0.0 ? skyM.rgb : sunLight * amb * 1.2 * float3(0.7, 0.82, 1.0);
-        outC = lerp(outC, skyC * 0.8, saturate(fresM * wet * dnTime.w));
+        outC = lerp(outC, skyC * 0.8, saturate(fresM * wetS * dnTime.w));
     }
 
     // --- puddles: water pooled in the deepest parts of mud ruts ---------------------------
