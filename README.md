@@ -50,7 +50,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 12. Research follow-ups still open (layer-map rut material, engine tread decals, ground-model speed calibration, rut persistence): see docs/OPEN_ISSUES.md §13.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
 13. Experimental ground look: GPU cost not measured exactly, puddle level is noise, night/rain unchecked: see docs/OPEN_ISSUES.md §14.
-14. Heavy mode: grass within ~24 m of a digging truck still blinks about once a second (every terrain update rebuilds the groundcover there; was ~4-5 times a second): docs/OPEN_ISSUES.md §15.
+14. Heavy mode: grass within one 10 m groundcover cell of a digging truck can still blink about once a second (every terrain update rebuilds the cells over it): docs/OPEN_ISSUES.md §15.
 
 ## Contributing and forking
 

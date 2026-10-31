@@ -177,14 +177,13 @@ Not done yet:
 
 Every `tb:updateGrid` (the rut-floor terrain writes) makes the engine rebuild the GroundCover
 cells over its box; the grass there is missing for one frame (ENGINE_FINDINGS "Terrain").
-2026-10-31: the writes are clustered (`physics.heavy.floorCluster` / `grassReach` / `grassHold`):
-grass-free clusters merge into one update, clusters within ~24 m of grass layers are written at
-most once a second. gridmap_v2 material ramp (HT-55 up the mud strip): updates near the grass
-58 -> 18 per run. Still open: a blink about once a second while a truck digs near grass, and the
-floor there lags up to `grassHold`. Tried without effect: CPU placement copies (slower to come
-back), calling updateGrid from other GE hooks, setHeightGrid without updateGrid (physics ignores
-it). Not tried: a longer hold, or no floor writes at all within reach of grass.
-Benchmark impact (pits are 8-9 m from grass on gridmap_v2) not measured yet.
+2026-10-31: the writes are clustered (`physics.heavy.floorCluster` / `grassReach` / `grassHold`)
+and the GroundCover cells are cut to 10 m while the floor is written (`grass.cellSize`): a
+write 13 m from grass no longer touches it (probe). Still open: grass within one cell (~10 m)
+of a digging truck blinks at most once a second (`grassHold`), e.g. johnson_valley where the
+grass layer itself is soft, or the gridmap_v2 material ramp (grass 6-8 m from the mud strip).
+Not found: a terrain update for physics only (setHeightGrid / setHeightWs alone leave physics
+stale). Not tried: delaying near-grass writes while those cells are in view.
 
 ## 16. Rut lags behind trucks in sand / mud at speed (heavy mode, 8 trucks) - open, 2026-10-31
 

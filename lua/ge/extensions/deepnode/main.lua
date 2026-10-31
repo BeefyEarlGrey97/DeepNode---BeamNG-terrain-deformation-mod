@@ -138,6 +138,12 @@ local defaults = {
   -- GroundCover also covers hard layers, the soft types move to a lifted copy.
   grass = {
     lift = true,
+    -- GroundCover cell size (m) while heavy physics writes the rut floor. Every terrain
+    -- update (tb:updateGrid) drops the grass cells over its box for a frame; the level's
+    -- cells are 15-25 m (gridmap_v2), so digging 13 m from grass blinked whole meadows.
+    -- 10 m cells (gridSize raised to 2 x radius / cellSize; same density, the patchy look
+    -- stays; 5-7 m cells evened it out): a write 13 m away left the grass alone. 0 = off.
+    cellSize = 10,
   },
   tiles = {
     -- 5 m tiles: about one car length, so a 10 m ring is a handful of tiles
@@ -545,7 +551,7 @@ local defaults = {
       -- merged into one update while the joint box stays grassReach m clear of grass
       -- layers; a cluster near grass is written alone at most every grassHold s
       floorCluster = 16,
-      grassReach = 24,     -- measured: a box 16 m from grass still hid some, 24 m none
+      grassReach = 12,     -- 25 m level cells: a box 16 m from grass still hid some, 24 m none; with grass.cellSize 10: none at 13 m
       grassHold = 1.0,
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
       -- rut walls of the mud mesh push the tyres (P.rutGuide): lateral force = -gain x
@@ -2146,7 +2152,43 @@ function P.liftGroundCover()
 end
 
 -- before the terrain is restored
+-- smaller GroundCover cells while the rut floor is written (grass.cellSize): a terrain
+-- update only drops the grass cells over its box, so smaller cells blink less grass
+P.coverGrid = {}
+function P.shrinkCoverCells()
+  local cs = cfg.grass and tonumber(cfg.grass.cellSize) or 0
+  if cs <= 0 or not P.liftOn then return 0 end
+  local n = 0
+  for _, name in ipairs(scenetree.findClassObjects and scenetree.findClassObjects('GroundCover') or {}) do
+    local gc = scenetree.findObject(name)
+    if gc then
+      local okR, r = pcall(function() return tonumber(gc:getField('radius', 0)) end)
+      local okG, g = pcall(function() return tonumber(gc:getField('gridSize', 0)) end)
+      if okR and okG and r and g and r > 0 then
+        local want = math.ceil(2 * r / cs)
+        if want > g then
+          P.coverGrid[#P.coverGrid + 1] = { id = gc:getId(), g = g }
+          pcall(function() gc:setField('gridSize', 0, tostring(want)); gc:postApply() end)
+          n = n + 1
+        end
+      end
+    end
+  end
+  if n > 0 then log('I', logTag, sfmt('groundcover cells: %d covers to %.0f m cells', n, cs)) end
+  return n
+end
+function P.restoreCoverCells(objectsAlive)
+  if objectsAlive then
+    for _, e in ipairs(P.coverGrid) do
+      local gc = scenetree.findObjectById and scenetree.findObjectById(e.id)
+      if gc then pcall(function() gc:setField('gridSize', 0, tostring(e.g)); gc:postApply() end) end
+    end
+  end
+  P.coverGrid = {}
+end
+
 function P.restoreGroundCover(objectsAlive)
+  P.restoreCoverCells(objectsAlive)
   if objectsAlive then
     for _, c in ipairs(P.coverCopies or {}) do pcall(function() c:delete() end) end
     for _, e in ipairs(P.coverChanged or {}) do
@@ -5870,6 +5912,7 @@ function P.start()
   P.sinkPass()
   -- after the sink pass: the lifted copies build their cells on the lowered terrain
   if cfg.grass and cfg.grass.lift ~= false then P.liftGroundCover() end
+  P.shrinkCoverCells()
   -- decal roads drawn into the mud meshes, or kept off the mud
   P.coverRoads(P.roadMode() == 'off')
   local dec = P.mod('decals')

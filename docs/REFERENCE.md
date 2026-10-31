@@ -502,6 +502,7 @@ Lengths are metres, speeds m/s, times seconds.
 
 | Key | Default | Meaning |
 |---|---|---|
+| `cellSize` | 10 | m: GroundCover cell size while heavy physics writes the rut floor (smaller cells blink less grass per terrain update); 0 = level cells |
 | `lift` | true | Lift groundcover on soft layers onto the mud surface (see Groundcover) |
 
 ### tiles

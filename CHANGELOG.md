@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+- Grass blinking next to digging trucks (heavy physics). The v0.1.1 fix (`pool.hideFrames`)
+  covers a different cause, mesh swaps; this blink comes from the rut-floor terrain writes:
+  every `tb:updateGrid` drops the GroundCover cells over its box for a frame, and the level's
+  cells are 15-25 m. GroundCover cells are now 10 m while the floor is written
+  (`grass.cellSize`, gridSize raised to 2 x radius / cellSize, restored on stop; same density,
+  the patchy look stays). Probe on gridmap_v2 (updateGrid every frame over a 4 x 3 m box 13 m
+  from the meadow south of the mud pit): the long grass in view vanished with the level's
+  cells, stayed with 10 m cells. `physics.heavy.grassReach` 24 -> 12 m (writes beyond it run at
+  the full floor rate again).
+
 ### Added
 - Every part of the vehicle plows the mud, not only the tyres and the chassis nodes: the body's
   collision triangles (not tyres, rims or pressure triangles) with a corner under the

@@ -57,6 +57,12 @@ They explain most design decisions; please extend this file when you measure som
   from onUpdate, onPreRender, onDrawDebug or onGuiUpdate makes no difference. Cells are
   2 x radius / gridSize (gridmap_v2: 15 m and 25 m). `$GroundCover::renderedCells` /
   `renderedBillboards` show the last pass drawn (they cycle with reflection faces).
+- GroundCover `gridSize` can be changed live (`setField` + `postApply`): cells = 2 x radius /
+  gridSize. updateGrid drops only the cells its box overlaps, so smaller cells limit the blink:
+  gridmap_v2 (radius 100 / 45, gridSize 8 / 6 = 25 / 15 m cells) lost most long grass in view to
+  a 4 x 3 m box 13 m away; with 10 m cells (20 / 9) none; 5-7 m cells changed the look (long
+  grass evenly spread instead of patches). `tb:setHeightWs` leaves physics stale like
+  `setHeightGrid`; no other update call exists (`updateGridMaterials`, `updateAllTextures`).
 - `setHeightGrid` without `updateGrid` changes nothing for physics (a parked truck stayed up and
   `castRayStatic` hit the old surface); `updateGrid` is the only update (no physics-only call in
   the TerrainBlock API).
