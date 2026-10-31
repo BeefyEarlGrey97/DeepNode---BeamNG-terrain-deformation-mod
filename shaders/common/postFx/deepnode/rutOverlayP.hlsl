@@ -11,6 +11,7 @@
 //    pre-pass: the G-buffer holds no base colour, #prepass[RT1] is not albedo): churned wet
 //    mud darker and more saturated, damp sand, mud and sand dust carried onto hard ground by
 //    coated tyres as a tinted streaky stain (breaking up as the coat runs out);
+//  * tracks on hard terrain: flattened grass, compacted dirt / gravel (no deformation there);
 //  * mud splats thrown by spinning wheels (MudRunner's terrain mud decals): lumpy wet blobs
 //    on whatever ground they land on;
 //  * a wet sheen: sun highlight on the wet mud, its light level estimated from the scene;
@@ -46,6 +47,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnDust;    // sand dust on hard ground: tint colour (rgb), opacity
     uniform float4 dnCarryG;  // brightness gain of the mud stain, of the dust, of the splats, unused
     uniform float4 dnSplat;   // mud splats: tint colour (rgb), opacity
+    uniform float4 dnPress;   // tracks on hard terrain: grass darkening, grass desaturation, dirt darkening, relief (x mud)
     uniform float4 dnGrain;   // crumb size (m), crumb height (x size), print crumb density, churn noise size (m)
     uniform float4 dnKindX;   // sand relief (x mud), sand crumb height (x mud), crumb lift mud, crumb lift sand
     uniform float4 dnWater;   // puddle amount (0..1), depth where water starts (m), murk, deepest rut (m)
@@ -159,6 +161,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     bool berm = abs(lat) > 1.0;
     bool carried = kind == 2 || kind == 3;
     bool splat = kind == 4;
+    bool pressed = kind >= 5; // 5 grass, 6 dirt / gravel
     // depth below the undisturbed ground: pixels well above it belong to something else
     // (vehicles; berms stand a little higher), ruts go down to dnWater.w
     float dz = wp.z - (dnWin.w + rp.b);
@@ -193,7 +196,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float2 grad = (carried || splat) ? float2(0, 0) : dnWorldGrad(drx, dry, dpx.xy, dpy.xy);
     // splat blob cover (shaped in the stamp pass, rutStampP.hlsl splatCover)
     float splatC = splat ? str : 0.0;
-    float reliefK = kind == 1 ? dnKindX.x : 1.0; // sand: softer prints
+    float reliefK = kind == 1 ? dnKindX.x : (pressed ? dnPress.w : 1.0); // sand, hard ground: softer
     grad *= reliefK;
     // debug 6: print terms (red groove, green lip, blue streak / ripple filters)
     if (dbg == 6) return float4(groove, lip, fs * fr, 1);
@@ -202,7 +205,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float cs = dnGrain.x * (kind == 1 ? 0.6 : 1.0);
     float crumbK = 0.0;
     float crumbSh = 0.0; // share of the sun a lump next to the pixel blocks (its cast shadow)
-    if (!carried) {
+    if (!carried && !pressed) {
         float bermW = berm ? saturate(2.0 - abs(lat)) * saturate((abs(lat) - 1.0) * 6.0) : 0.0;
         float dens = berm ? K.w * bermW : dnGrain.z * (0.4 + 0.6 * smoothstep(0.5, 1.0, abs(lat)));
         if (splat) dens = 0.65 * splatC;
@@ -244,6 +247,16 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         wet = 0.8 * K.z * splatC;
         // the whole effect (relief, crumbs, colour) fades with the blob: no rim at its edge
         k = saturate(dnLook.x * fade * slopeK) * smoothstep(0.0, 0.35, splatC);
+    } else if (pressed) {
+        // grass flattened by the tyre: darker, paler, a little yellower (crushed blades), a faint
+        // sheen; dirt / gravel compacted: a little darker and smoother
+        if (kind == 5) {
+            C2 = scene * (1.0 - dnPress.x * (0.7 + 0.3 * groove));
+            C2 = lerp(dnLum(C2).xxx, C2, 1.0 - dnPress.y) * float3(1.04, 1.0, 0.9);
+            wet = 0.12;
+        } else {
+            C2 = scene * (1.0 - dnPress.z * (0.6 + 0.4 * groove));
+        }
     } else if (!carried) {
         // wet churned soil: wetter in the print centre and the grooves, patchy; darker and
         // more saturated

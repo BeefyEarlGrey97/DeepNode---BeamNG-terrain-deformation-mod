@@ -616,6 +616,13 @@ local defaults = {
     carry = { enabled = true, color = { 0.16, 0.12, 0.085 }, gain = 0.5, opacity = 0.85, minCoat = 0.08,
               perCoat = 1.2, step = 0.12, afterSoft = 0.3 },
     dust = { color = { 0.5, 0.45, 0.36 }, gain = 1.35, opacity = 0.45 }, -- sand carried onto hard ground
+    -- tracks on hard terrain (no deformation): a clean wheel on a terrain material whose name
+    -- contains one of the grass / dirt parts leaves a flattened grass or compacted dirt track
+    -- (one print every step m, only within maxGap m of the terrain: not on road meshes)
+    tracks = { enabled = true, step = 0.15, maxGap = 0.25, relief = 0.4,
+               grass = { 'grass', 'meadow', 'field', 'lawn', 'moss', 'weed' },
+               dirt = { 'dirt', 'gravel', 'soil', 'ground', 'forest', 'trail', 'track', 'mud', 'sand' },
+               grassDarken = 0.22, grassDesat = 0.25, dirtDarken = 0.12 },
     -- mud splats thrown by wheels spinning in mud (slip above minSpin m/s): perSpin splats per s
     -- per m/s of slip (at most maxPerSec), landing up to reach m behind the wheel (full reach at
     -- fullSpin m/s), radius sizeMin..sizeMax m; tinted like the carried mud
@@ -1007,6 +1014,14 @@ local function layerAt(gx, gy)
 end
 M.layerAt = layerAt
 
+-- terrain material name at world (x, y) (nil off the terrain): the screen-space overlay picks
+-- the track look on hard ground by it (grass, dirt / gravel)
+function P.layerNameAt(x, y)
+  if not ter then return nil end
+  local L = layers[layerAt(floor((x - ter.ox) / ter.sq + 0.5), floor((y - ter.oy) / ter.sq + 0.5))]
+  return L and L.name or nil
+end
+
 -- Compare the file rows with the engine on random vertices where the two row
 -- orders disagree. Accept an order only with >= 90 % agreement.
 function P.verifyOrientation()
@@ -1376,6 +1391,66 @@ function P.saveBadRoads()
   for pid in pairs(P.roadsBad) do list[#list + 1] = pid end
   table.sort(list)
   if jsonWriteFile then jsonWriteFile(P.roadsCachePath(), { bad = list }, true) end
+end
+
+-- terrain squares under any decal road (all of them, not only those on soft ground): the
+-- screen-space overlay leaves no grass / dirt tracks there (a road over grass terrain).
+-- Each road quad marks its bounding box of squares (a little wide on diagonal roads).
+P.roadMask = {}
+function P.markRoadMask(ed)
+  local inv, ox, oy, S = ter.invSq, ter.ox, ter.oy, ter.size
+  local mask = P.roadMask
+  for i = 1, #ed - 7, 4 do
+    local x0 = min(ed[i], ed[i + 2], ed[i + 4], ed[i + 6])
+    local x1 = max(ed[i], ed[i + 2], ed[i + 4], ed[i + 6])
+    local y0 = min(ed[i + 1], ed[i + 3], ed[i + 5], ed[i + 7])
+    local y1 = max(ed[i + 1], ed[i + 3], ed[i + 5], ed[i + 7])
+    local gx0, gx1 = max(0, floor((x0 - ox) * inv)), min(S - 1, floor((x1 - ox) * inv))
+    local gy0, gy1 = max(0, floor((y0 - oy) * inv)), min(S - 1, floor((y1 - oy) * inv))
+    if (gx1 - gx0) * (gy1 - gy0) < 4096 then
+      for gy = gy0, gy1 do
+        for gx = gx0, gx1 do mask[gy * S + gx] = true end
+      end
+    end
+  end
+end
+
+-- scan every visible decal road into P.roadMask (deepnode_overlay at start); returns roads, ms
+function P.buildRoadMask()
+  P.roadMask = {}
+  if not ter then return 0, 0 end
+  local names = scenetree.findClassObjects and scenetree.findClassObjects('DecalRoad')
+  if type(names) ~= 'table' then return 0, 0 end
+  local t0 = newTimer()
+  local n = 0
+  local edges = {}
+  for _, name in ipairs(names) do
+    local road = scenetree.findObject(name)
+    local okH, hid = pcall(function() return road and road:isHidden() end)
+    if road and okH and not hid then
+      local okC, ec = pcall(function() return road:getEdgeCount() end)
+      ec = okC and tonumber(ec) or 0
+      local ne = 0
+      for i = 0, ec - 1 do
+        local okE, l, r = pcall(function() return road:getLeftEdgePosition(i), road:getRightEdgePosition(i) end)
+        if okE and l and r and isFinite(l.x) and isFinite(r.x) then
+          edges[ne + 1], edges[ne + 2], edges[ne + 3], edges[ne + 4] = l.x, l.y, r.x, r.y
+          ne = ne + 4
+        end
+      end
+      for k = ne + 1, #edges do edges[k] = nil end
+      P.markRoadMask(edges)
+      n = n + 1
+    end
+  end
+  return n, t0:stop()
+end
+
+function P.onRoadAt(x, y)
+  if not ter then return false end
+  local S = ter.size
+  local gx, gy = floor((x - ter.ox) * ter.invSq), floor((y - ter.oy) * ter.invSq)
+  return P.roadMask[gy * S + gx] == true
 end
 
 function P.collectMudRoads()

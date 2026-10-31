@@ -47,7 +47,7 @@ local COMMON_PATH = SHADER_DIR .. 'dnCommon.h.hlsl'
 local MAX_SEG = 16
 local MAX_WHEELS = 16
 -- surface kinds stored in the map (rutStampP.hlsl)
-local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT = 0, 1, 2, 3, 4
+local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT, KIND_GRASS, KIND_DIRT = 0, 1, 2, 3, 4, 5, 6
 local random = math.random
 
 local ctx, P, oc = nil, nil, nil
@@ -424,32 +424,63 @@ local function throwSplats(W)
   W.ovSplAcc = acc
 end
 
--- per wheel and frame (wheelMud.eachWheel): mud carried onto hard ground, splats, tyre pass
--- candidates
+-- track kind on hard terrain by its material name (overlay.tracks.grass / .dirt name parts),
+-- cached per name; false = no track (asphalt, concrete, rock...)
+local surfaceKindOf = {}
+local function surfaceKind(x, y)
+  local name = P.layerNameAt and P.layerNameAt(x, y)
+  if not name then return false end
+  local k = surfaceKindOf[name]
+  if k ~= nil then return k end
+  local low = name:lower()
+  k = false
+  for _, part in ipairs(oc.tracks.grass) do if low:find(part, 1, true) then k = KIND_GRASS end end
+  if not k then
+    for _, part in ipairs(oc.tracks.dirt) do if low:find(part, 1, true) then k = KIND_DIRT end end
+  end
+  surfaceKindOf[name] = k
+  return k
+end
+
+-- per wheel and frame (wheelMud.eachWheel): mud carried onto hard ground, tracks on grass and
+-- dirt, splats, tyre pass candidates
 local function onWheel(vid, W)
   local f = W.frame
   local cx, cy, cz = f[1], f[2], f[3]
   if oc.splats.enabled and win.set then throwSplats(W) end
-  -- carried prints: a coated wheel off the soft ground leaves its coat in tread prints
-  local cc = oc.carry
+  -- hard ground prints: a coated wheel off the soft ground leaves its coat (carried mud / sand
+  -- dust); a clean one on grass or dirt terrain leaves a flattened / compacted track
+  local cc, tr = oc.carry, oc.tracks
   local hard = wheelNow - (W.mudT or -1e9) > cc.afterSoft
   local coat = W.coat or 0
-  if cc.enabled and hard and coat >= cc.minCoat and win.set then
+  local carry = cc.enabled and coat >= cc.minCoat
+  if hard and (carry or tr.enabled) and win.set then
     local q = W.ovCarry
     if not q then
       W.ovCarry = { cx, cy, cz }
     else
       local dx, dy = cx - q[1], cy - q[2]
       local d2 = dx * dx + dy * dy
+      local step = carry and cc.step or tr.step
       if d2 > 25 then
         q[1], q[2], q[3] = cx, cy, cz
-      elseif d2 >= cc.step * cc.step then
+      elseif d2 >= step * step then
         local axx, axy = f[4], f[5]
         local al = sqrt(axx * axx + axy * axy)
         if al > 0.3 then
-          local kind = (W.kind == 'sand') and KIND_DUST or KIND_CARRY
-          stamp(q[1], q[2], q[3], cx, cy, cz, axx / al, axy / al, W.R, W.tyres, kind, min(1, coat * cc.perCoat), 1)
-          stats.carried = stats.carried + 1
+          if carry then
+            local kind = (W.kind == 'sand') and KIND_DUST or KIND_CARRY
+            stamp(q[1], q[2], q[3], cx, cy, cz, axx / al, axy / al, W.R, W.tyres, kind, min(1, coat * cc.perCoat), 1)
+            stats.carried = stats.carried + 1
+          else
+            -- only on the terrain itself (not on a road mesh or bridge over it)
+            local kind = not (P.onRoadAt and P.onRoadAt(cx, cy)) and surfaceKind(cx, cy)
+            local tz = kind and core_terrain and core_terrain.getTerrainHeight(vec3(cx, cy, 0))
+            if tz and math.abs(cz - W.R - tz) < tr.maxGap then
+              stamp(q[1], q[2], q[3], cx, cy, cz, axx / al, axy / al, W.R, W.tyres, kind, 1, 1, tz)
+              stats.tracks = (stats.tracks or 0) + 1
+            end
+          end
         end
         q[1], q[2], q[3] = cx, cy, cz
       end
@@ -529,6 +560,12 @@ function M.start(main)
   clr, clrN = {}, 0
   for k in pairs(stats) do stats[k] = 0 end
   sun.t = -1
+  surfaceKindOf = {}
+  -- no grass / dirt tracks on decal roads laid over such terrain
+  if oc.tracks and oc.tracks.enabled and P.buildRoadMask then
+    local okR, nr, ms = pcall(P.buildRoadMask)
+    if okR then log('I', 'deepnode', sfmt('overlay road mask: %d roads, %.0f ms', nr or 0, ms or 0)) end
+  end
   P.overlayStamp = stampSoft
   P.overlayClear = clearRect
   active = true
@@ -571,6 +608,7 @@ function M.isActive() return active end
 function M.stats()
   return { queued = stats.queued, painted = stats.painted, dropped = stats.dropped, recentres = stats.recentres,
     carried = stats.carried, tyres = stats.tyres, splats = stats.splats or 0, merged = stats.merged or 0,
+    tracks = stats.tracks or 0,
     pending = qTail - qHead + 1,
     window = { win.x0, win.y0, win.span, win.z } }
 end
@@ -674,6 +712,8 @@ function M.frame()
   local sp = oc.splats
   setConst(FX_OVER, 'dnCarryG', c.gain, d.gain, sp.gain, 0)
   setConst(FX_OVER, 'dnSplat', sp.color[1], sp.color[2], sp.color[3], sp.opacity)
+  local tr = oc.tracks
+  setConst(FX_OVER, 'dnPress', tr.grassDarken, tr.grassDesat, tr.dirtDarken, tr.relief)
   local g = oc.grain
   setConst(FX_OVER, 'dnGrain', g.size, g.height, g.printDensity, g.churnSize)
   setConst(FX_OVER, 'dnKindX', oc.sand.relief or 1, oc.sand.crumbHeight or 1, oc.mud.crumbLift or 0.12,

@@ -7,6 +7,9 @@ allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleave
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
 ### Added
+- Tracks on hard terrain (overlay `tracks`): clean wheels on grass terrain leave flattened, paler
+  tracks, on dirt / gravel compacted ones, picked by the terrain material name; none on decal
+  roads (a road mask is scanned when the overlay starts) or off the terrain.
 - Mud splats (overlay, after MudRunner's terrain mud decals): wheels spinning in mud throw
   lumpy wet blobs behind them (further and more with more slip, either side when spinning on the
   spot) onto berms, rut floors or hard ground. The blob shape is cut in the stamp pass, so the
