@@ -11,7 +11,9 @@ no decal road on soft ground). To set the mod UI keybinds: Search for DeepNode u
 
 DeepNode is written from scratch. It uses only BeamNG's public Lua interface. How that interface
 behaves was learned from the game's shipped Lua scripts and from measurements in the running game MCP server. The engine facts it relies
-on are documented in [docs/ENGINE_FINDINGS.md](docs/ENGINE_FINDINGS.md).
+on are documented in [docs/ENGINE_FINDINGS.md](docs/ENGINE_FINDINGS.md). The post-effect technique behind the
+experimental tread prints (own HLSL passes fed by shader constants, a world-space map in a named render target) was
+learned by reading the Dynamic Dirt mod; none of its code, shaders or textures are used.
 
 ## Features
 
@@ -20,6 +22,7 @@ on are documented in [docs/ENGINE_FINDINGS.md](docs/ENGINE_FINDINGS.md).
 - Ruts carved ahead of each wheel, so they appear under the tyre (front latency ~0.1 s)
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
 - Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
+- Experimental tread prints: tyre tread relief and wet darkening drawn in the ruts by GPU post effects (no mesh uploads), off by default
 - Simple UI with live settings and performance stats
   
 ## Benchmarks included
@@ -46,6 +49,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
 12. Research follow-ups still open (layer-map rut material, engine tread decals, ground-model speed calibration, rut persistence): see docs/OPEN_ISSUES.md §13.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
+13. Experimental tread prints: prints sit slightly off the rut centre, GPU cost not measured exactly, not benchmarked with trucks: see docs/OPEN_ISSUES.md §14.
 
 ## Contributing and forking
 
@@ -55,7 +59,7 @@ Full workflow, benchmark rules and the mistakes to avoid are in [CONTRIBUTING.md
 Look for issues labelled `good first issue` and `help wanted`. Please follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-To build on DeepNode: the mod lives in `lua/` (runtime) and `scripts/` (game hooks); config keys are in
+To build on DeepNode: the mod lives in `lua/` (runtime), `shaders/` (tread print post effects) and `scripts/` (game hooks); config keys are in
 [docs/REFERENCE.md](docs/REFERENCE.md), engine facts in [docs/ENGINE_FINDINGS.md](docs/ENGINE_FINDINGS.md).
 
 ## License

@@ -7,6 +7,14 @@ allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleave
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
 ### Added
+- Experimental tread prints (`overlay`, GUI "Experimental tread prints", off by default): tyre
+  prints are painted on the GPU into a 2048² world-space map around the camera (128 m) and drawn
+  over the lit scene as chevron tread relief and wet darkening in the ruts. Own HLSL post effects
+  (`shaders/common/postFx/deepnode/`), no mesh uploads; the rut shape still comes from the meshes.
+  The map scrolls with the camera, lugs stay in phase from one wheel report to the next, and
+  tiles DeepNode resets (idle reset, Smooth ruts) erase their prints. Lua cost 0.003 ms per idle
+  frame, ~0.04 ms with 16 prints; 8 extra copies of each pass did not lower fps (150 fps cap, GPU
+  timer not readable: GPU cost not measured exactly).
 - Soil memory (`stamp.soil`): every rut cell counts tyre passes and keeps the first pass's depth;
   pass N carves at most z1 x N^(2/(2n+1)) (Bekker's multi-pass rule) instead of straight to the
   tyre bottom. The heavy terrain floor follows the rut, so repeated passes deepen by a bounded,

@@ -83,6 +83,31 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
   - the shadow pass ignores the custom VS (shadow cast from the uploaded vertices).
   So GPU displacement of static mud meshes (no uploads) is not possible this way.
 
+PostEffect details learned building the rut overlay (deepnode_overlay, same day):
+- Shader constants: set `fx:setShaderConst('$name', 'x y z w')` inside the global
+  `<effectName>Callbacks.setShaderConsts` function (the engine calls it before the effect renders).
+  A constant shown as colour by a probe shader arrived this way; with the plain name it stayed 0.
+  Engine-set uniforms (`accumTime`, `eyePosWorld`, `projParams`, `rtParams0`) arrive by themselves.
+- A pass that draws into a named target does not keep the target's old content, even with
+  `targetClear PFXTargetClear_None`: only the last draw's texels survived. Persistent GPU state
+  needs a ping-pong (read the map, write all texels to a temp target, copy back), as Dynamic Dirt
+  does. While both passes are skipped (`setField('skip', 0, '1')`), the map keeps its content.
+- Draws in the first frames after creating the effects were lost: warm up with a few frames.
+- `$backBuffer` as texture slot 0 and target `$backBuffer` works at `PFXBeforeBin
+  ObjTranslucentBin` and at `PFXAfterDiffuse` (read the scene, write the changed colour, no blend).
+- A deleted `GFXStateBlockData` / `ShaderData` can survive (still referenced) and `findObject`
+  returns the old one: update fields in place instead of "create if missing".
+- Compiled shaders are cached per file + `defines`: put a source revision into `defines` so an
+  edited file compiles again (Dynamic Dirt does the same).
+- `getConsoleNumber('fps::gpuTime')` (`VariableRegistry '$fps::gpuTime'`) stayed at one value with
+  the GPU timing overlay on; fps stayed at 150 with `fpsLimitEnabled` and
+  `fpsLimitBackgroundEnabled` off: GPU cost of a pass is not measurable that way. 8 extra copies of
+  the 2048² stamp pass or of the full-screen overlay did not lower the 150 fps.
+- Depth to world position in a post effect: `decodeGBuffer(depthTex, rt0Tex, uv, projParams).w`
+  is linear depth, `worldPos = eyePosWorld + IN.wsEyeRay * depth` (as the engine's fog pass).
+- Sun direction for a self-lit pass: ScatterSky `azimuth` / `elevation` (degrees);
+  `(sin(az) cos(el), cos(az) cos(el), sin(el))` matched the engine's shading (debug view).
+
 ## Other
 
 - `Engine.Render.DynamicDecalMgr.addDecals` (box-projected colour decals, one frame) projects onto

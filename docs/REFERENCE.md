@@ -431,6 +431,8 @@ Three tabs:
 | `deepnode_main.rutLag(reset)` | Rut lag readout: time from a visible rut change to its mesh (near / far camera), lost writes |
 | `deepnode_main.gui.selectTab('Debug')` | Open the window on a tab |
 | `deepnode_main.flushMemory()` | Lua cleanup (see Engine memory) |
+| `deepnode_main.setRutOverlay(true/false)` | Experimental tread prints on/off (GUI checkbox, saved to gui.json) |
+| `deepnode_overlay.stats()` | Tread print map: prints queued / painted / dropped, window moves, map window |
 
 ## Configuration
 
@@ -699,6 +701,33 @@ Lengths are metres, speeds m/s, times seconds.
 | `debug.chunks` | false | Chunk border overlay (GUI checkbox; kept over mod restarts) |
 | `debug.drawRadius` | 120 | Tiles within this distance of the camera are outlined (sectors within twice it) |
 | `debug.lift` | 0.12 | Overlay lines float this high over the mud |
+
+### overlay (experimental tread prints)
+
+Tyre prints painted on the GPU into a world-space map (`#deepnode_rut`, RGBA16F) around the
+camera and drawn over the lit scene (shaders in `shaders/common/postFx/deepnode/`). Every wheel
+stamp of the mud pipeline also queues a print; no mesh uploads.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `overlay.enabled` | false | On/off (GUI "Experimental tread prints") |
+| `overlay.mapSize` | 2048 | Texels per side of the print map |
+| `overlay.span` | 128 | Metres covered by the map (6.25 cm texels) |
+| `overlay.recentreMargin` | 24 | The map window moves (8 m steps, prints kept) when the camera is this close to its edge |
+| `overlay.segmentsPerFrame` | 16 | Prints painted per frame (shader limit 16); the rest wait |
+| `overlay.queueMax` | 512 | Waiting prints at most (oldest dropped) |
+| `overlay.edge` | 0.03 | Soft print edge (m) |
+| `overlay.strength` | 1.0 | Overall strength (0 = no visible effect, passes still run) |
+| `overlay.lugsPerMetre` | 9 | Tread lugs per metre along the track |
+| `overlay.chevron` | 1.2 | Lug phase shift from the tyre centre line to its edge |
+| `overlay.relief` | 0.05 | Tread slope scale (tuned on gridmap_v2 mud) |
+| `overlay.lugWidth` | 0.45 | Lug share of one lug period |
+| `overlay.wetDarken` | 0.3 | Darkening of the print (wet mud) |
+| `overlay.ambient` | 0.45 | Ambient share in the relight ratio |
+| `overlay.fadeStart` / `fadeLength` | 35 / 25 | Prints fade out between these distances from the camera (m) |
+| `overlay.zTolerance` | 0.35 | Pixels further than this from the print height are left alone (vehicles over the ruts) |
+| `overlay.minNormalZ` | 0.45 | Steeper surfaces are left alone |
+| `overlay.debug` | 0 | 1: sun term over the whole screen (checks the sun direction), 2: print coverage in red |
 
 ## Safeguards
 

@@ -139,3 +139,17 @@ ground colour differs; mud `groundGain` 2 was tuned on gridmap_v2's dark mud); `
 one value for every tyre model (tread depth differs: on a shallow tyre the skin may hide under the
 lugs, on a deep one sit too low). Sidewall dust is alpha-clipped specks, no soft haze (a translucent
 dust layer like the water film would cost another material per wheel).
+
+## 14. Experimental tread prints (screen-space overlay, 2026-10-31)
+
+`overlay` / GUI "Experimental tread prints", off by default. Works on gridmap_v2 (Bronco through
+the mud pit): chevron prints and wet darkening in the rut floors, prints scroll with the camera,
+Smooth ruts / idle reset erase them. Not done yet:
+- Prints sit a little to one side of the mesh rut centre (seen in the coverage view, debug 2):
+  check the tyre offset / hub point used for the print against the rut the mesh shows.
+- GPU cost not measured exactly (GPU timer not readable, 150 fps cap; 8 extra copies of each pass
+  did not lower fps). Needs a GPU-bound test (higher resolution) or an external GPU profiler.
+- Not tried in the 4-Percheron benchmark, on johnson_valley or with heavy physics.
+- The relight is a ratio of sun + ambient terms: inside a shadow it still brightens/darkens the
+  lugs as if sunlit. The tread pattern is one chevron for every tyre (no per-tyre pattern).
+- Map window 128 m at 6.25 cm texels: prints further than 64 m from the camera are dropped.

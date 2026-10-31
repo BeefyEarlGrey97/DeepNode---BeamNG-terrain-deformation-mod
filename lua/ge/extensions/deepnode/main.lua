@@ -567,6 +567,30 @@ local defaults = {
   gui = {
     openOnStart = true,
   },
+  -- Screen-space rut overlay (deepnode_overlay, experimental): tyre prints are painted on the
+  -- GPU into a world-space map around the camera and drawn as tread relief + wet darkening
+  -- over the lit scene. No mesh uploads; the rut shape still comes from the mud meshes.
+  overlay = {
+    enabled = false,
+    mapSize = 2048,         -- texels per side of the rut map
+    span = 128,             -- m covered by the map (6.25 cm texels at 2048)
+    recentreMargin = 24,    -- m: the map follows the camera when it gets this close to an edge (prints are lost)
+    segmentsPerFrame = 16,  -- prints painted per frame (shader limit 16)
+    queueMax = 512,
+    edge = 0.03,            -- m soft print edge
+    strength = 1.0,
+    lugsPerMetre = 9,
+    chevron = 1.2,          -- lug phase shift from the tyre centre line to its edge
+    relief = 0.05,          -- tread slope scale (tuned on gridmap_v2 mud)
+    lugWidth = 0.45,        -- lug share of one lug period
+    wetDarken = 0.3,
+    ambient = 0.45,         -- ambient share in the relight ratio
+    fadeStart = 35,         -- m from the camera
+    fadeLength = 25,
+    zTolerance = 0.35,      -- m: pixels further from the print height are left alone (vehicles)
+    minNormalZ = 0.45,
+    debug = 0,              -- 1: sun term check over the whole screen, 2: print coverage in red
+  },
 }
 
 function P.isArray(t)
@@ -1776,6 +1800,26 @@ function M.setDecalRoads(on)
   end
   local fm = P.mod('farMesh')
   if fm and fm.markAllDirty then fm.markAllDirty() end
+end
+
+-- screen-space rut overlay (deepnode_overlay, experimental): tread prints and wet
+-- darkening drawn over the lit scene; on/off live
+function M.setRutOverlay(on)
+  cfg.overlay.enabled = on and true or false
+  if not running then return cfg.overlay.enabled end
+  local ov = P.mod('overlay')
+  if not ov then return false end
+  ov.stop()
+  if on then
+    local ok, err = pcall(ov.start, M)
+    if not ok then log('E', logTag, 'rut overlay failed: ' .. tostring(err)) end
+  end
+  return ov.isActive()
+end
+
+function M.rutOverlayOn()
+  local ov = P.mod('overlay')
+  return ov and ov.isActive() or false
 end
 
 function M.redrapeRoads()
@@ -3275,6 +3319,8 @@ end
 
 function P.releaseFrozen(t)
   local sk = P.sectorKeyOfTile(t.tx, t.ty)
+  local ovc = P.overlayClear
+  if ovc then ovc(t.x0, t.y0, t.x0 + TILE, t.y0 + TILE) end
   if t.obj then
     P.mod('tileMesh').deferRelease(t.obj)
     t.obj = nil
@@ -3905,6 +3951,9 @@ end
 -- W: tyre width (single tyre) or a tyre list (see stampFootprint)
 function P.stampWheel(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, fwx, fwy, R, W, tr, includeStart, dig, digMax)
   if type(W) == 'number' then W = { { o = 0, w = W } } end
+  -- screen-space rut overlay (deepnode_overlay sets it while running)
+  local ovs = P.overlayStamp
+  if ovs then ovs(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, W) end
   local dx, dy, dz = p1x - p0x, p1y - p0y, p1z - p0z
   local L = sqrt(dx * dx + dy * dy)
   local n = max(1, min(64, ceil(L / CELL)))
@@ -5427,7 +5476,7 @@ end
 -- lifecycle
 -------------------------------------------------------------------------------
 function P.loadSubModules()
-  for _, n in ipairs({ 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'gui' }) do
+  for _, n in ipairs({ 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'overlay', 'gui' }) do
     local name = 'deepnode_' .. n
     if extensions and not extensions[name] then
       extensions.load(name)
@@ -5514,6 +5563,11 @@ function P.start()
     local okDec, errDec = pcall(dec.start, M)
     if not okDec then log('E', logTag, 'decal overlay failed: ' .. tostring(errDec)) end
   end
+  local ov = P.mod('overlay')
+  if ov then
+    local okOv, errOv = pcall(ov.start, M)
+    if not okOv then log('E', logTag, 'rut overlay failed: ' .. tostring(errOv)) end
+  end
 
   -- Pre-create the shared pool so normal driving never creates scene objects:
   -- sectors that can be inside the load radius, plus active tiles.
@@ -5578,6 +5632,8 @@ function P.stop(objectsAlive)
   if ph then ph.stop(objectsAlive) end
   local dec = P.mod('decals')
   if dec then dec.stop(objectsAlive) end
+  local ov = P.mod('overlay')
+  if ov then ov.stop(objectsAlive) end
   -- decal roads hidden while off are shown again
   if objectsAlive ~= false then P.coverRoads(false) else P.roadsHidden = {} end
   P.liftOn = false
@@ -5687,6 +5743,7 @@ function M.clearRuts()
       t.rutted = false
       t.dirty = true
       P.changedTiles[t.key] = true
+      if P.overlayClear then P.overlayClear(t.x0, t.y0, t.x0 + TILE, t.y0 + TILE) end
       if P.liftOn then P.markFloor(t, 'reset') end
     end
   end
