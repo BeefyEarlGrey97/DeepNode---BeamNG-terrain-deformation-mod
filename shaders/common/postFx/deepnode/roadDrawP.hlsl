@@ -189,7 +189,9 @@ float4 shadeLayer(Lay l, float2 du, float2 dv, Px X, out float dzOut)
         float3 nr = normalize(lerp(float3(0, 0, 1), nrm, 0.35));
         float F0 = 0.04 + 0.2 * met;
         float fres = F0 + (1.0 - F0) * pow(1.0 - saturate(dot(nr, V)), 5.0);
-        float4 sk = skyColour();
+        // the sampled sky (8 texture reads) only for really glossy roads (mud_water); the
+        // slight wet gloss of mud uses the estimate from the light level
+        float4 sk = dnMat.y > 0.25 ? skyColour() : float4(0, 0, 0, 0);
         float3 sky = sk.w > 0.0 ? sk.rgb : dnLum(X.light) * X.amb * 1.2 * float3(0.7, 0.82, 1.0);
         outC += sky * fres * saturate(dnMat.y);
     }
