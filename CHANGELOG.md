@@ -7,6 +7,9 @@ allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleave
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
 ### Added
+- Dry soil look (overlay `drySoil`): soft layers named dusty / dry / desert / sand (e.g.
+  johnson_valley `dirt_loose_dusty`) get the sand print look and throw no mud splats; wet mud
+  darkening and puddles stay for real mud.
 - Wet tracks (overlay `wetTracks`, after MudRunner's wet decals): tyres wet from water leave
   dark glossy prints on hard ground that dry out patchily within ~55 s (the map stores the paint
   time; a paint pass every few seconds erases dried texels).

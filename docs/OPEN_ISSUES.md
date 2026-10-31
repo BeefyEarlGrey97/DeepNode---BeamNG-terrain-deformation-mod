@@ -150,7 +150,9 @@ mask), one-sided tread (light-independent groove darkening), centre-line artefac
 speckles (`#prepass[RT1]` is not albedo). Not done yet:
 - GPU cost not measured (fps capped at 120/150; GPU timer not readable). Needs a GPU-bound test
   (higher resolution) or an external GPU profiler. Lua 0.06-0.09 ms, CPU render +~0.15 ms.
-- Not tried in the 4-Percheron benchmark, on johnson_valley, at night or in rain.
+- Benchmarked with 6 Percherons on gridmap_v2 (docs/BENCHMARK.md: ~0.47 ms, 1.6 fps). Checked
+  only briefly on johnson_valley (dusty dirt: subtle sand-look prints); not at night (gridmap_v2's
+  sky ignores the time of day) or in rain.
 - Multi-axle trucks: later axles overwrite the print with another along-track phase; where two
   meet the streak pattern can step (point-sampled phase near the seam).
 - Prints may sit ~5 cm to one side of the mesh rut centre (mesh grid 0.2 m quantises the rut).

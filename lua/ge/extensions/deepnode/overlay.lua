@@ -350,9 +350,26 @@ local function stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, str
 end
 
 -- print of a wheel in soft ground (P.stampWheel): kind from the soft layer under the hub
+-- soft layer names that read as dry soil (desert dirt): drawn with the sand look (no wet
+-- darkening, no puddles) although the mud pipeline treats them as mud
+local dryOf = {}
+local function drySoil(x, y)
+  local name = P.layerNameAt and P.layerNameAt(x, y)
+  if not name then return false end
+  local d = dryOf[name]
+  if d == nil then
+    d = false
+    local low = name:lower()
+    for _, part in ipairs(oc.drySoil or {}) do if low:find(part, 1, true) then d = true end end
+    dryOf[name] = d
+  end
+  return d
+end
+
 local function stampSoft(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres)
   local kind = KIND_MUD
-  if P.kindAtWorld and P.kindAtWorld((p0x + p1x) * 0.5, (p0y + p1y) * 0.5) == 'sand' then kind = KIND_SAND end
+  local mx, my = (p0x + p1x) * 0.5, (p0y + p1y) * 0.5
+  if (P.kindAtWorld and P.kindAtWorld(mx, my) == 'sand') or drySoil(mx, my) then kind = KIND_SAND end
   local br = oc.bermReach
   -- the undisturbed surface (rut depth for puddles); the tyre bottom where it is unknown
   local rest = P.restAt and P.restAt((p0x + p1x) * 0.5, (p0y + p1y) * 0.5)
@@ -399,8 +416,8 @@ local function throwSplats(W)
     W.ovSplAcc = 0
     return
   end
-  -- prints first: no splats while the paint queue is busy
-  if qTail - qHead + 1 > oc.queueMax * 0.25 then return end
+  -- prints first: no splats while the paint queue is busy; none from dry soil
+  if qTail - qHead + 1 > oc.queueMax * 0.25 or drySoil(f[1], f[2]) then return end
   local acc = (W.ovSplAcc or 0) + dt * min(sp.maxPerSec, sp.perSpin * spin)
   local axx, axy = f[4], f[5]
   local al = sqrt(axx * axx + axy * axy)
@@ -573,7 +590,7 @@ function M.start(main)
   clr, clrN = {}, 0
   for k in pairs(stats) do stats[k] = 0 end
   sun.t = -1
-  surfaceKindOf = {}
+  surfaceKindOf, dryOf = {}, {}
   lastWet, lastDryPass = -1e9, -1e9
   -- no grass / dirt tracks on decal roads laid over such terrain
   if oc.tracks and oc.tracks.enabled and P.buildRoadMask then

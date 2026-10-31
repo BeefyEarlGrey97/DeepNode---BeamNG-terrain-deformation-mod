@@ -741,6 +741,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.puddleDepth` | 0.1 | Rut depth below the undisturbed ground where water starts (m) |
 | `overlay.puddleMurk` | 0.7 | How opaque the muddy water is |
 | `overlay.minNormalZ` | 0.45 | Steeper ground fades out (slope from the depth buffer, not the normal-mapped G-buffer normal) |
+| `overlay.drySoil` | dust, dry, desert, sand | Soft layers whose name contains one of these get the sand look (no wet darkening, no puddles), e.g. johnson_valley `dirt_loose_dusty` |
 | `overlay.bermReach` | mud 2.4, sand 2.6 | Berm band beside the print, x tyre half width |
 | `overlay.mud` / `overlay.sand` | see config | `darken`, `saturate` (gain), `wet` (0..1), `bermCrumbs` (crumb density on the berms), `crumbLift` (crumbs lighter than the floor); sand also `relief` and `crumbHeight` (x the mud values: softer prints, fine grains) |
 | `overlay.grain` | size 0.05, height 1.2, printDensity 0.15, churnSize 0.35 | Crumb size (m), crumb height (x size), crumb density in the print, size of the wet/dry mottling (m) |

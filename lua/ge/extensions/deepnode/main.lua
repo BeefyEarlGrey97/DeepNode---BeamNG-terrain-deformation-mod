@@ -605,6 +605,9 @@ local defaults = {
     puddleMurk = 0.7,
     minNormalZ = 0.45,      -- ground steeper than this fades out (geometric slope from depth)
     bermReach = { mud = 2.4, sand = 2.6 }, -- berm band beside the print, x tyre half width
+    -- soft layers whose name contains one of these read as dry soil: sand look (no wet mud,
+    -- no puddles, no splats from the print colour side)
+    drySoil = { 'dust', 'dry', 'desert', 'sand' },
     -- per soft kind: wet darkening, saturation gain, wetness (0..1), crumb density on the berms
     mud = { darken = 0.5, saturate = 0.35, wet = 0.9, bermCrumbs = 0.75, crumbLift = 0.12 },
     sand = { darken = 0.15, saturate = 0.05, wet = 0.35, bermCrumbs = 0.35, relief = 0.45, crumbHeight = 0.3,
