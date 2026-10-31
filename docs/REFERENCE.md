@@ -490,6 +490,7 @@ Lengths are metres, speeds m/s, times seconds.
 | `mode` | `"overlay"` | Decal roads on the mud: `overlay` (the engine's decals stay; copies drawn into the mud meshes around ruts), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |
 | `overlayOnRuts` | true | Copies also on rut and track cells, clipped to the strip (the pattern drapes over the ruts); false = untouched squares only |
+| `overlayQuiet` | 1.0 | s after a tile's last stamp before its decal copies are built (0 = every build) |
 | `hideOnMud` | true | Mode `off`: hide every decal road that touches soft ground (false: leave them, heavy mode then shows them on undug mud) |
 | `overlayAlphaRef` | 110 | Alpha clip of the overlay materials (0 = translucent: slow) |
 | `overlayLift` / `overlayLiftStep` | 0.008 / 0.002 | m over the mud; one step per renderPriority level (lower numbers higher; kept under `sectors.drop` without terrain-first) |

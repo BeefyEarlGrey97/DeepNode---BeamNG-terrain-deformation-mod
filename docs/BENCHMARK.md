@@ -159,3 +159,20 @@ The road look costs ~0.5 fps after the Lua fix (GPU side: 5 material passes); tr
 pooled mesh objects changed nothing (hidden objects cost no render time). In 2 of the test sets one run
 had a mud-lane truck slow down (avg end speed 1.1 m/s, all 8 finished): watch for floor writes held
 near grass (pits lie 8-9 m from grass).
+
+## 6. gridmap_v2, 8 trucks, decal copies in the mud mesh (2026-10-31d)
+
+Same protocol as section 5 (user GUI settings, vsync and limiter off, runs 2-5), one session, test
+branch after d44ae41 / f0a2a93 / 9cebda4:
+
+| variant | fps (low1) | Lua ms | RenderShadows ms | end speed |
+|---|---|---|---|---|
+| decal copies on every tile build, hull stamps | 46.2 (24.8) | 8.63 | 7.95 | 1.2 m/s (4 of 5 runs) |
+| same, hull stamps off | 45.3 (24.9) | 7.49 | 7.69 | 1.2 |
+| same, grassReach 24 | 43.3 (20.3) | 7.71 | 8.24 | 1.6-2.0 |
+| decal copies off (roads hidden) | 56.9 (44.4) | 2.62 | 5.56 | 2.7-3.3 |
+| **copies only on quiet tiles (overlayQuiet 1 s), hull on** | 53.5 (37.4) | 3.21 | 5.63 | 2.4-3.6 |
+| + quiet rebuild forced, copies on freezing | 54.2 (34.9) / 53.3 (36.0) | 4.8 / 5.2 | 5.56 | 2.7-3.6 |
+
+The copies cost ~3.5 fps against no decal roads on the mud at all; main's logged 52.3 (39.9) was a
+different session.

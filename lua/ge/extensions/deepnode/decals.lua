@@ -326,7 +326,7 @@ local function ensureStamp(n)
 end
 
 local function ov(out, normals, key, lift, il, vi, V, u, d)
-  -- lift: per road (layer order)
+  -- lift: per road (layer order) plus the border drop undone (zAdj)
   if stampA[vi] == key then return stampV[vi] end
   local Nn = normals[vi + 1]
   -- v runs negative along the road (measured against the engine's decal with a UV test
@@ -337,10 +337,24 @@ local function ov(out, normals, key, lift, il, vi, V, u, d)
   return r
 end
 
+-- Tile meshes lower their border vertices by sectors.drop next to a sector mesh (border
+-- rule) so the two never z-fight; a decal copy following that dip slid under the sector's
+-- mud and its copy, a light line along the tile edge. The copy undoes the drop.
+local adjRule, adjN, adjDrop = nil, 0, 0
+local function zAdj(l)
+  if not adjRule then return 0 end
+  local W = adjN + 1
+  local i, j = l % W, floor(l / W)
+  local tm = extensions and extensions.deepnode_tileMesh
+  if tm and tm.borderCode(adjRule, i, j, adjN) == 1 then return adjDrop end
+  return 0
+end
+
 -- Add the decal overlays for every mud submesh in builder b. zLift: vertical offset
--- above the mud surface of this mesh.
-function M.overlay(b, squaresOnly, tileKey)
+-- above the mud surface of this mesh. rule: the tile mesh's border rule (borderCode).
+function M.overlay(b, squaresOnly, tileKey, rule)
   if not enabled or #roads == 0 then return end
+  adjRule, adjN, adjDrop = rule, ctx.N, ctx.cfg.sectors.drop or 0
   -- a tile mesh under no road: nothing to do (most tiles)
   if tileKey and not byTile[tileKey] then
     for si = 1, b.nsub do local sb = b.subs[si]; sb.decalDone = sb.nf end
@@ -440,17 +454,17 @@ function M.overlay(b, squaresOnly, tileKey)
               elseif inside then
                 -- shared vertices: one overlay vertex per mud vertex and road
                 local key = stampGen + e.idx
-                local a = ov(out, normals, key, e.lift, il, ia, A, ua, da)
-                local bb = ov(out, normals, key, e.lift, il, ib, B, ub, db)
-                local c = ov(out, normals, key, e.lift, il, ic, C, uc, dc)
+                local a = ov(out, normals, key, e.lift + zAdj(la), il, ia, A, ua, da)
+                local bb = ov(out, normals, key, e.lift + zAdj(lb), il, ib, B, ub, db)
+                local c = ov(out, normals, key, e.lift + zAdj(lc), il, ic, C, uc, dc)
                 out:tri(a, bb, c)
                 tris = tris + 1
                 if coarse then stats.coarseIn = stats.coarseIn + 1 else stats.fineIn = stats.fineIn + 1 end
               else
                 local NA, NB, NC = normals[ia + 1], normals[ib + 1], normals[ic + 1]
-                PA[1], PA[2], PA[3], PA[4], PA[5], PA[6], PA[7], PA[8] = A.x, A.y, A.z, NA.x, NA.y, NA.z, ua, da
-                PA[9], PA[10], PA[11], PA[12], PA[13], PA[14], PA[15], PA[16] = B.x, B.y, B.z, NB.x, NB.y, NB.z, ub, db
-                PA[17], PA[18], PA[19], PA[20], PA[21], PA[22], PA[23], PA[24] = C.x, C.y, C.z, NC.x, NC.y, NC.z, uc, dc
+                PA[1], PA[2], PA[3], PA[4], PA[5], PA[6], PA[7], PA[8] = A.x, A.y, A.z + zAdj(la), NA.x, NA.y, NA.z, ua, da
+                PA[9], PA[10], PA[11], PA[12], PA[13], PA[14], PA[15], PA[16] = B.x, B.y, B.z + zAdj(lb), NB.x, NB.y, NB.z, ub, db
+                PA[17], PA[18], PA[19], PA[20], PA[21], PA[22], PA[23], PA[24] = C.x, C.y, C.z + zAdj(lc), NC.x, NC.y, NC.z, uc, dc
                 local n = clipAxis(PA, 3, PB, 7, 0, true)
                 n = clipAxis(PB, n, PA, 7, 1, false)
                 n = clipAxis(PA, n, PB, 8, 0, true)

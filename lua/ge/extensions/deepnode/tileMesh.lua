@@ -1062,7 +1062,7 @@ end
 
 -- Build the mesh of an active tile: pixels when untouched, full cells when rutted.
 local tileBuilder = nil
-function M.buildTile(t, rule)
+function M.buildTile(t, rule, forceDecal)
   tileBuilder = tileBuilder or M.newBuilder()
   tileBuilder:reset()
   if t.rutted then
@@ -1070,9 +1070,22 @@ function M.buildTile(t, rule)
   else
     M.emitTilePixels(tileBuilder, t, 0, rule)
   end
-  -- decal roads (deepnode_decals): on the untouched terrain squares of the tile
+  -- decal roads (deepnode_decals): copies only once the tile is quiet (roads.overlayQuiet s
+  -- after its last stamp). While a truck digs it the tile rebuilds at the rut rate, and the
+  -- copies (several road layers over every rut cell) cost ~0.6 ms of Lua a build and bigger
+  -- uploads: 8 trucks on gridmap_v2 ran 46 instead of 57 fps. main marks a tile built
+  -- without them dirty when it falls quiet (P.decalQuiet).
   local dec = extensions and extensions.deepnode_decals
-  if dec then dec.overlay(tileBuilder, true, t.key) end
+  if dec then
+    local quiet = ctx.cfg.roads.overlayQuiet or 1
+    local now = ctx.simTime()
+    if forceDecal or quiet <= 0 or not t.lastStamp or now - t.lastStamp >= quiet or not dec.hasRoads(t.key) then
+      dec.overlay(tileBuilder, true, t.key, rule)
+      t.decalWait = nil
+    else
+      t.decalWait = t.lastStamp + quiet
+    end
+  end
   return tileBuilder:finish()
 end
 

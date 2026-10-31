@@ -170,8 +170,11 @@ Not done yet:
   nothing like the engine's decals and masked vehicles with boxes. Only used now with
   `roads.mode` 'off'. Open for the mesh copies: `startEndFade` is approximated by narrowing the
   strip (no vertex alpha in ProceduralMesh); copies are lit forward (on glossy ground slightly
-  more sheen than the engine's decal); the decal overlay adds ~0.65 ms of Lua per rut tile build
-  under a road (gridmap_v2, 419 builds), bench impact not measured yet.
+  more sheen than the engine's decal); copies come ~1 s after a tile was dug (overlayQuiet) and
+  cost ~3.5 fps with 8 trucks (BENCHMARK §6). After the 8-truck bench the deep, wide rut bands
+  in the gridmap_v2 mud pit showed the water layer but few furrow clumps: not checked whether
+  the furrow strips cover those cells or copies are missing there. Faint lines along some tile
+  edges were seen before the border-drop fix; not re-checked after it.
 
 ## 15. Grass blinks next to digging (heavy mode)
 

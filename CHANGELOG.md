@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Performance
+- Decal copies only once a tile is quiet (`roads.overlayQuiet` 1 s after its last stamp): while
+  a truck digs, a tile rebuilds at the rut rate and the copies (several road layers over every
+  rut cell) cost ~0.6 ms of Lua per build and larger uploads. A quiet tile is rebuilt with them
+  (not skipped as a too-small change), a tile that freezes first gets them on freezing.
+  gridmap_v2, 8 Percherons, same session, runs 2-5: copies on every build 45.4 fps (low1 24),
+  Lua 8.6 ms, trucks bogged to 1.2 m/s; quiet copies 53.3 (36.0), Lua 5.2 ms, 3.0-3.5 m/s; copies
+  off 56.9 (44.4), Lua 2.6 ms. Hull triangles skip reports that cut nothing new (~1 ms Lua).
+- Decal copies undo the tile border drop (`sectors.drop` next to a sector mesh): the copy
+  followed the dip under the sector's mud, a light line along tile edges.
+
 ### Fixed
 - Grass blinking next to digging trucks (heavy physics). The v0.1.1 fix (`pool.hideFrames`)
   covers a different cause, mesh swaps; this blink comes from the rut-floor terrain writes:

@@ -123,6 +123,8 @@ local defaults = {
     -- overlay: also on rut and track cells, clipped to the strip: the decal follows the
     -- dug surface. Terrain-first: the engine's own decal draws everywhere else
     overlayOnRuts = true,
+    -- s after a tile's last stamp before its decal copies are built (0 = every build)
+    overlayQuiet = 1.0,
     hideOnMud = true,       -- mode off: no decal road shows on soft ground (P.coverRoads)
     overlayAlphaRef = 110,  -- overlays are alpha-clipped (opaque pass); 0 = translucent (slow, sorts badly)
     overlayLift = 0.008,    -- m over the mud (4 mm z-fought beyond ~10 m); one overlayLiftStep per renderPriority level
@@ -3410,6 +3412,15 @@ function P.demote(t)
   if t.rutted and o and r > 0 and P.frozenOwnCount < 4 * (cfg.ring.frozenOwnMeshMax or 150) and P.camDist2(t) < r * r then
     -- keeps its mesh: the neighbours' border rules do not change (no rebuilds), and the
     -- spare object goes back to the pool (a frozen tile rebuilds at most once more)
+    if t.decalWait then
+      -- its decal copies were left out while it was dug and the quiet rebuild has not run:
+      -- a frozen tile is not rebuilt again, so build them now (one upload)
+      t.decalWait = nil
+      local tm = P.mod('tileMesh')
+      local meshes = tm.buildTile(t, P.borderRule(t, false), true)
+      if meshes then tm.present(t, meshes) end
+      o = t.obj
+    end
     t.state = 'frozen'
     t.lastUse = simTime
     P.frozenCount = P.frozenCount + 1
@@ -4340,6 +4351,17 @@ function P.stampHull(vs, tris)
       for q = 0, 2 do
         hullPX[q + 1], hullPY[q + 1], hullPZ[q + 1] = tris[k + 1 + q * 3], tris[k + 2 + q * 3], tris[k + 3 + q * 3]
       end
+      -- a triangle resting in its own dent cuts nothing new: skip it when its lowest corner
+      -- is not under the drawn surface there (most reports of a parked or bogged body)
+      local lq = 1
+      if hullPZ[2] < hullPZ[lq] then lq = 2 end
+      if hullPZ[3] < hullPZ[lq] then lq = 3 end
+      local sz = surfaceAt(hullPX[lq], hullPY[lq])
+      local prev = last[id]
+      local moved = prev ~= nil and ((hullPX[lq] - prev[lq * 3 - 2]) ^ 2 + (hullPY[lq] - prev[lq * 3 - 1]) ^ 2 > 0.0025)
+      if sz and hullPZ[lq] - (st.hullSkin or 0.01) >= sz and not moved then ok = false end
+    end
+    if ok then
       P.setStampKind(P.kindAtWorld(hullPX[1], hullPY[1]))
       local prev = last[id]
       local n = 1
@@ -5150,9 +5172,28 @@ function P.shownChange(t)
 end
 
 P.rebuildList = {}
+-- tiles built without their decal copies while dug (tileMesh.buildTile) rebuild once quiet
+function P.decalQuiet()
+  P.decalCheckT = (P.decalCheckT or 0) + 1
+  if P.decalCheckT % 6 ~= 0 then return end
+  for _, t in pairs(tiles) do
+    local w = t.decalWait
+    if w and simTime >= w and not t.dirty then
+      if t.lastStamp and t.lastStamp + (cfg.roads.overlayQuiet or 1) > simTime then
+        t.decalWait = t.lastStamp + (cfg.roads.overlayQuiet or 1)
+      else
+        t.decalWait = nil
+        t.decalForce = true -- not a visible rut change: must not be skipped as too small
+        t.dirty = true
+      end
+    end
+  end
+end
+
 function P.rebuildTiles()
   local tm = P.mod('tileMesh')
   local n = 0
+  P.decalQuiet()
   local minGap = 1 / max(1, cfg.ring.tileRebuildHz)
   -- Tiles within ownMeshRadius of a vehicle or its lookahead points get their own mesh
   -- before the wheels arrive, so their sector already leaves them out. Otherwise a fresh
@@ -5286,7 +5327,7 @@ function P.rebuildTiles()
     else
       local minVis = cfg.ring.minVisibleChange or 0
       local skip = minVis > 0 and hadMesh and t.built and t.state == 'active' and not t.borderDirty
-        and not t.freshPend and P.shownChange(t) < minVis
+        and not t.freshPend and not t.decalForce and P.shownChange(t) < minVis
       local meshes = nil
       if skip then
         -- change too small to see: no upload (the mesh keeps the snapshot's heights)
@@ -5299,7 +5340,8 @@ function P.rebuildTiles()
       else
         if dig then digDone = digDone + 1; P.buildTokens = max(0, P.buildTokens - 1) end
         done = done + 1
-        meshes = tm.buildTile(t, P.borderRule(t, false))
+        meshes = tm.buildTile(t, P.borderRule(t, false), t.decalForce)
+        t.decalForce = nil
       end
       if meshes and tm.present(t, meshes) then
         if minVis > 0 and t.obj then P.snapshotShown(t) end
