@@ -121,3 +121,5 @@ against a mod-off run from the same session before drawing conclusions.
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | cd2f2d6, overlay on (universal prints, puddles, tyre pass) | 58.4 (43.9) | near 0.14 s avg, max 3.4-3.7 s; front 0.09 s | ~+4 MB per run |
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | b1d68f8, overlay off | 59.9 (44.6) | near 0.13 s avg, max 3.5-3.6 s; front 0.09 s | ~+7 MB per run |
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | b1d68f8, overlay on (prints, puddles, splats, carried mud, tyre pass; 0 of 105 581 prints dropped) | 58.3 (44.3) | near 0.13 s avg, max 3.6-3.7 s; front 0.09 s | ~+3 MB per run |
+| 2026-10-31 | gridmap_v2, 6 trucks | heavy | d2473d5, overlay on (all defaults) | 56.9 (43.6) | - | runs on before off; the whole set ~2 fps slower than earlier sets (session drift) |
+| 2026-10-31 | gridmap_v2, 6 trucks | heavy | d2473d5, overlay off | 57.8 (43.9) | - | same set |

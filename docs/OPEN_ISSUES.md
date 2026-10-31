@@ -140,27 +140,29 @@ one value for every tyre model (tread depth differs: on a shallow tyre the skin 
 lugs, on a deep one sit too low). Sidewall dust is alpha-clipped specks, no soft haze (a translucent
 dust layer like the water film would cost another material per wheel).
 
-## 14. Experimental tread prints / ground and tyre look (screen-space, 2026-10-31)
+## 14. Screen-space ground look (overlay, experimental, 2026-10-31)
 
-`overlay` / GUI "Experimental tread prints", off by default. Works on gridmap_v2 (Percheron
-8x8 through the mud pit and out onto concrete): chevron prints with dark grooves, wet churned
-floors, crumbs on the berms, mud stains on concrete from coated tyres, wet glossy tyres.
-Fixed 2026-10-31: relight inside shadows (now `#sunShadowMask`), grey holes (G-buffer normal
-mask), one-sided tread (light-independent groove darkening), centre-line artefact, colour
-speckles (`#prepass[RT1]` is not albedo). Not done yet:
-- GPU cost not measured (fps capped at 120/150; GPU timer not readable). Needs a GPU-bound test
-  (higher resolution) or an external GPU profiler. Lua 0.06-0.09 ms, CPU render +~0.15 ms.
-- Benchmarked with 6 Percherons on gridmap_v2 (docs/BENCHMARK.md: ~0.47 ms, 1.6 fps). Checked
-  only briefly on johnson_valley (dusty dirt: subtle sand-look prints); not at night (gridmap_v2's
-  sky ignores the time of day) or in rain.
-- Multi-axle trucks: later axles overwrite the print with another along-track phase; where two
-  meet the streak pattern can step (point-sampled phase near the seam).
-- Prints may sit ~5 cm to one side of the mesh rut centre (mesh grid 0.2 m quantises the rut).
-- Crumbs are subtle at gameplay distance. Puddles: the water level is a noise field, not a real
-  fill of the rut's lowest parts; a rut whose ground height was unknown when stamped (tile not
-  active) gets no water. The sky reflection falls back to an estimate when no sky shows at the
-  top of the screen (looking down).
-- Tyre pass: rubber albedo is a guess (`tyreAlbedo`); `tyreCoat` (shader coat, the way to drop the
-  tyre mud meshes) is untuned and recolours the mesh coat too while both are on.
-- Prints further than 64 m from the camera are dropped (map window 128 m).
+`overlay` / GUI "Experimental tread prints", off by default. After MudRunner / SnowRunner
+(Zagrebelnyy, "Mud and Water of Spintires: MudRunner": GPU-painted rut texture, wheel track
+pass over the depth buffer, z-projected mud / wet decals, water pooling). Built and checked on
+gridmap_v2 with 6 Percherons: universal print relief (no tread pattern), wet churned mud,
+crumbs on the berms, puddles in deep mud ruts (none under vehicles), mud splats from spinning
+wheels, carried mud / sand dust on hard ground, grass / dirt tracks, wet tracks that dry,
+dry-soil look for dusty desert layers, wet glossy tyres. Cost: 6 trucks, about 0.5-1 fps
+(~0.3-0.5 ms) in interleaved sets; 0 of 105 000 prints dropped (segment merging).
+Not done yet:
+- GPU cost not measured exactly (GPU timer not readable); the A/B fps difference is near the
+  session drift.
+- Wet sky sheen (`wetSheen`) is off: it read as blue streaks on the patchy wet field; a smoother
+  wetness field (blurred, not per groove) would be needed first.
+- Puddles: the water level is a noise field, not a real fill of the rut's lowest parts; ruts
+  whose ground height was unknown when stamped get no water.
+- Night / rain not checked (gridmap_v2's sky ignores the time of day). johnson_valley only
+  checked briefly (dusty dirt prints are subtle).
+- Grass tracks hide under the grass blades (groundcover); the groundcover itself is not bent.
+- Multi-axle trucks overwrite each other's print phase; the streaks can step where two meet.
+- Prints further than 64 m from the camera are dropped (map window 128 m); the idle reset
+  (120 s) erases prints with the ruts.
+- Tyre pass: rubber albedo is a guess (`tyreAlbedo`); `tyreCoat` (shader coat, the way to drop
+  the tyre mud meshes) is untuned.
 
