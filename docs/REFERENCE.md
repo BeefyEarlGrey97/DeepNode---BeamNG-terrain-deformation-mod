@@ -190,6 +190,13 @@ BeamNG's own physics:
   and gentle: they hold a light steering input for a while and can be climbed. Terrain
   comes back up only when the ruts reset and no vehicle is within 8 m.
   Cost: one terrain update per frame at most (1-3 ms, measured), inside the upload budget.
+  Grass: every terrain update makes the engine rebuild the groundcover cells over its box, so
+  that grass is missing for a frame. The writes are grouped in clusters of `floorCluster`
+  (16) squares; one update takes every cluster whose joint box stays `grassReach` (24 m,
+  rounded up to whole clusters) clear of terrain layers that carry groundcover, and a cluster
+  near grass is written on its own (with its neighbours near grass) at most every `grassHold`
+  (1 s). Measured on the gridmap_v2 material ramp (HT-55 up its mud strip, grass 12-16 m
+  away): terrain updates near the grass 58 -> 18 per run (~4/s -> 1/s), all updates 62 -> 25.
   Floor heights are written absolute (full sink level from the sink pass + lift): the height grid
   rounds every write to maxHeight / 65536, and the old relative writes drifted (ENGINE_FINDINGS).
   The heavy ground-model values are checked once a second and applied again when the game reloads

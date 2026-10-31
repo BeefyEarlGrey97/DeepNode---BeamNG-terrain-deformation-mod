@@ -166,3 +166,15 @@ Not done yet:
 - Tyre pass: rubber albedo is a guess (`tyreAlbedo`); `tyreCoat` (shader coat, the way to drop
   the tyre mud meshes) is untuned.
 
+## 15. Grass blinks next to digging (heavy mode)
+
+Every `tb:updateGrid` (the rut-floor terrain writes) makes the engine rebuild the GroundCover
+cells over its box; the grass there is missing for one frame (ENGINE_FINDINGS "Terrain").
+2026-10-31: the writes are clustered (`physics.heavy.floorCluster` / `grassReach` / `grassHold`):
+grass-free clusters merge into one update, clusters within ~24 m of grass layers are written at
+most once a second. gridmap_v2 material ramp (HT-55 up the mud strip): updates near the grass
+58 -> 18 per run. Still open: a blink about once a second while a truck digs near grass, and the
+floor there lags up to `grassHold`. Tried without effect: CPU placement copies (slower to come
+back), calling updateGrid from other GE hooks, setHeightGrid without updateGrid (physics ignores
+it). Not tried: a longer hold, or no floor writes at all within reach of grass.
+Benchmark impact (pits are 8-9 m from grass on gridmap_v2) not measured yet.

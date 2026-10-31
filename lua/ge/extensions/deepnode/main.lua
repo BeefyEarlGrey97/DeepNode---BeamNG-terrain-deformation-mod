@@ -523,6 +523,13 @@ local defaults = {
       floorMargin = 0.03,  -- m the terrain stays under the rut surface (hidden by the mesh)
       floorHz = 5,         -- rut floor recomputes per second
       floorMaxVerts = 600, -- terrain vertices written per frame at most
+      -- every terrain update rebuilds the grass (GroundCover) over its box, missing for a
+      -- frame (deepnode_physics): writes are grouped in clusters of floorCluster squares,
+      -- merged into one update while the joint box stays grassReach m clear of grass
+      -- layers; a cluster near grass is written alone at most every grassHold s
+      floorCluster = 16,
+      grassReach = 24,     -- measured: a box 16 m from grass still hid some, 24 m none
+      grassHold = 1.0,
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
       -- rut walls of the mud mesh push the tyres (P.rutGuide): lateral force = -gain x
       -- wheel load x relief slope across the tyre (|slope| <= maxSlope), sampled over the

@@ -50,6 +50,16 @@ They explain most design decisions; please extend this file when you measure som
 - `core_environment.reset()` / `reloadGroundModels()` (also mission start, ground-model file
   change, the ground-model debug panel's "Default") rebuild `core_environment.groundModels` from
   the files: live `be:setGroundModel` retunes are lost (measured: MUD defaultDepth 0.25 -> 0.15).
+- `tb:updateGrid` drops and rebuilds every GroundCover cell over its box: that grass is gone for
+  the next frame (measured 2026-10-31, gridmap_v2: updateGrid every frame over a 6 x 100 m strip
+  12 m from a grass strip hid 75 % of the grass in view; a 2 x 2 m box beside it 5-14 %, at 24 m
+  none). GPU and CPU placement alike (CPU copies took several frames to come back); calling it
+  from onUpdate, onPreRender, onDrawDebug or onGuiUpdate makes no difference. Cells are
+  2 x radius / gridSize (gridmap_v2: 15 m and 25 m). `$GroundCover::renderedCells` /
+  `renderedBillboards` show the last pass drawn (they cycle with reflection faces).
+- `setHeightGrid` without `updateGrid` changes nothing for physics (a parked truck stayed up and
+  `castRayStatic` hit the old surface); `updateGrid` is the only update (no physics-only call in
+  the TerrainBlock API).
 - Creating a second `TerrainBlock` at runtime and calling its `update*` methods crashed the game.
 - `digSdf`/`placeSdf` is an experimental forward-lit SDF renderer, not usable for mud.
 

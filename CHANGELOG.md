@@ -32,6 +32,14 @@ of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -
 - Per-kind print look: sand prints have softer relief and finer, lighter crumbs than mud.
 
 ### Fixed
+- Grass flickered next to dug mud in heavy mode (clear on the gridmap_v2 material ramp, whose mud
+  strip lies 12-16 m from a grass strip): every rut-floor terrain update makes the engine rebuild
+  the groundcover over its box for a frame, and the one merged box per frame spanned all trucks.
+  Floor writes now go out in clusters: grass-free clusters together in one update as before,
+  clusters near grass layers on their own at most once a second (`physics.heavy.floorCluster`,
+  `grassReach`, `grassHold`). Ramp run: updates near the grass 58 -> 18, all updates 62 -> 25.
+  Grass beside a digging truck still blinks about once a second (engine: no terrain update
+  without the groundcover rebuild).
 - Tyre mud on the HT-55 dump truck's rear wheels: its four rear physics wheels share their hub
   nodes in pairs (one 1.27 m axle span per side), so each picked up its neighbour's tyre mesh and
   was built as a dual (two narrow skins per wheel, one on the wrong tyre). A wheel now only takes
