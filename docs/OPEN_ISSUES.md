@@ -140,16 +140,23 @@ one value for every tyre model (tread depth differs: on a shallow tyre the skin 
 lugs, on a deep one sit too low). Sidewall dust is alpha-clipped specks, no soft haze (a translucent
 dust layer like the water film would cost another material per wheel).
 
-## 14. Experimental tread prints (screen-space overlay, 2026-10-31)
+## 14. Experimental tread prints / ground and tyre look (screen-space, 2026-10-31)
 
-`overlay` / GUI "Experimental tread prints", off by default. Works on gridmap_v2 (Bronco through
-the mud pit): chevron prints and wet darkening in the rut floors, prints scroll with the camera,
-Smooth ruts / idle reset erase them. Not done yet:
-- Prints sit a little to one side of the mesh rut centre (seen in the coverage view, debug 2):
-  check the tyre offset / hub point used for the print against the rut the mesh shows.
-- GPU cost not measured exactly (GPU timer not readable, 150 fps cap; 8 extra copies of each pass
-  did not lower fps). Needs a GPU-bound test (higher resolution) or an external GPU profiler.
-- Not tried in the 4-Percheron benchmark, on johnson_valley or with heavy physics.
-- The relight is a ratio of sun + ambient terms: inside a shadow it still brightens/darkens the
-  lugs as if sunlit. The tread pattern is one chevron for every tyre (no per-tyre pattern).
-- Map window 128 m at 6.25 cm texels: prints further than 64 m from the camera are dropped.
+`overlay` / GUI "Experimental tread prints", off by default. Works on gridmap_v2 (Percheron
+8x8 through the mud pit and out onto concrete): chevron prints with dark grooves, wet churned
+floors, crumbs on the berms, mud stains on concrete from coated tyres, wet glossy tyres.
+Fixed 2026-10-31: relight inside shadows (now `#sunShadowMask`), grey holes (G-buffer normal
+mask), one-sided tread (light-independent groove darkening), centre-line artefact, colour
+speckles (`#prepass[RT1]` is not albedo). Not done yet:
+- GPU cost not measured (fps capped at 120/150; GPU timer not readable). Needs a GPU-bound test
+  (higher resolution) or an external GPU profiler. Lua 0.06-0.09 ms, CPU render +~0.15 ms.
+- Not tried in the 4-Percheron benchmark, on johnson_valley, at night or in rain.
+- Multi-axle trucks: later axles overwrite the print with another lug phase; texels where two
+  phases meet show short steps in the pattern (point-sampled phase near the seam).
+- Prints may sit ~5 cm to one side of the mesh rut centre (mesh grid 0.2 m quantises the rut).
+- Crumbs are subtle at gameplay distance; no puddles in deep ruts yet (Spintires fills ruts with
+  water); sand prints not looked at closely yet.
+- Tyre pass: rubber albedo is a guess (`tyreAlbedo`); `tyreCoat` (shader coat, the way to drop the
+  tyre mud meshes) is untuned and recolours the mesh coat too while both are on.
+- Prints further than 64 m from the camera are dropped (map window 128 m).
+

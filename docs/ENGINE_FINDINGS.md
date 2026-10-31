@@ -107,6 +107,20 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   is linear depth, `worldPos = eyePosWorld + IN.wsEyeRay * depth` (as the engine's fog pass).
 - Sun direction for a self-lit pass: ScatterSky `azimuth` / `elevation` (degrees);
   `(sin(az) cos(el), cos(az) cos(el), sin(el))` matched the engine's shading (debug view).
+- `#sunShadowMask` (the screen-space sun shadow mask the vector light reads, r = unshadowed)
+  can be bound as a PostEffect texture at `PFXBeforeBin ObjTranslucentBin`: the truck's shadow
+  showed correctly (2026-10-31). Read it with `Load` at uv x its own size.
+- `#prepass[RT1]` is NOT a base colour in this renderer (light pre-pass: lighting goes into
+  `#lightinfo`, materials draw forward); shown as colour it was noise-like false colour. A post
+  effect has no albedo: colour changes must work on the lit scene colour (scalar darkening,
+  chroma gain, multiplicative tint).
+- `ShaderData:reload()` with new `defines` does not change what an existing PostEffect draws:
+  the effect keeps its compiled shader until `PostEffect:reload()` is called on it too.
+- Screen derivatives (`ddx`/`ddy`) of the world position and of map values work in a post
+  effect; take them before any `discard` / branch. World gradient of a map value = 2x2 solve
+  with `ddx(wp.xy)`, `ddy(wp.xy)`.
+- After `reload_lua` with the MCP free camera active, `core_camera.getPosition*` returned
+  (0, 0, 0) until the camera mode was set again (`set_camera orbit`).
 
 ## Other
 

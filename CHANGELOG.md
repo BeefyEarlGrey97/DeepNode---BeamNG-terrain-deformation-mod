@@ -7,6 +7,17 @@ allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleave
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
 ### Added
+- Screen-space ground and tyre look on top of the tread prints (`overlay`, still experimental,
+  off by default), after a Spintires reference: the print map now stores the surface kind and a
+  berm band; the overlay draws filtered chevron relief with darkened grooves (no thin aliased
+  lines, readable whatever side the sun is on), granular crumbs with tiny cast shadows on the
+  berms, wet churned mud (darker, more saturated, patchy) and damp sand, and a sun highlight.
+  Coated tyres leaving the soft ground print their mud (or sand dust) on hard ground, fading as
+  the coat runs out. A new tyre pass makes wet and freshly mud-coated tyres darker and glossy
+  (sun highlight, Fresnel sky sheen) for the 16 nearest wheels, without material flushes; it can
+  also draw the coat itself (`overlay.tyreCoat`, off: the tyre mud meshes stay for now).
+  Measured on gridmap_v2 (Percheron 8x8): Lua 0.06-0.09 ms/frame, CPU render +~0.15 ms; fps sat
+  at the 120 cap with and without the passes (GPU cost not readable).
 - Experimental tread prints (`overlay`, GUI "Experimental tread prints", off by default): tyre
   prints are painted on the GPU into a 2048² world-space map around the camera (128 m) and drawn
   over the lit scene as chevron tread relief and wet darkening in the ruts. Own HLSL post effects
@@ -35,6 +46,9 @@ of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -
   branch less in `decodeZ` (`jit.v` trace aborts, see ENGINE_FINDINGS).
 
 ### Fixed
+- Tread prints: relief and highlight no longer appear inside shadows (engine screen shadow mask
+  `#sunShadowMask`); no grey holes in the prints (slope from the depth buffer instead of the
+  normal-mapped G-buffer normal); no artefact line along the tyre centre; no green/red speckles.
 - Heavy physics floor heights are written absolute from the sink pass's reference. The height
   grid rounds every write (1.5 mm steps on gridmap_v2) and the relative writes drifted down
   (-3.4 cm after 20 lower/raise cycles, measured).

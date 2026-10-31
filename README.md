@@ -22,7 +22,7 @@ learned by reading the Dynamic Dirt mod; none of its code, shaders or textures a
 - Ruts carved ahead of each wheel, so they appear under the tyre (front latency ~0.1 s)
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
 - Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
-- Experimental tread prints: tyre tread relief and wet darkening drawn in the ruts by GPU post effects (no mesh uploads), off by default
+- Experimental tread prints and tyre look: chevron tread relief, wet churned mud, crumbs on the berms, mud carried onto hard ground by coated tyres, wet glossy tyres, all drawn by GPU post effects (no mesh uploads), off by default
 - Simple UI with live settings and performance stats
   
 ## Benchmarks included
@@ -49,7 +49,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
 12. Research follow-ups still open (layer-map rut material, engine tread decals, ground-model speed calibration, rut persistence): see docs/OPEN_ISSUES.md §13.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
-13. Experimental tread prints: prints sit slightly off the rut centre, GPU cost not measured exactly, not benchmarked with trucks: see docs/OPEN_ISSUES.md §14.
+13. Experimental tread prints / tyre look: GPU cost not measured exactly, not benchmarked with the 4-truck run, phase steps where axles overlap, no puddles yet: see docs/OPEN_ISSUES.md §14.
 
 ## Contributing and forking
 

@@ -567,9 +567,11 @@ local defaults = {
   gui = {
     openOnStart = true,
   },
-  -- Screen-space rut overlay (deepnode_overlay, experimental): tyre prints are painted on the
-  -- GPU into a world-space map around the camera and drawn as tread relief + wet darkening
-  -- over the lit scene. No mesh uploads; the rut shape still comes from the mud meshes.
+  -- Screen-space ground and tyre look (deepnode_overlay, experimental): tyre prints are
+  -- painted on the GPU into a world-space map around the camera and drawn over the lit scene
+  -- (tread relief, granular crumbs on the berms, wet churned colour, sun highlight; mud carried
+  -- onto hard ground by coated tyres); wet tyres drawn darker and glossy. No mesh uploads; the
+  -- rut shape still comes from the mud meshes.
   overlay = {
     enabled = false,
     mapSize = 2048,         -- texels per side of the rut map
@@ -581,15 +583,42 @@ local defaults = {
     strength = 1.0,
     lugsPerMetre = 9,
     chevron = 1.2,          -- lug phase shift from the tyre centre line to its edge
-    relief = 0.05,          -- tread slope scale (tuned on gridmap_v2 mud)
+    pressDepth = 0.012,     -- m: depth of the lug relief pressed into the print
     lugWidth = 0.45,        -- lug share of one lug period
-    wetDarken = 0.3,
+    grooveDark = 0.3,       -- darkening of the deepest pressed parts and the lug edges
     ambient = 0.45,         -- ambient share in the relight ratio
+    highlight = 1.0,        -- sun highlight on wet ground
+    useShadowMask = true,   -- engine screen shadow mask (#sunShadowMask): no relief / highlight in shadow
+    groundAlbedo = 0.3,     -- ground albedo guess: light level for the sun highlight = scene / this
     fadeStart = 35,         -- m from the camera
     fadeLength = 25,
     zTolerance = 0.35,      -- m: pixels further from the print height are left alone (vehicles)
-    minNormalZ = 0.45,
-    debug = 0,              -- 1: sun term check over the whole screen, 2: print coverage in red
+    bermZTolerance = 0.7,   -- m: berms stand above the tyre bottom by the rut depth
+    minNormalZ = 0.45,      -- ground steeper than this fades out (geometric slope from depth)
+    bermReach = { mud = 2.4, sand = 2.6 }, -- berm band beside the print, x tyre half width
+    -- per soft kind: wet darkening, saturation gain, wetness (0..1), crumb density on the berms
+    mud = { darken = 0.5, saturate = 0.35, wet = 0.9, bermCrumbs = 0.75 },
+    sand = { darken = 0.15, saturate = 0.05, wet = 0.35, bermCrumbs = 0.8 },
+    grain = { size = 0.05, height = 1.2, printDensity = 0.15, churnSize = 0.35 }, -- crumb size m, height x size
+    -- mud a coated tyre leaves on hard ground: tread-shaped stains while coat >= minCoat,
+    -- strength coat x perCoat, one print every step m, starting afterSoft s off the soft ground;
+    -- the stain tints the lit ground by color (hue) x gain (brightness)
+    carry = { enabled = true, color = { 0.16, 0.12, 0.085 }, gain = 0.5, opacity = 0.85, minCoat = 0.08,
+              perCoat = 1.2, step = 0.12, afterSoft = 0.3 },
+    dust = { color = { 0.5, 0.45, 0.36 }, gain = 1.35, opacity = 0.45 }, -- sand carried onto hard ground
+    -- wet tyres (screen-space): wheels within tyreRange m, nearest tyreMaxWheels (shader limit 16)
+    tyres = true,
+    tyreRange = 40,
+    tyreMaxWheels = 16,
+    tyreWetDarken = 0.35,
+    tyreAlbedo = 0.06,      -- tyre albedo guess: light level for highlight / coat = scene / this
+    tyreHighlight = 1.0,
+    tyreMudWet = 0.7,       -- wetness of a fresh mud coat
+    tyreMudDry = 25,        -- s: a mud coat's sheen fades after leaving the mud
+    tyreCoat = false,       -- draw the tyre mud coat in the shader too (tyre mud meshes stay)
+    tyreCoatLump = 0.03,    -- m lump size of that coat
+    debug = 0,              -- 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask,
+                            -- 5 tyre pixels
   },
 }
 
@@ -5892,6 +5921,9 @@ function P.onPreRender(dtReal, dtSim)
   if not running then return end
   local wm = P.mod('wheelMud')
   if wm then wm.preRender(dtSim or 0) end
+  -- screen-space overlay after the wheel frames are read
+  local ov = P.mod('overlay')
+  if ov and ov.frame then ov.frame() end
 end
 
 function P.onClientPostStartMission()

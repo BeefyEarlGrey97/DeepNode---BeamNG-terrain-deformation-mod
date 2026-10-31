@@ -4,12 +4,14 @@
 // copies it back. A pass that draws into a target does not keep its old content, even
 // with PFXTargetClear_None (measured 2026-10-31), hence the copy.
 // Texel (u,v) covers world (x0 + u*span, y0 + v*span). Channels:
-//   r = print strength (0 = untouched), g = lug phase along the track (lugs, mod 64),
-//   b = ground z - baseZ (m), a = position across the tyre (-1..1)
+//   r = print strength (0 = untouched; a berm's intensity outside the tyre),
+//   g = lug phase along the track (lugs, mod 64),
+//   b = ground z - baseZ (m),
+//   a = position across the tyre (-1..1 inside the print, up to +-2 on the berm beside it)
+//       + 4 x surface kind (0 mud, 1 sand, 2 mud carried onto hard ground, 3 sand dust)
 // The phase continues from one wheel report to the next (arc length at the segment start
-// comes from Lua), so lugs line up along curved tracks; the overlay takes the travel
-// direction from the phase gradient.
-// A newer print replaces what was under it.
+// comes from Lua), so lugs line up along curved tracks.
+// A newer print replaces what was under it; a berm only covers untouched ground or berms.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
 
@@ -59,6 +61,22 @@ cbuffer perDraw : register(b0)
     uniform float4 dnB13;
     uniform float4 dnB14;
     uniform float4 dnB15;
+    uniform float4 dnC0;
+    uniform float4 dnC1;
+    uniform float4 dnC2;
+    uniform float4 dnC3;
+    uniform float4 dnC4;
+    uniform float4 dnC5;
+    uniform float4 dnC6;
+    uniform float4 dnC7;
+    uniform float4 dnC8;
+    uniform float4 dnC9;
+    uniform float4 dnC10;
+    uniform float4 dnC11;
+    uniform float4 dnC12;
+    uniform float4 dnC13;
+    uniform float4 dnC14;
+    uniform float4 dnC15;
 };
 
 #include "../postFx.hlsl"
@@ -69,7 +87,14 @@ cbuffer perDraw : register(b0)
     #define mainP main
 #endif
 
-// segment i: dnA = start xy, end xy; dnB = half width, z - baseZ, heading (rad), arc length at the start (m)
+// lateral position of a stored texel (the kind is packed on top in steps of 4)
+float storedLat(float a)
+{
+    return a - 4.0 * round(a / 4.0);
+}
+
+// segment i: dnA = start xy, end xy; dnB = half width, z - baseZ, heading (rad), arc length at
+// the start (m); dnC = kind, strength, berm reach (x half width), unused
 #define SEG(i)                                                                         \
     if (i < n) {                                                                       \
         float2 a = dnA##i.xy;                                                          \
@@ -78,12 +103,24 @@ cbuffer perDraw : register(b0)
         float2 d = p - (a + ab * t);                                                   \
         float dist = length(d);                                                        \
         float hw = dnB##i.x;                                                           \
-        if (dist < hw) {                                                               \
+        float hwB = hw * max(dnC##i.z, 1.0);                                           \
+        if (dist < hwB) {                                                              \
             float2 fw = float2(cos(dnB##i.z), sin(dnB##i.z));                          \
             float lat = dot(d, float2(-fw.y, fw.x)) / hw;                              \
-            float cov = 1.0 - smoothstep(max(hw - edge, 0.0), hw, dist);               \
-            float ph = (dnB##i.w + dot(p - a, fw)) * lugs;                             \
-            res = float4(max(cov, 0.02), ph - 64.0 * floor(ph / 64.0), dnB##i.y, lat); \
+            float kind4 = 4.0 * dnC##i.x;                                              \
+            bool oldPrint = res.r > 0.0 && abs(storedLat(res.a)) <= 1.0;               \
+            if (dist < hw) {                                                           \
+                float cov = (1.0 - smoothstep(max(hw - edge, 0.0), hw, dist)) * dnC##i.y; \
+                if (!oldPrint || cov >= 0.5 * res.r) {                                 \
+                    float ph = (dnB##i.w + dot(p - a, fw)) * lugs;                     \
+                    res = float4(max(cov, 0.02), ph - 64.0 * floor(ph / 64.0), dnB##i.y, \
+                                 clamp(lat, -1.0, 1.0) + kind4);                       \
+                }                                                                      \
+            } else if (!oldPrint) {                                                    \
+                float bc = (1.0 - smoothstep(hw, hwB, dist)) * dnC##i.y;               \
+                if (bc > res.r) res = float4(bc, 0.0, dnB##i.y,                        \
+                                             clamp(lat, -1.99, 1.99) + kind4);         \
+            }                                                                          \
         }                                                                              \
     }
 

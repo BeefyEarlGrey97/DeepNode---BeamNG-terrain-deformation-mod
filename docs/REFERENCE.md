@@ -702,11 +702,16 @@ Lengths are metres, speeds m/s, times seconds.
 | `debug.drawRadius` | 120 | Tiles within this distance of the camera are outlined (sectors within twice it) |
 | `debug.lift` | 0.12 | Overlay lines float this high over the mud |
 
-### overlay (experimental tread prints)
+### overlay (experimental ground and tyre look)
 
 Tyre prints painted on the GPU into a world-space map (`#deepnode_rut`, RGBA16F) around the
 camera and drawn over the lit scene (shaders in `shaders/common/postFx/deepnode/`). Every wheel
-stamp of the mud pipeline also queues a print; no mesh uploads.
+stamp of the mud pipeline queues a print with its surface kind (mud / sand) and a berm band
+beside the tyre; coated wheels off the soft ground leave tread-shaped mud (or sand dust) stains
+on hard ground. The overlay pass draws tread relief, granular crumbs, wet churned colour and a
+sun highlight; colours change on the lit scene colour (the light pre-pass G-buffer holds no base
+colour) and the engine's screen shadow mask (`#sunShadowMask`) keeps shadowed ground unlit. A
+second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uploads.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -720,14 +725,32 @@ stamp of the mud pipeline also queues a print; no mesh uploads.
 | `overlay.strength` | 1.0 | Overall strength (0 = no visible effect, passes still run) |
 | `overlay.lugsPerMetre` | 9 | Tread lugs per metre along the track |
 | `overlay.chevron` | 1.2 | Lug phase shift from the tyre centre line to its edge |
-| `overlay.relief` | 0.05 | Tread slope scale (tuned on gridmap_v2 mud) |
+| `overlay.pressDepth` | 0.012 | Depth of the lug relief pressed into the print (m) |
 | `overlay.lugWidth` | 0.45 | Lug share of one lug period |
-| `overlay.wetDarken` | 0.3 | Darkening of the print (wet mud) |
+| `overlay.grooveDark` | 0.3 | Darkening of the pressed grooves and lug edges (reads whatever side the sun is on) |
 | `overlay.ambient` | 0.45 | Ambient share in the relight ratio |
+| `overlay.highlight` | 1.0 | Sun highlight on wet ground |
+| `overlay.useShadowMask` | true | Use the engine screen shadow mask (no relief / highlight in shadow) |
+| `overlay.groundAlbedo` | 0.3 | Ground albedo guess: light level for the highlight = scene / this |
 | `overlay.fadeStart` / `fadeLength` | 35 / 25 | Prints fade out between these distances from the camera (m) |
 | `overlay.zTolerance` | 0.35 | Pixels further than this from the print height are left alone (vehicles over the ruts) |
-| `overlay.minNormalZ` | 0.45 | Steeper surfaces are left alone |
-| `overlay.debug` | 0 | 1: sun term over the whole screen (checks the sun direction), 2: print coverage in red |
+| `overlay.bermZTolerance` | 0.7 | Same above a berm (berms stand above the tyre bottom by the rut depth) |
+| `overlay.minNormalZ` | 0.45 | Steeper ground fades out (slope from the depth buffer, not the normal-mapped G-buffer normal) |
+| `overlay.bermReach` | mud 2.4, sand 2.6 | Berm band beside the print, x tyre half width |
+| `overlay.mud` / `overlay.sand` | see config | `darken`, `saturate` (gain), `wet` (0..1), `bermCrumbs` (crumb density on the berms) |
+| `overlay.grain` | size 0.05, height 1.2, printDensity 0.15, churnSize 0.35 | Crumb size (m), crumb height (x size), crumb density in the print, size of the wet/dry mottling (m) |
+| `overlay.carry` | see config | Mud on hard ground: `enabled`, `color` (hue), `gain` (brightness), `opacity`, `minCoat`, `perCoat` (strength = coat x this), `step` (m between prints), `afterSoft` (s off the soft ground) |
+| `overlay.dust` | colour, gain 1.35, opacity 0.45 | Sand carried onto hard ground |
+| `overlay.tyres` | true | Wet tyre pass on/off |
+| `overlay.tyreRange` / `tyreMaxWheels` | 40 / 16 | Wheels within this distance, nearest first (shader limit 16) |
+| `overlay.tyreWetDarken` / `tyreHighlight` | 0.35 / 1.0 | Wet tyre darkening / sun highlight |
+| `overlay.tyreAlbedo` | 0.06 | Tyre albedo guess (light level for highlight and coat) |
+| `overlay.tyreMudWet` / `tyreMudDry` | 0.7 / 25 | Wetness of a fresh mud coat / seconds its sheen takes to fade after leaving the mud |
+| `overlay.tyreCoat` / `tyreCoatLump` | false / 0.03 | Also draw the tyre mud coat in the shader (tyre mud meshes stay; step towards dropping them) / lump size (m) |
+| `overlay.debug` | 0 | 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask, 5 tyre pixels, 6 tread terms, 7 crumbs |
+
+`deepnode_overlay.reloadShaders()` recompiles the overlay and tyre shaders in place (prints
+stay), for shader work.
 
 ## Safeguards
 

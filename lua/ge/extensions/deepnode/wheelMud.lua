@@ -1091,7 +1091,7 @@ function M.preRender(dt)
         -- bookkeeping): at coatHz with the summed time; a drawn one every frame
         local wskip = false
         local wdt2 = wdt
-        if not skip and (not W.visible or not vin) then
+        if not skip and (not (W.visible or W.ssFrame) or not vin) then
           W.preAcc = (W.preAcc or 0) + wdt
           if W.preAcc < pgap and W.prevE1 then wskip = true else wdt2 = W.preAcc; W.preAcc = 0 end
         else
@@ -1546,6 +1546,28 @@ function M.wheelStates()
   end
   return out
 end
+
+-- wheels for the screen-space overlay (deepnode_overlay): fn(vid, W) for every wheel with
+-- a current frame (W.frame: hub centre, axle, e1 turning with the wheel, e2; W.R, W.rimR,
+-- W.tyres, W.coat, W.wet, W.water, W.mudT, W.kind). A wheel the overlay marks W.ssFrame gets
+-- its frame read every frame while in view (like a drawn coat).
+function M.eachWheel(fn)
+  for vid, V in pairs(vehs) do
+    for _, W in pairs(V.wheels) do
+      if W.valid and W.frame and not W.dead then fn(vid, W) end
+    end
+  end
+end
+
+-- albedo of the coat as drawn (kind colour or ground colour x brightness x texture mean)
+function M.coatAlbedo(W)
+  local col = wheelColor(W)
+  local b = (ctx and ctx.cfg.clods.tyreBrightness) or 1
+  local m = texMeanOf(lookKind(W))
+  return clamp(col[1] * b * m, 0, 1), clamp(col[2] * b * m, 0, 1), clamp(col[3] * b * m, 0, 1)
+end
+
+function M.time() return now end
 
 local function onExtensionLoaded()
   setExtensionUnloadMode(M, 'manual')

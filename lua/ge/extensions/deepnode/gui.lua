@@ -315,8 +315,9 @@ local function tabRun(m)
     changed()
   end
   if im.IsItemHovered() then
-    im.SetTooltip('On: tyre tread prints and wet darkening drawn in the ruts (screen-space shader,\n' ..
-      'no mesh uploads). Prints follow the camera within 128 m.\nOff (default): mesh ruts only.')
+    im.SetTooltip('On: tyre tread prints, wet churned mud and crumbs in the ruts, mud carried onto\n' ..
+      'hard ground and wet glossy tyres (screen-space shaders, no mesh uploads).\n' ..
+      'Prints follow the camera within 128 m.\nOff (default): mesh ruts only.')
   end
   -- physics option (deepnode_physics): restarts the mod; the terrain under the mud changes,
   -- so switch with no vehicle sunk in it
