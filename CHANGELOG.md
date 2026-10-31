@@ -7,6 +7,11 @@ allows now, measured on gridmap_v2 with 4 Percherons (2 mud, 2 sand), interleave
 of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -> 0.8-1.0 s.
 
 ### Added
+- Mud splats (overlay, after MudRunner's terrain mud decals): wheels spinning in mud throw
+  lumpy wet blobs behind them (further and more with more slip, either side when spinning on the
+  spot) onto berms, rut floors or hard ground. The blob shape is cut in the stamp pass, so the
+  ground under its ragged edge keeps its own look, and a splat over a print keeps the print's
+  relief running.
 - Puddles in mud ruts (overlay, after MudRunner's water pooling): the print map now stores the
   undisturbed ground height, so the shader knows how deep each pixel lies; below a patchy water
   level (`puddles`, `puddleDepth`) the rut floor turns into murky water with a sky reflection
@@ -14,6 +19,13 @@ of each set: 76.1 -> 78.3 fps, low1 59.7 -> 62.3, worst near rut lag 1.5-3.9 s -
 - Per-kind print look: sand prints have softer relief and finer, lighter crumbs than mud.
 
 ### Fixed
+- Prints were dropped with 6 trucks (16 segments a frame, queue overflow): a wheel's waiting
+  segment is now extended by its next report while it goes on straight (`mergeMax`); 0 dropped of
+  ~20 600 in a 6-truck run (5 000 merged).
+- Thin pale outlines where print, berm and splat texels meet (the interpolated lateral channel
+  is no position across kinds: the point value is used there).
+- Shader edits reach the game after an overlay restart: ShaderData objects are named after the
+  source revision.
 - `deepnode_overlay.reloadShaders()` did not change what was drawn (the PostEffects kept their
   compiled shader): it now makes new ShaderData objects and points the effects at them.
 

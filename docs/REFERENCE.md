@@ -721,6 +721,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.recentreMargin` | 24 | The map window moves (8 m steps, prints kept) when the camera is this close to its edge |
 | `overlay.segmentsPerFrame` | 16 | Prints painted per frame (shader limit 16); the rest wait |
 | `overlay.queueMax` | 512 | Waiting prints at most (oldest dropped) |
+| `overlay.mergeMax` | 3 | A wheel's waiting print segment is extended by its next report while it goes on straight, up to this length (m): 6 trucks x 8 wheels at 20 Hz otherwise fill the 16 segments a frame |
 | `overlay.edge` | 0.03 | Soft print edge (m) |
 | `overlay.strength` | 1.0 | Overall strength (0 = no visible effect, passes still run) |
 | `overlay.phasePerMetre` | 4 | Along-track coordinate scale (the print pattern repeats every 64 / this m) |
@@ -745,6 +746,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.grain` | size 0.05, height 1.2, printDensity 0.15, churnSize 0.35 | Crumb size (m), crumb height (x size), crumb density in the print, size of the wet/dry mottling (m) |
 | `overlay.carry` | see config | Mud on hard ground: `enabled`, `color` (hue), `gain` (brightness), `opacity`, `minCoat`, `perCoat` (strength = coat x this), `step` (m between prints), `afterSoft` (s off the soft ground) |
 | `overlay.dust` | colour, gain 1.35, opacity 0.45 | Sand carried onto hard ground |
+| `overlay.splats` | see config | Mud thrown by wheels spinning in mud (MudRunner's terrain mud decals): `enabled`, `minSpin` (m/s slip), `perSpin` (splats per s per m/s), `maxPerSec`, `reach` (m behind the wheel, full at `fullSpin` m/s), `sizeMin`/`sizeMax` (radius m), `color`, `gain`, `opacity`. Thrown only while the paint queue is below a quarter full |
 | `overlay.tyres` | true | Wet tyre pass on/off |
 | `overlay.tyreRange` / `tyreMaxWheels` | 40 / 16 | Wheels within this distance, nearest first (shader limit 16) |
 | `overlay.tyreWetDarken` / `tyreHighlight` | 0.35 / 1.0 | Wet tyre darkening / sun highlight |

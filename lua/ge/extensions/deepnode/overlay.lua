@@ -28,7 +28,7 @@ local M = {}
 
 local floor, min, max, sqrt, cos, sin, rad, exp = math.floor, math.min, math.max, math.sqrt, math.cos, math.sin,
   math.rad, math.exp
-local atan2 = math.atan2
+local atan2, abs = math.atan2, math.abs
 local sfmt = string.format
 local tsort = table.sort
 
@@ -47,7 +47,8 @@ local COMMON_PATH = SHADER_DIR .. 'dnCommon.h.hlsl'
 local MAX_SEG = 16
 local MAX_WHEELS = 16
 -- surface kinds stored in the map (rutStampP.hlsl)
-local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST = 0, 1, 2, 3
+local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT = 0, 1, 2, 3, 4
+local random = math.random
 
 local ctx, P, oc = nil, nil, nil
 local active = false
@@ -65,6 +66,10 @@ local stats = { queued = 0, painted = 0, dropped = 0, recentres = 0, frames = 0,
 -- (main stores the stamped end point as the next start), so the print pattern continues
 -- from one report to the next
 local arcAt, arcCount = {}, 0
+-- queue index of the waiting segment that ends at a hub point (same keys as arcAt): the next
+-- report of that wheel extends it instead of queuing a new one while it waits (6 trucks x 8
+-- wheels x 20 Hz filled the 16 segments a frame the paint pass takes)
+local tailAt = {}
 local ARC_MAX = 4096
 -- per frame: camera, wheel time, wheels for the tyre pass (nearest first)
 local camX, camY, camZ = 0, 0, 0
@@ -133,6 +138,10 @@ end
 
 -- Existing objects are updated in place: a deleted GFXStateBlockData / ShaderData can
 -- survive (still referenced), and a stale one was silently reused (2026-10-31).
+-- ShaderData named after the source revision: an existing PostEffect keeps the shader it
+-- compiled through ShaderData:reload() and its own reload() (measured 2026-10-31), so an edited
+-- file must come as a new object; an unchanged one reuses its object
+local shaderNames = {}
 local function makeShader(name, path)
   local sh = find(name)
   local new = not sh
@@ -170,10 +179,15 @@ local function makeStateBlock(name, samplers)
 end
 
 local function makeEffects()
-  makeShader(SH_STAMP, STAMP_PATH)
-  makeShader(SH_COPY, COPY_PATH)
-  makeShader(SH_OVER, OVER_PATH)
-  makeShader(SH_TYRE, TYRE_PATH)
+  local shStamp = SH_STAMP .. '_' .. sourceRev(STAMP_PATH)
+  local shCopy = SH_COPY .. '_' .. sourceRev(COPY_PATH)
+  local shOver = SH_OVER .. '_' .. sourceRev(OVER_PATH)
+  local shTyre = SH_TYRE .. '_' .. sourceRev(TYRE_PATH)
+  makeShader(shStamp, STAMP_PATH)
+  makeShader(shCopy, COPY_PATH)
+  makeShader(shOver, OVER_PATH)
+  makeShader(shTyre, TYRE_PATH)
+  shaderNames = { shStamp, shCopy, shOver, shTyre }
   -- overlay slots: scene, normals, depth, rut map (linear), shadow mask; tyres: the same
   -- without the rut map
   makeStateBlock(SB_STAMP, 'pppp')
@@ -207,16 +221,16 @@ local function makeEffects()
       { 'targetSize', size .. ' ' .. size }, { 'targetFormat', 'GFXFormatR16G16B16A16F' },
       { 'targetClear', 'PFXTargetClear_None' } }, { src })
   end
-  local st = mapPass(FX_STAMP, SH_STAMP, '60', TARGET, TMP)
-  local cp = mapPass(FX_COPY, SH_COPY, '59', TMP, TARGET)
+  local st = mapPass(FX_STAMP, shStamp, '60', TARGET, TMP)
+  local cp = mapPass(FX_COPY, shCopy, '59', TMP, TARGET)
   -- scene colour in slot 0, as the engine's own post effects read $backBuffer
   local ov = effect(FX_OVER, {
     { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '50' },
-    { 'shader', SH_OVER }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
+    { 'shader', shOver }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
     { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', TARGET, '#sunShadowMask' })
   local ty = effect(FX_TYRE, {
     { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '49' },
-    { 'shader', SH_TYRE }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
+    { 'shader', shTyre }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
     { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', '#sunShadowMask' })
   st:enable(); cp:enable(); ov:enable(); ty:enable()
   setSkip(st, false); setSkip(cp, false); setSkip(ov, true); setSkip(ty, true)
@@ -280,26 +294,50 @@ local function stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, str
   local heading
   if L > 1e-3 then heading = atan2(dy, dx) else heading = atan2(axx, -axy) end
   local z = (groundZ or ((p0z + p1z) * 0.5 - R)) - win.z
-  if arcCount > ARC_MAX then arcAt, arcCount = {}, 0 end
+  if arcCount > ARC_MAX then arcAt, arcCount, tailAt = {}, 0, {} end
   for k = 1, #tyres do
     local ty = tyres[k]
     local ox, oy = axx * ty.o, axy * ty.o
-    local k0, k1 = arcKey(p0x, p0y, k), arcKey(p1x, p1y, k)
-    local s0 = arcAt[k0] or 0
-    arcAt[k0] = nil
-    if L > 1e-3 then
-      arcAt[k1] = s0 + L
-      arcCount = arcCount + 1
-    else
-      arcAt[k0] = s0
+    local s0 = 0
+    local merged = false
+    -- splats have no along-track pattern: no arc bookkeeping, no merging
+    if kind ~= KIND_SPLAT then
+      local k0, k1 = arcKey(p0x, p0y, k), arcKey(p1x, p1y, k)
+      s0 = arcAt[k0] or 0
+      arcAt[k0] = nil
+      local qi = tailAt[k0]
+      tailAt[k0] = nil
+      if L > 1e-3 then
+        arcAt[k1] = s0 + L
+        arcCount = arcCount + 1
+        -- extend the same wheel's waiting segment when it goes on straight
+        local e = qi and qi >= qHead and qi <= qTail and queue[qi]
+        if e and e[9] == kind and e[5] == ty.w * 0.5 and abs(e[6] - z) < 0.05
+            and abs(e[3] - p0x - ox) < 1e-3 and abs(e[4] - p0y - oy) < 1e-3 then
+          local ex, ey = e[3] - e[1], e[4] - e[2]
+          local el = sqrt(ex * ex + ey * ey)
+          if el > 1e-3 and (ex * dx + ey * dy) / (el * L) > 0.995 and el + L < oc.mergeMax then
+            e[3], e[4] = p1x + ox, p1y + oy
+            e[7] = atan2(e[4] - e[2], e[3] - e[1])
+            tailAt[k1] = qi
+            merged = true
+            stats.merged = (stats.merged or 0) + 1
+          end
+        end
+      else
+        arcAt[k0] = s0
+      end
+      if not merged and L > 1e-3 then tailAt[k1] = qTail + 1 end
     end
-    qTail = qTail + 1
-    local e = queue[qTail]
-    if not e then e = {}; queue[qTail] = e end
-    e[1], e[2], e[3], e[4] = p0x + ox, p0y + oy, p1x + ox, p1y + oy
-    -- the shader wraps the phase at 64: send the arc length modulo that period
-    e[5], e[6], e[7], e[8] = ty.w * 0.5, z, heading, s0 % (64 / oc.phasePerMetre)
-    e[9], e[10], e[11] = kind, strength, berm
+    if not merged then
+      qTail = qTail + 1
+      local e = queue[qTail]
+      if not e then e = {}; queue[qTail] = e end
+      e[1], e[2], e[3], e[4] = p0x + ox, p0y + oy, p1x + ox, p1y + oy
+      -- the shader wraps the phase at 64: send the arc length modulo that period
+      e[5], e[6], e[7], e[8] = ty.w * 0.5, z, heading, s0 % (64 / oc.phasePerMetre)
+      e[9], e[10], e[11] = kind, strength, berm
+    end
     stats.queued = stats.queued + 1
   end
   if qTail - qHead + 1 > oc.queueMax then
@@ -343,10 +381,55 @@ local function tyreWet(W)
   return w
 end
 
--- per wheel and frame (wheelMud.eachWheel): mud carried onto hard ground, tyre pass candidates
+-- mud splats thrown by a wheel spinning in mud (MudRunner's terrain mud decals): blobs land
+-- behind the wheel (against its travel; either side when it spins on the spot), more and
+-- further with more spin; each is a short capsule stamped as kind 4
+local splatTyre = { { o = 0, w = 0.2 } }
+local function throwSplats(W)
+  local sp = oc.splats
+  local f = W.frame
+  local dt = wheelNow - (W.ovSplT or wheelNow)
+  W.ovSplT = wheelNow
+  if dt <= 0 or dt > 0.5 then return end
+  local spin = W.lastSpin or 0
+  if wheelNow - (W.mudT or -1e9) > 0.3 or spin < sp.minSpin then W.ovSplAcc = 0; return end
+  -- prints first: no splats while the paint queue is busy
+  if qTail - qHead + 1 > oc.queueMax * 0.25 then return end
+  local acc = (W.ovSplAcc or 0) + dt * min(sp.maxPerSec, sp.perSpin * spin)
+  local axx, axy = f[4], f[5]
+  local al = sqrt(axx * axx + axy * axy)
+  if al < 0.3 then W.ovSplAcc = 0; return end
+  axx, axy = axx / al, axy / al
+  local vx, vy = W.vel and W.vel[1] or 0, W.vel and W.vel[2] or 0
+  local vl = sqrt(vx * vx + vy * vy)
+  local reach = sp.reach * min(1, spin / sp.fullSpin)
+  while acc >= 1 do
+    acc = acc - 1
+    local bx, by
+    if vl > 0.5 then bx, by = -vx / vl, -vy / vl
+    else
+      local sg = random() < 0.5 and -1 or 1
+      bx, by = -axy * sg, axx * sg
+    end
+    local d = W.R * 0.8 + random() * reach
+    local side = (random() - 0.5) * (1.0 + d * 0.9)
+    local px, py = f[1] + bx * d + axx * side, f[2] + by * d + axy * side
+    local r = sp.sizeMin + (sp.sizeMax - sp.sizeMin) * random() ^ 2
+    local g = P.restAt and P.restAt(px, py) or (f[3] - W.R)
+    splatTyre[1].w = 2 * r
+    stamp(px - bx * r * 0.4, py - by * r * 0.4, g, px + bx * r * (0.6 + d * 0.3), py + by * r * (0.6 + d * 0.3), g,
+      -by, bx, 0, splatTyre, KIND_SPLAT, 0.6 + 0.4 * random(), 1, g)
+    stats.splats = (stats.splats or 0) + 1
+  end
+  W.ovSplAcc = acc
+end
+
+-- per wheel and frame (wheelMud.eachWheel): mud carried onto hard ground, splats, tyre pass
+-- candidates
 local function onWheel(vid, W)
   local f = W.frame
   local cx, cy, cz = f[1], f[2], f[3]
+  if oc.splats.enabled and win.set then throwSplats(W) end
   -- carried prints: a coated wheel off the soft ground leaves its coat in tread prints
   local cc = oc.carry
   local hard = wheelNow - (W.mudT or -1e9) > cc.afterSoft
@@ -441,7 +524,7 @@ function M.start(main)
   clearFrames = 10
   if readCam() then recentre(camX, camY, camZ - 3) end
   queue, qHead, qTail = {}, 1, 0
-  arcAt, arcCount = {}, 0
+  arcAt, arcCount, tailAt = {}, 0, {}
   shift = nil
   clr, clrN = {}, 0
   for k in pairs(stats) do stats[k] = 0 end
@@ -456,7 +539,8 @@ end
 function M.stop()
   if P then P.overlayStamp, P.overlayClear = nil, nil end
   active = false
-  for _, n in ipairs({ FX_STAMP, FX_COPY, FX_OVER, FX_TYRE, SH_STAMP, SH_COPY, SH_OVER, SH_TYRE, SB_STAMP, SB_OVER }) do
+  for _, n in ipairs({ FX_STAMP, FX_COPY, FX_OVER, FX_TYRE, SB_STAMP, SB_OVER }) do kill(n) end
+  for _, n in ipairs(shaderNames) do
     kill(n)
   end
   for _, fx in ipairs({ FX_STAMP, FX_OVER, FX_TYRE }) do rawset(_G, fx .. 'Callbacks', nil) end
@@ -466,17 +550,14 @@ function M.stop()
   if wm and wm.eachWheel then wm.eachWheel(function(_, W) W.ssFrame, W.ovCarry = nil, nil end) end
 end
 
--- recompile the overlay and tyre shaders in place, for shader work (prints in the map stay):
--- a PostEffect kept the shader it compiled through ShaderData:reload() and its own reload()
--- (2026-10-31), so each call makes new ShaderData objects under new names and points the
--- effects at them. The map passes are left alone.
-local reloadN = 0
+-- recompile the overlay and tyre shaders after an edit (prints in the map stay; new ShaderData
+-- objects named by revision, see makeShader). The map passes are left alone.
 function M.reloadShaders()
   if not active then return false end
-  reloadN = reloadN + 1
-  for _, e in ipairs({ { FX_OVER, SH_OVER, OVER_PATH }, { FX_TYRE, SH_TYRE, TYRE_PATH } }) do
-    local name = e[2] .. '_r' .. reloadN
+  for _, e in ipairs({ { FX_OVER, SH_OVER, OVER_PATH, 3 }, { FX_TYRE, SH_TYRE, TYRE_PATH, 4 } }) do
+    local name = e[2] .. '_' .. sourceRev(e[3])
     makeShader(name, e[3])
+    shaderNames[e[4]] = name
     local fx = find(e[1])
     if fx then
       fx:setField('shader', 0, name)
@@ -489,7 +570,8 @@ end
 function M.isActive() return active end
 function M.stats()
   return { queued = stats.queued, painted = stats.painted, dropped = stats.dropped, recentres = stats.recentres,
-    carried = stats.carried, tyres = stats.tyres, pending = qTail - qHead + 1,
+    carried = stats.carried, tyres = stats.tyres, splats = stats.splats or 0, merged = stats.merged or 0,
+    pending = qTail - qHead + 1,
     window = { win.x0, win.y0, win.span, win.z } }
 end
 
@@ -589,7 +671,9 @@ function M.frame()
   local c, d = oc.carry, oc.dust
   setConst(FX_OVER, 'dnCarry', c.color[1], c.color[2], c.color[3], c.opacity)
   setConst(FX_OVER, 'dnDust', d.color[1], d.color[2], d.color[3], d.opacity)
-  setConst(FX_OVER, 'dnCarryG', c.gain, d.gain, 0, 0)
+  local sp = oc.splats
+  setConst(FX_OVER, 'dnCarryG', c.gain, d.gain, sp.gain, 0)
+  setConst(FX_OVER, 'dnSplat', sp.color[1], sp.color[2], sp.color[3], sp.opacity)
   local g = oc.grain
   setConst(FX_OVER, 'dnGrain', g.size, g.height, g.printDensity, g.churnSize)
   setConst(FX_OVER, 'dnKindX', oc.sand.relief or 1, oc.sand.crumbHeight or 1, oc.mud.crumbLift or 0.12,

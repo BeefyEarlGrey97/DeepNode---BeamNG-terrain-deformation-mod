@@ -11,6 +11,8 @@
 //    pre-pass: the G-buffer holds no base colour, #prepass[RT1] is not albedo): churned wet
 //    mud darker and more saturated, damp sand, mud and sand dust carried onto hard ground by
 //    coated tyres as a tinted streaky stain (breaking up as the coat runs out);
+//  * mud splats thrown by spinning wheels (MudRunner's terrain mud decals): lumpy wet blobs
+//    on whatever ground they land on;
 //  * a wet sheen: sun highlight on the wet mud, its light level estimated from the scene;
 //  * puddles (MudRunner-style water pooling in ruts): the map stores the undisturbed ground
 //    height, so the shader knows how deep a pixel lies in the rut; below a patchy water level
@@ -42,7 +44,8 @@ cbuffer perDraw : register(b0)
     uniform float4 dnSand;    // same for sand
     uniform float4 dnCarry;   // mud carried onto hard ground: tint colour (rgb), opacity
     uniform float4 dnDust;    // sand dust on hard ground: tint colour (rgb), opacity
-    uniform float4 dnCarryG;  // brightness gain of the mud stain, of the dust, unused, unused
+    uniform float4 dnCarryG;  // brightness gain of the mud stain, of the dust, of the splats, unused
+    uniform float4 dnSplat;   // mud splats: tint colour (rgb), opacity
     uniform float4 dnGrain;   // crumb size (m), crumb height (x size), print crumb density, churn noise size (m)
     uniform float4 dnKindX;   // sand relief (x mud), sand crumb height (x mud), crumb lift mud, crumb lift sand
     uniform float4 dnWater;   // puddle amount (0..1), depth where water starts (m), murk, deepest rut (m)
@@ -104,7 +107,10 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     int2 ti = clamp((int2)floor(uv * dnMask.w), 0, (int)dnMask.w - 1);
     float4 rp = rutMapTex.Load(int3(ti, 0));
     float kindF = round(rp.a / 4.0);
-    float lat = clamp(r.a - 4.0 * kindF, -2.0, 2.0);
+    // interpolated lateral position; where texels of other kinds blend in, the interpolated
+    // channel is no valid position (the kind is packed on top): the point value there
+    float latB = r.a - 4.0 * kindF;
+    float lat = clamp(abs(latB) > 2.0 ? rp.a - 4.0 * kindF : latB, -2.0, 2.0);
     // phase: interpolated, except next to the wrap seam (point value there)
     float phase = abs(wrapDiff(r.g - rp.g)) > 1.0 ? rp.g : r.g;
     float per = PHASE_WRAP / max(dnTread.x, 1e-3); // m before the along coordinate wraps
@@ -151,7 +157,8 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     if (rp.r <= 0.0 && r.r < 0.01) discard;
     int kind = (int)kindF;
     bool berm = abs(lat) > 1.0;
-    bool carried = kind >= 2;
+    bool carried = kind == 2 || kind == 3;
+    bool splat = kind == 4;
     // depth below the undisturbed ground: pixels well above it belong to something else
     // (vehicles; berms stand a little higher), ruts go down to dnWater.w
     float dz = wp.z - (dnWin.w + rp.b);
@@ -183,7 +190,9 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     // --- print relief: world gradient from the screen derivatives -----------------------
     float edgeFade = inside;
     // carried mud is a thin stain on hard ground: no pressed relief
-    float2 grad = carried ? float2(0, 0) : dnWorldGrad(drx, dry, dpx.xy, dpy.xy);
+    float2 grad = (carried || splat) ? float2(0, 0) : dnWorldGrad(drx, dry, dpx.xy, dpy.xy);
+    // splat blob cover (shaped in the stamp pass, rutStampP.hlsl splatCover)
+    float splatC = splat ? str : 0.0;
     float reliefK = kind == 1 ? dnKindX.x : 1.0; // sand: softer prints
     grad *= reliefK;
     // debug 6: print terms (red groove, green lip, blue streak / ripple filters)
@@ -196,6 +205,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     if (!carried) {
         float bermW = berm ? saturate(2.0 - abs(lat)) * saturate((abs(lat) - 1.0) * 6.0) : 0.0;
         float dens = berm ? K.w * bermW : dnGrain.z * (0.4 + 0.6 * smoothstep(0.5, 1.0, abs(lat)));
+        if (splat) dens = 0.65 * splatC;
         float cf = 1.0 - smoothstep(0.25, 0.7, pixM / cs);
         if (dens > 0.0 && cf > 0.0) {
             float3 c1 = dnCrumbs(wf / cs, dens);
@@ -220,13 +230,21 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float lit1 = amb + sh * (1.0 - 0.8 * crumbSh) * saturate(dot(nt, L));
     float ratio = clamp(lit1 / max(lit0, 1e-3), 0.3, 2.0);
     // grooves (deepest pressed parts) darker: the print reads whatever side the sun is on
-    float ao = carried ? 1.0 : 1.0 - dnOpt.z * groove * reliefK;
+    float ao = (carried || splat) ? 1.0 : 1.0 - dnOpt.z * groove * reliefK;
 
     // --- surface colour (on the scene colour) ------------------------------------------
     float churn = dnNoise(wf / dnGrain.w) * 0.65 + dnNoise(wf / dnGrain.w * 2.7 + 7.1) * 0.35;
     float3 C2 = scene;
     float wet = 0.0;
-    if (!carried) {
+    if (splat) {
+        // thrown wet mud: tinted stain over whatever it landed on, wet
+        float3 tint = dnSplat.rgb / max(dnLum(dnSplat.rgb), 1e-3);
+        C2 = scene * lerp(float3(1, 1, 1), tint * dnCarryG.z, dnSplat.a * splatC);
+        C2 *= 1.0 + dnKindX.z * crumbK;
+        wet = 0.8 * K.z * splatC;
+        // the whole effect (relief, crumbs, colour) fades with the blob: no rim at its edge
+        k = saturate(dnLook.x * fade * slopeK) * smoothstep(0.0, 0.35, splatC);
+    } else if (!carried) {
         // wet churned soil: wetter in the print centre and the grooves, patchy; darker and
         // more saturated
         float inPrint = berm ? 0.75 * saturate(2.2 - abs(lat)) : 1.0;

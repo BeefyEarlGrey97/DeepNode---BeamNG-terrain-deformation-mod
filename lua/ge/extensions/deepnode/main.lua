@@ -579,6 +579,7 @@ local defaults = {
     recentreMargin = 24,    -- m: the map follows the camera when it gets this close to an edge (prints are lost)
     segmentsPerFrame = 16,  -- prints painted per frame (shader limit 16)
     queueMax = 512,
+    mergeMax = 3,           -- m: a wheel's waiting print segment is extended up to this length
     edge = 0.03,            -- m soft print edge
     strength = 1.0,
     -- the print has no tread pattern (any wheel, small or big): smear streaks along the
@@ -615,6 +616,11 @@ local defaults = {
     carry = { enabled = true, color = { 0.16, 0.12, 0.085 }, gain = 0.5, opacity = 0.85, minCoat = 0.08,
               perCoat = 1.2, step = 0.12, afterSoft = 0.3 },
     dust = { color = { 0.5, 0.45, 0.36 }, gain = 1.35, opacity = 0.45 }, -- sand carried onto hard ground
+    -- mud splats thrown by wheels spinning in mud (slip above minSpin m/s): perSpin splats per s
+    -- per m/s of slip (at most maxPerSec), landing up to reach m behind the wheel (full reach at
+    -- fullSpin m/s), radius sizeMin..sizeMax m; tinted like the carried mud
+    splats = { enabled = true, minSpin = 0.8, perSpin = 1.2, maxPerSec = 6, reach = 3, fullSpin = 6,
+               sizeMin = 0.08, sizeMax = 0.3, color = { 0.12, 0.105, 0.09 }, gain = 0.45, opacity = 0.85 },
     -- wet tyres (screen-space): wheels within tyreRange m, nearest tyreMaxWheels (shader limit 16)
     tyres = true,
     tyreRange = 40,

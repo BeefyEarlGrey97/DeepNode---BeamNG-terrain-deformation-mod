@@ -117,3 +117,5 @@ against a mod-off run from the same session before drawing conclusions.
 | 2026-10-31 | gridmap_v2, 4 trucks | heavy | final A/B: f03cc18 + docs (soil memory, kinds, deadline queue, minVisibleChange, terrain-first sand, JIT fixes) | 77.7 (62.2) | worst near 0.46-3.3 s, median ~0.75 s; front 0.09 s | ~17 MB per runs 2-5 |
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | 36d586e, overlay off | 59.3 (44.3) | near 0.13 s avg, max 3.6-3.8 s; front 0.09 s | ~+20 MB per run |
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | 36d586e, overlay on (prints + tyre pass) | 58.0 (43.4) | near 0.13 s avg, max 3.5-3.7 s; front 0.09 s | ~0 MB per run |
+| 2026-10-31 | gridmap_v2, 6 trucks | heavy | cd2f2d6, overlay off | 59.9 (45.0) | near 0.13 s avg, max 3.5-3.7 s; front 0.09 s | ~+6 MB per run |
+| 2026-10-31 | gridmap_v2, 6 trucks | heavy | cd2f2d6, overlay on (universal prints, puddles, tyre pass) | 58.4 (43.9) | near 0.14 s avg, max 3.4-3.7 s; front 0.09 s | ~+4 MB per run |

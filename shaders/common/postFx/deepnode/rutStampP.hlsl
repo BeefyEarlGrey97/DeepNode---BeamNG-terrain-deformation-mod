@@ -8,12 +8,14 @@
 //   g = along-track coordinate (phase units, overlay.phasePerMetre per m, mod 64),
 //   b = undisturbed ground z (the surface before the rut) - baseZ (m),
 //   a = position across the tyre (-1..1 inside the print, up to +-2 on the berm beside it)
-//       + 4 x surface kind (0 mud, 1 sand, 2 mud carried onto hard ground, 3 sand dust)
+//       + 4 x surface kind (0 mud, 1 sand, 2 mud carried onto hard ground, 3 sand dust,
+//       4 mud splat thrown by a spinning wheel)
 // The phase continues from one wheel report to the next (arc length at the segment start
 // comes from Lua), so the print pattern continues along curved tracks.
 // A newer print replaces what was under it; a berm only covers untouched ground or berms.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
+#include "dnCommon.h.hlsl"
 
 uniform_sampler2D(prevMap, 0);
 
@@ -87,6 +89,17 @@ cbuffer perDraw : register(b0)
     #define mainP main
 #endif
 
+// mud splat blob over the stamped capsule: ragged edge, holes where thin (texels outside the
+// blob keep what was there, so a berm under a splat's edge stays a berm; a splat over a print
+// keeps its along-track phase, ground height and lateral position, so the print relief runs on
+// without a seam at the splat's edge)
+float splatCover(float2 p, float lat, float strength)
+{
+    float2 wf = dnFold(p);
+    float bn = dnNoise(wf * 9.0 + 4.7) * 0.6 + dnNoise(wf * 23.0 + 1.3) * 0.4;
+    return saturate(((1.0 - lat * lat) * strength * 1.3 - bn) * 6.0);
+}
+
 // lateral position of a stored texel (the kind is packed on top in steps of 4)
 float storedLat(float a)
 {
@@ -109,7 +122,10 @@ float storedLat(float a)
             float lat = dot(d, float2(-fw.y, fw.x)) / hw;                              \
             float kind4 = 4.0 * dnC##i.x;                                              \
             bool oldPrint = res.r > 0.0 && abs(storedLat(res.a)) <= 1.0;               \
-            if (dist < hw) {                                                           \
+            if (dnC##i.x > 3.5) {                                                  \
+                float sc = dist < hw ? splatCover(p, lat, dnC##i.y) : 0.0;         \
+                if (sc > 0.1) res = res.r > 0.0 ? float4(sc, res.g, res.b, storedLat(res.a) + kind4) : float4(sc, 0.0, dnB##i.y, clamp(lat, -1.0, 1.0) + kind4);\
+            } else if (dist < hw) {                                                \
                 float cov = (1.0 - smoothstep(max(hw - edge, 0.0), hw, dist)) * dnC##i.y; \
                 if (!oldPrint || cov >= 0.5 * res.r) {                                 \
                     float ph = (dnB##i.w + dot(p - a, fw)) * ppm;                      \
