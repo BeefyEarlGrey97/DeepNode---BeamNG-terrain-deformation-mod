@@ -59,6 +59,30 @@ They explain most design decisions; please extend this file when you measure som
 - `zBias` is a depth bias, not a vertical lift.
 - With the terrain left at the mud surface (terrain-first) the engine draws decal roads exactly as vanilla.
 
+## Custom shaders (2026-10-31, D3D12 backend, gridmap_v2)
+
+Method learned from the Dynamic Dirt mod (technique only, none of its code). Test shaders were
+loaded from the user folder (`/shaders/...` is visible to the VFS).
+
+- A `PostEffect` with its own `ShaderData` (one HLSL file as VS + PS, `pixVersion 5.0`) and
+  `GFXStateBlockData` runs fine and draws into `$backBuffer`. Constants: `fx:setShaderConst`.
+- Render slots that fire: `PFXAfterDiffuse`, `PFXBeforeBin ObjTranslucentBin` (after opaque
+  lighting; fog and translucent objects like glass draw over it, the better slot for a screen-space
+  overlay), `PFXBeforeBin ReflectDepthBin` (before the opaque scene is composited: geometry covers
+  it), `CloudComposeBin`, `RenderBinWater`. `PFXBeforeBin SssrTrace` never fired. The exe names no
+  bin between the G-buffer pass and lighting.
+- `#prepass` / `#prepass[RT0]` as a PostEffect `target` writes nothing (checked with
+  `AL_NormalsVisualize`): no G-buffer injection, so a post effect cannot get engine lighting for
+  rut normals. A screen-space overlay must shade itself (read `#prepass[RT0]` + `#prepass[Depth]`).
+- `CustomMaterial` as the material of a `ProceduralMesh` submesh: the custom VS + PS compile and
+  draw (unlit colour), but the draw gets NO constant buffers and NO textures:
+  - any `cbuffer` in the shader (own `perDraw` at b0, or the engine scene cbuffer
+    `RenderPassConstBuffer` at b0/space1) -> fatal assert "root cbv has null gpu va", game crash;
+  - a texture read in the VS returns 0 ("sampler root descriptor table had null gpu handle;
+    binding null-descriptor fallback").
+  - the shadow pass ignores the custom VS (shadow cast from the uploaded vertices).
+  So GPU displacement of static mud meshes (no uploads) is not possible this way.
+
 ## Other
 
 - `Engine.Render.DynamicDecalMgr.addDecals` (box-projected colour decals, one frame) projects onto
