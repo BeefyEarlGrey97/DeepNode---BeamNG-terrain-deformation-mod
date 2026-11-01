@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+- Big maps (hw550): trees and grass thinned out and the frame rate fell under 25 fps. The
+  groundcover cell shrink (`grass.cellSize` 10 m, heavy physics) applied to every GroundCover:
+  hw550's tree covers (radius 1500 / 3800 m) went from 10 / 20 to 300 / 760 cells per side, the
+  same `maxElements` spread over many more cells and the cell cache grew as the camera moved
+  (RenderShadows 20 ms after a drive, 0.8 ms with the mod off). Now only covers up to
+  `grass.maxRadius` (150 m) shrink, to at most `grass.maxGrid` (32) cells per side. hw550, same
+  view: Render 10.2 ms / shadows 0.79 ms against 10.0 / 0.79 with the mod off (was 23.2 / 20.0);
+  forests and grass as without the mod. gridmap_v2's covers (radius 45-100 m) keep 10 m cells.
+- Terrain updates on big terrains: `tb:updateGrid` costs 15-78 ms on hw550 (8192 x 8192) for any
+  box (1-2.5 ms on gridmap_v2). Above `physics.heavy.slowUpdateMs` (8 ms, measured) the rut floor
+  is written at most every `slowUpdateGap` (2 s), everything pending in one update: 90 s of
+  digging in hw550 mud 70 -> ~30 updates (one ~15 ms hitch every 2 s). The rut shows up to 2 s
+  later there.
+
 ## [0.3.0] — 2026-11-01 — water in the ruts, trucks that stay put, tread prints on by default
 
 ### Changed defaults

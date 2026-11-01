@@ -224,6 +224,10 @@ BeamNG's own physics:
   stronger slip sinkage and spin digging. Measured 2026-10-31 (4 Percherons, gridmap_v2): mud
   cells passed twice 0.147 m mean depth, four times 0.180 m; sand reached its 0.15 m floor by the
   second pass.
+* Big terrains (`slowUpdateMs` 8, `slowUpdateGap` 2): a terrain update costs more the bigger the
+  terrain (hw550 8192 x 8192: 15-78 ms per update, gridmap_v2: 1-2.5 ms). When the measured cost
+  passes `slowUpdateMs`, the floor is written at most every `slowUpdateGap` s, all pending
+  vertices in one update.
 * Stopped vehicles keep their floor (`holdSpeed` 0.8 m/s, `holdSpin` 1 m/s, `holdPad` 0.75
   squares): the floor writes trail a driving vehicle, so they used to catch up under its parked
   wheels and sink it (-22 cm in 6 s, measured). The floor under the wheels of a slower vehicle is
@@ -518,6 +522,8 @@ Lengths are metres, speeds m/s, times seconds.
 | Key | Default | Meaning |
 |---|---|---|
 | `cellSize` | 10 | m: GroundCover cell size while heavy physics writes the rut floor (smaller cells blink less grass per terrain update); 0 = level cells |
+| `maxRadius` | 150 | m: only GroundCovers up to this radius get smaller cells (tree / distant covers keep theirs: more cells thin them out and cost shadow time) |
+| `maxGrid` | 32 | Most cells per side a GroundCover is given |
 | `lift` | true | Lift groundcover on soft layers onto the mud surface (see Groundcover) |
 
 ### tiles

@@ -50,6 +50,12 @@ They explain most design decisions; please extend this file when you measure som
 - `core_environment.reset()` / `reloadGroundModels()` (also mission start, ground-model file
   change, the ground-model debug panel's "Default") rebuild `core_environment.groundModels` from
   the files: live `be:setGroundModel` retunes are lost (measured: MUD defaultDepth 0.25 -> 0.15).
+- `tb:updateGrid` cost grows with the terrain, not the box: hw550 (8192 x 8192, 1 m) 15-78 ms for a
+  3 x 3 square box, depending on where (measured 2026-11-01, three calls each, also with every
+  GroundCover hidden: 16 -> 20 ms); gridmap_v2 (2048 x 2048) 1-2.5 ms.
+- GroundCover `gridSize`: the same `maxElements` over more cells thins the cover out (hw550 tree
+  covers at 300 / 760 cells per side lost most trees on the slopes) and the cells the camera has
+  passed stay cached: RenderShadows 20 ms after a drive (0.8 ms at the level's grid sizes).
 - `tb:updateGrid` drops and rebuilds every GroundCover cell over its box: that grass is gone for
   the next frame (measured 2026-10-31, gridmap_v2: updateGrid every frame over a 6 x 100 m strip
   12 m from a grass strip hid 75 % of the grass in view; a 2 x 2 m box beside it 5-14 %, at 24 m

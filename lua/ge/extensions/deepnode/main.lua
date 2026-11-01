@@ -151,6 +151,13 @@ local defaults = {
     -- 10 m cells (gridSize raised to 2 x radius / cellSize; same density, the patchy look
     -- stays; 5-7 m cells evened it out): a write 13 m away left the grass alone. 0 = off.
     cellSize = 10,
+    -- only covers up to maxRadius m, and at most maxGrid cells per side: hw550's tree covers
+    -- (radius 1500 / 3800 m) went from 10 / 20 to 300 / 760 cells per side, so the trees and
+    -- the far grass thinned out (the same maxElements over many more cells) and the cell cache
+    -- grew as the camera moved (RenderShadows 20 ms after a drive, 0.8 ms without the mod).
+    -- Bigger covers keep their cells (a terrain write near them blinks a bigger cell).
+    maxRadius = 150,
+    maxGrid = 32,
   },
   tiles = {
     -- 5 m tiles: about one car length, so a 10 m ring is a handful of tiles
@@ -569,6 +576,10 @@ local defaults = {
       grassReach = 12,     -- 25 m level cells: a box 16 m from grass still hid some, 24 m none; with grass.cellSize 10: none at 13 m
       grassHold = 1.0,
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
+      -- terrain updates cost more on big terrains (hw550 8192^2: 15-78 ms each): above
+      -- slowUpdateMs (measured) the floor is written at most every slowUpdateGap s
+      slowUpdateMs = 8,
+      slowUpdateGap = 2,
       -- stopped vehicles keep their floor (deepnode_physics heldWheels): no floor lowering
       -- under the wheels of a vehicle slower than holdSpeed m/s unless the wheel spins
       -- faster than holdSpin m/s; reach: wheel radius x 0.8 + holdPad squares
@@ -2199,8 +2210,10 @@ function P.shrinkCoverCells()
     if gc then
       local okR, r = pcall(function() return tonumber(gc:getField('radius', 0)) end)
       local okG, g = pcall(function() return tonumber(gc:getField('gridSize', 0)) end)
-      if okR and okG and r and g and r > 0 then
-        local want = math.ceil(2 * r / cs)
+      local maxR = tonumber(cfg.grass.maxRadius) or 150
+      local maxG = tonumber(cfg.grass.maxGrid) or 32
+      if okR and okG and r and g and r > 0 and r <= maxR then
+        local want = math.min(math.ceil(2 * r / cs), maxG)
         if want > g then
           P.coverGrid[#P.coverGrid + 1] = { id = gc:getId(), g = g }
           pcall(function() gc:setField('gridSize', 0, tostring(want)); gc:postApply() end)

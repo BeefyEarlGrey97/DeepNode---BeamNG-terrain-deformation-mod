@@ -392,11 +392,22 @@ local function nearGrass(gx0, gy0, gx1, gy1, cs, h)
 end
 
 -- write queued vertices: one updateGrid per frame, inside the upload budget
+-- Slow terrains: tb:updateGrid costs more the bigger the terrain, not the box (hw550,
+-- 8192 x 8192: 15-78 ms for a 3 x 3 square box, measured 2026-11-01, with every
+-- GroundCover hidden too; gridmap_v2 2048 x 2048: 1-2.5 ms). Once the measured cost passes
+-- slowUpdateMs, the floor is written at most every slowUpdateGap s, everything pending in
+-- one update (one hitch instead of one per cluster); the rut shows that much later.
 local cl, take = {}, {}
+local updEma, lastUpd = nil, -huge
 local function write(h)
   local tm = extensions and extensions.deepnode_tileMesh
   if tm and tm.canUpload and not tm.canUpload('F', 0) then
     stats.held = stats.held + 1
+    return
+  end
+  local slow = updEma ~= nil and updEma > (h.slowUpdateMs or 8)
+  if slow and clock - lastUpd < (h.slowUpdateGap or 2) then
+    stats.slowHeld = (stats.slowHeld or 0) + 1
     return
   end
   local cs = max(2, floor(h.floorCluster or 16))
@@ -417,9 +428,12 @@ local function write(h)
       if gy > b[4] then b[4] = gy end
     end
   end
-  local any, alone = false, nil
+  local any, alone = slow, nil
+  if slow then
+    for key in pairs(cl) do take[key] = true; clusterT[key] = clock end
+  end
   local ux0, uy0, ux1, uy1 = huge, huge, -huge, -huge
-  for key, b in pairs(cl) do
+  for key, b in pairs(slow and {} or cl) do
     if not nearGrass(b[1], b[2], b[3], b[4], cs, h) then
       local x0, y0, x1, y1 = min(ux0, b[1]), min(uy0, b[2]), max(ux1, b[3]), max(uy1, b[4])
       if not any or not nearGrass(x0, y0, x1, y1, cs, h) then
@@ -449,7 +463,7 @@ local function write(h)
   end
   local tb = ctx.ter.tb
   local clampRaw = ctx.ter.clampRaw or 0
-  local maxV = h.floorMaxVerts or 600
+  local maxV = (h.floorMaxVerts or 600) * (slow and 4 or 1)
   local n = 0
   local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
   local timer = hptimer and hptimer()
@@ -489,6 +503,8 @@ local function write(h)
   stats.updates = stats.updates + 1
   stats.ms = stats.ms + ms
   if ms > stats.maxMs then stats.maxMs = ms end
+  updEma = updEma and updEma * 0.7 + ms * 0.3 or ms
+  lastUpd = clock
 end
 
 function M.update(dt)

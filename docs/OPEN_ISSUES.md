@@ -193,6 +193,14 @@ grass layer itself is soft, or the gridmap_v2 material ramp (grass 6-8 m from th
 Not found: a terrain update for physics only (setHeightGrid / setHeightWs alone leave physics
 stale). Not tried: delaying near-grass writes while those cells are in view.
 
+## 18. Big terrains (hw550, 2026-11-01)
+
+Fixed: groundcover cell shrink limited to small covers (trees / grass back, shadows 20 -> 0.8 ms).
+Open: each rut-floor terrain update costs 15-78 ms on an 8192 x 8192 terrain (engine, any box
+size); now at most one every 2 s while digging (a hitch each time), and the rut shows up to 2 s
+later. Vanilla physics mode writes no terrain while driving (no hitches). Covers larger than
+`grass.maxRadius` keep their level cells, so a floor write near them blinks a bigger cell.
+
 ## 17. Review items left open (2026-11-01)
 
 From an outside play test (gridmap_v2): what was done is in CHANGELOG [Unreleased]. Left:
