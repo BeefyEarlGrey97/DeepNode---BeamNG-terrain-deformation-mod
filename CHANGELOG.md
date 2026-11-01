@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-11-01 — big maps: trees, grass and frame rate fixed
+
 ### Fixed
 - Big maps (hw550): trees and grass thinned out and the frame rate fell under 25 fps. The
   groundcover cell shrink (`grass.cellSize` 10 m, heavy physics) applied to every GroundCover:
