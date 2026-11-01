@@ -293,6 +293,7 @@ local function buildBody(j)
       local key = ty * KEY + tx
       if not j.exclude[key] then
         local t = main.tiles[key]
+        t_m.recReset()
         if t and (t.state == 'frozen' or t.rutted) then
           t_m.emitTileCells(b, t, drop, main.borderRule(t, true), main.cfg.sectors.frozenCellStride)
         else
@@ -303,6 +304,8 @@ local function buildBody(j)
         -- ring.frozenOwnMeshRadius from the camera, drawn at frozenCellStride) has
         -- none; decals on its cells doubled the sector uploads (550 -> 1200 vertices)
         if dec then dec.overlay(b, true, key) end
+        local rcp = extensions and extensions.deepnode_roadCopy
+        if rcp and rcp.isEnabled() then rcp.emit(b, key, main.N) end
       end
       if j.check() then coroutine.yield() end
     end

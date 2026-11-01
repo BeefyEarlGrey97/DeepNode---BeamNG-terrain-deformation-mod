@@ -170,8 +170,10 @@ Not done yet:
   nothing like the engine's decals and masked vehicles with boxes. Only used now with
   `roads.mode` 'off'. Open for the mesh copies: `startEndFade` is approximated by narrowing the
   strip (no vertex alpha in ProceduralMesh); copies are lit forward (on glossy ground slightly
-  more sheen than the engine's decal); copies come ~1 s after a tile was dug (overlayQuiet) and
-  cost ~3.5 fps with 8 trucks (BENCHMARK §6). After the 8-truck bench the deep, wide rut bands
+  more sheen than the engine's decal). 2026-11-01: rebuilt as `deepnode_roadCopy` (`roads.mode`
+  'copy'): copies on every build, coarse quads on planar squares; ~5 fps against no roads on
+  the mud with 8 trucks (BENCHMARK §6). Research notes (engine routes that do not exist):
+  ENGINE_FINDINGS "Decal roads". After the 8-truck bench the deep, wide rut bands
   in the gridmap_v2 mud pit showed the water layer but few furrow clumps: not checked whether
   the furrow strips cover those cells or copies are missing there. Faint lines along some tile
   edges were seen before the border-drop fix; not re-checked after it.

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+- Decal roads over the mud rebuilt (`roads.mode` 'copy', new module `deepnode_roadCopy`): copies
+  of every road over a mud mesh are built on every mesh build, so a truck digging a road no
+  longer leaves a plain-mud rectangle around it (the previous build waited 1 s for a tile to
+  settle). Copies come from the quads the mesh builder records; a square still planar within
+  `roads.copyFlat` (1 cm) is one quad in the copies even where the mud is drawn in cells, so
+  mainly dug cells cost copy vertices. Copy materials are exact clones of the road materials
+  (`assignFieldsFromObject`) without shadow casting; tile border drops are undone for copies.
+  gridmap_v2, 8 Percherons: tile uploads 4617 -> 1066 vertices and 5.9 -> 2.8 ms each against
+  the old copies on every build; 51.9 fps (low1 35) against 45.4 (24) for the old copies on
+  every build and 56.9 (44.4) with no roads on the mud.
+
 ### Performance
 - Decal copies only once a tile is quiet (`roads.overlayQuiet` 1 s after its last stamp): while
   a truck digs, a tile rebuilds at the rut rate and the copies (several road layers over every

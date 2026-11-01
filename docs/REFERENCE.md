@@ -487,7 +487,9 @@ Lengths are metres, speeds m/s, times seconds.
 | `enabled` | true | Keep terrain under hard decal roads free of mud |
 | `margin` | 0.5 | Extra width (m) kept free of mud on each side of a road |
 | `skipMatch` | `["invisible", "dirt"]` | Roads with a material containing one of these texts (or a `softMatch` text) are not carved |
-| `mode` | `"overlay"` | Decal roads on the mud: `overlay` (the engine's decals stay; copies drawn into the mud meshes around ruts), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
+| `mode` | `"copy"` | Decal roads on the mud: `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
+| `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
+| `copyLift` / `copyLiftStep` | 0.008 / 0.002 | Mode `copy`: m over the mud; one step per renderPriority level (lower numbers higher) |
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |
 | `overlayOnRuts` | true | Copies also on rut and track cells, clipped to the strip (the pattern drapes over the ruts); false = untouched squares only |
 | `overlayQuiet` | 1.0 | s after a tile's last stamp before its decal copies are built (0 = every build) |

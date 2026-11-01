@@ -88,6 +88,17 @@ They explain most design decisions; please extend this file when you measure som
   engine's decal no edge was visible on gridmap_v2.
 - Copies laid on the terrain must follow its triangles: gridmap_v2's mud pit has furrows in the
   1 m heightmap, and a copy sampled every 0.5 m along the road sank under them in stripes.
+- `be:reloadStaticCollision()` takes as long as `be:reloadCollision()` (~370 ms on gridmap_v2,
+  2026-11-01); ProceduralMesh exposes no per-object collision update to Lua
+  (`ProceduralMesh::updatePhysicsCollision` exists in the exe only): a DecalRoad cannot be
+  re-draped over live ruts. The BeamNG docs confirm DecalRoads clip terrain and static (collision)
+  mesh triangles and regenerate when terrain under them changes.
+- The mesh vertex format used by ProceduralMesh carries one UV set (`VertexIaMesh.texCoord0`,
+  expanded to `.xyxy`): material layers with `...MapUV1` flags cannot give a road layer its own
+  UVs inside the mud material. Named render targets (`#name`) are bound only as CustomMaterial
+  samplers in the shipped Lua (water), and CustomMaterial crashes on a ProceduralMesh.
+- `fizzle()` (opaque visibility dither) is a static screen-space pattern, not usable as soft
+  alpha for opaque decal copies.
 - A screen-space redraw of decal roads cannot match them: no albedo buffer, own lighting
   (2026-10-31 A/B on gridmap_v2: the overlay road was far paler and flatter than the decal).
 

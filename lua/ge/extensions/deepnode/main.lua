@@ -116,7 +116,12 @@ local defaults = {
     -- undisturbed mud (above), 'off' = no decal roads on the mud. Default off: the overlay is
     -- experimental (GUI "Experimental decal road"); off hides the decal roads on soft ground
     -- (P.coverRoads)
-    mode = 'overlay',
+    -- 'copy': the engine's decals stay; the mud meshes around ruts carry copies of the roads
+    -- over them (deepnode_roadCopy). 'overlay' = the older copies (deepnode_decals).
+    mode = 'copy',
+    copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
+    copyLift = 0.008,       -- m over the mud; one copyLiftStep per renderPriority level
+    copyLiftStep = 0.002,
     -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
     -- the level's decal); false = alpha-clipped matte copies (old look)
     overlayOriginal = true,
@@ -1441,7 +1446,9 @@ function P.roadMode()
   if not r or r.enabled == false then return 'off' end
   if r.mode == 'drape' then return r.overObjects ~= false and 'drape' or 'off' end
   if r.mode == 'off' then return 'off' end
-  return 'overlay'
+  if r.mode == 'overlay' then return 'overlay' end
+  -- 'copy' (default): the engine's decals stay, copies in the mud meshes (deepnode_roadCopy)
+  return 'copy'
 end
 
 function P.roadsCachePath() return '/settings/deepnode/levels/' .. tostring(P.levelName) .. '.roads.json' end
@@ -1968,18 +1975,20 @@ end
 -- Decal roads on the mud on/off (GUI "Experimental decal road"), live: the overlay module
 -- starts or stops, the road cover above is set or removed and every loaded mesh is rebuilt
 -- (tiles at their rebuild rate, sectors in turn).
-function M.decalRoadsOn() return P.roadMode() == 'overlay' end
+function M.decalRoadsOn() return P.roadMode() == 'copy' or P.roadMode() == 'overlay' end
 function M.setDecalRoads(on)
-  cfg.roads.mode = on and 'overlay' or 'off'
+  cfg.roads.mode = on and 'copy' or 'off'
   if not running then return end
   P.coverRoads(not on)
   local dec = P.mod('decals')
-  if dec then
+  if dec then dec.stop(true) end
+  local rcp = P.mod('roadCopy')
+  if rcp then
     if on then
-      local ok, err = pcall(dec.start, M)
-      if not ok then log('E', logTag, 'decal overlay failed: ' .. tostring(err)) end
+      local ok, err = pcall(rcp.start, M)
+      if not ok then log('E', logTag, 'road copies failed: ' .. tostring(err)) end
     else
-      dec.stop(true)
+      rcp.stop()
     end
   end
   for _, t in pairs(tiles) do
@@ -5874,7 +5883,7 @@ end
 -- lifecycle
 -------------------------------------------------------------------------------
 function P.loadSubModules()
-  for _, n in ipairs({ 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'overlay', 'gui' }) do
+  for _, n in ipairs({ 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'roadCopy', 'overlay', 'gui' }) do
     local name = 'deepnode_' .. n
     if extensions and not extensions[name] then
       extensions.load(name)
@@ -5962,6 +5971,11 @@ function P.start()
     local okDec, errDec = pcall(dec.start, M)
     if not okDec then log('E', logTag, 'decal overlay failed: ' .. tostring(errDec)) end
   end
+  local rcp = P.mod('roadCopy')
+  if rcp and P.roadMode() == 'copy' then
+    local okRc, errRc = pcall(rcp.start, M)
+    if not okRc then log('E', logTag, 'road copies failed: ' .. tostring(errRc)) end
+  end
   local ov = P.mod('overlay')
   if ov then
     local okOv, errOv = pcall(ov.start, M)
@@ -6031,6 +6045,8 @@ function P.stop(objectsAlive)
   if ph then ph.stop(objectsAlive) end
   local dec = P.mod('decals')
   if dec then dec.stop(objectsAlive) end
+  local rcp = P.mod('roadCopy')
+  if rcp then rcp.stop() end
   local ov = P.mod('overlay')
   if ov then ov.stop(objectsAlive) end
   -- decal roads hidden while off are shown again

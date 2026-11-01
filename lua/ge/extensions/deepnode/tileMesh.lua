@@ -395,6 +395,7 @@ local function padMeshes(chunk, meshes)
     local capV, capC
     local maxV, maxC = tileN and (tileN + 1) * (tileN + 1), tileN and 6 * tileN * tileN
     local isDec = m.material:find('^deepnode_dec_') ~= nil or (decalMod() and decalMod().isMat(m.material))
+      or (extensions and extensions.deepnode_roadCopy and extensions.deepnode_roadCopy.isMat(m.material))
     if isDec then
       -- decal overlay (deepnode_decals): small, own power-of-two classes. Overlay strips
       -- have ~2 corners per vertex (clipped polygons, measured 1.95 on gridmap_v2): the
@@ -786,6 +787,26 @@ M.borderCode = borderCode
 
 local sqPlain = nil
 
+-- Quads emitted for the mud surface of the current tile, recorded for the road copies
+-- (deepnode_roadCopy): submesh, its 4 vertex indices (corners a=(i0,j0) b=(i1,j0)
+-- c=(i0,j1) d=(i1,j1)), their cell-grid indices (UV cache) and the border drop to undo
+-- (a tile edge next to a sector mesh is lowered by sectors.drop; the copy must not follow
+-- that dip under the sector's mud). A square still planar within roads.copyFlat m is
+-- recorded as one quad even where the mud has cells: the copies cost far fewer vertices.
+local rec = { n = 0, s = {}, v = {}, g = {}, d = {} }
+M.rec = rec
+function M.recReset() rec.n = 0 end
+local function recQuad(sub, a, b, c, d, ga, gb, gc, gd, da, db, dc, dd)
+  local n = rec.n + 1
+  rec.n = n
+  rec.s[n] = sub
+  local k = 4 * n
+  rec.v[k - 3], rec.v[k - 2], rec.v[k - 1], rec.v[k] = a, b, c, d
+  rec.g[k - 3], rec.g[k - 2], rec.g[k - 1], rec.g[k] = ga, gb, gc, gd
+  rec.d[k - 3], rec.d[k - 2], rec.d[k - 1], rec.d[k] = da, db, dc, dd
+end
+local dadj = {} -- per vertex index of the current grid: border drop to undo
+
 -- Full-resolution cells of a tile (rutted tiles; frozen tiles inside sectors).
 -- stride > 1 (sector copy of a frozen tile): only every stride-th cell line is drawn,
 -- plus the tile edge, so a left-behind rut costs far fewer vertices.
@@ -813,13 +834,32 @@ function M.emitTileCells(b, t, zOff, rule, stride)
       local z = decodeZ(t, idx)
       local tr = track[idx]
       if tr > 0 then z = z + (hash01(gcx0 + i, gcy0 + j, 7) * 2 - 1) * jz * tr / 255 end
-      if borderCode(rule, i, j, N) == 1 then z = z - drop end
+      if borderCode(rule, i, j, N) == 1 then z = z - drop; dadj[idx] = drop else dadj[idx] = 0 end
       zbuf[idx] = z + zOff + tfLift
     end
   end
 
   local x0, y0 = t.x0, t.y0
   local cps, ts = t.cps, t.ts
+  local copyFlat = main.cfg.roads and main.cfg.roads.copyFlat or 0.01
+  -- a square drawn in cells that is still planar (bilinear of its corners within copyFlat)
+  local function flatSquare(i0, j0)
+    local za, zb = zbuf[j0 * W + i0], zbuf[j0 * W + i0 + cps]
+    local zc, zd = zbuf[(j0 + cps) * W + i0], zbuf[(j0 + cps) * W + i0 + cps]
+    local inv = 1 / cps
+    for j = 0, cps do
+      local fy = j * inv
+      local row = (j0 + j) * W + i0
+      for i = 0, cps do
+        local fx = i * inv
+        local zl = za + (zb - za) * fx
+        local zh = zc + (zd - zc) * fx
+        local dz = zbuf[row + i] - (zl + (zh - zl) * fy)
+        if dz > copyFlat or dz < -copyFlat then return false end
+      end
+    end
+    return true
+  end
   local soft, sqMat = t.soft, t.sqMat
   local uvOf = main.uvOf
   local s, curM = nil, nil
@@ -890,12 +930,16 @@ function M.emitTileCells(b, t, zOff, rule, stride)
                 local c, d = vtx(i0, j0 + cps), vtx(i0 + cps, j0 + cps)
                 s:tri(a, c, d)
                 s:tri(a, d, bb)
+                local ga, gb, gc, gd = j0 * W + i0, j0 * W + i0 + cps, (j0 + cps) * W + i0, (j0 + cps) * W + i0 + cps
+                recQuad(s, a, bb, c, d, ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
               end
             else
               -- terrain-first: in a dug square whose corners are still flush (the rut floor
               -- did not lower them) the untouched cells are left to the terrain too, so its
               -- decal roads reach the rut edge instead of stopping at the square grid
               local sqF = flush and flush[q] ~= 0
+              local coarse = not sqF and flatSquare(i0, j0)
+              local all = true
               for cj = j0, j0 + cps - 1 do
                 local r0, r1 = cj * W, (cj + 1) * W
                 for ci = i0, i0 + cps - 1 do
@@ -906,6 +950,29 @@ function M.emitTileCells(b, t, zOff, rule, stride)
                     local c, d = vtx(ci, cj + 1), vtx(ci + 1, cj + 1)
                     s:tri(a, c, d)
                     s:tri(a, d, bb)
+                    if not coarse then
+                      local ga, gb, gc, gd = r0 + ci, r0 + ci + 1, r1 + ci, r1 + ci + 1
+                      recQuad(s, a, bb, c, d, ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
+                    end
+                  else
+                    all = false
+                  end
+                end
+              end
+              if coarse then
+                if all then
+                  local ga, gb, gc, gd = j0 * W + i0, j0 * W + i0 + cps, (j0 + cps) * W + i0, (j0 + cps) * W + i0 + cps
+                  recQuad(s, vidx[ga], vidx[gb], vidx[gc], vidx[gd], ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
+                else
+                  -- cells left out (not soft): the drawn ones one by one
+                  for cj = j0, j0 + cps - 1 do
+                    local r0, r1 = cj * W, (cj + 1) * W
+                    for ci = i0, i0 + cps - 1 do
+                      if soft[cj * N + ci] ~= 0 then
+                        local ga, gb, gc, gd = r0 + ci, r0 + ci + 1, r1 + ci, r1 + ci + 1
+                        recQuad(s, vidx[ga], vidx[gb], vidx[gc], vidx[gd], ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
+                      end
+                    end
                   end
                 end
               end
@@ -936,6 +1003,8 @@ function M.emitTileCells(b, t, zOff, rule, stride)
           -- (0,0)->(0,1)->(1,1) and (0,0)->(1,1)->(1,0): clockwise seen from above
           s:tri(a, c, d)
           s:tri(a, d, bb)
+          local ga, gb, gc, gd = cj0 * W + ci0, cj0 * W + ci1, cj1 * W + ci0, cj1 * W + ci1
+          recQuad(s, a, bb, c, d, ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
         end
       end
     end
@@ -957,7 +1026,7 @@ function M.emitTilePixels(b, t, zOff, rule)
     for i = 0, ts do
       local idx = j * W + i
       local z = vRest[idx]
-      if borderCode(rule, i, j, ts) == 1 then z = z - drop end
+      if borderCode(rule, i, j, ts) == 1 then z = z - drop; dadj[idx] = drop else dadj[idx] = 0 end
       zbuf[idx] = z + zOff + tfLift
     end
   end
@@ -989,6 +1058,10 @@ function M.emitTilePixels(b, t, zOff, rule)
           local c, d = vtx(si, sj + 1), vtx(si + 1, sj + 1)
           s:tri(a, c, d)
           s:tri(a, d, bb)
+          local cps, CW = t.cps, t.N + 1
+          local i0, j0 = si * cps, sj * cps
+          recQuad(s, a, bb, c, d, j0 * CW + i0, j0 * CW + i0 + cps, (j0 + cps) * CW + i0, (j0 + cps) * CW + i0 + cps,
+            dadj[sj * W + si], dadj[sj * W + si + 1], dadj[(sj + 1) * W + si], dadj[(sj + 1) * W + si + 1])
         end
       end
     end
@@ -1053,6 +1126,9 @@ function M.emitTerrainSquares(b, tx, ty, zOff)
           local c, d = vtx(si, sj + 1), vtx(si + 1, sj + 1)
           s:tri(a, c, d)
           s:tri(a, d, bb)
+          local cps, CW = main.cps, main.N + 1
+          local i0, j0 = si * cps, sj * cps
+          recQuad(s, a, bb, c, d, j0 * CW + i0, j0 * CW + i0 + cps, (j0 + cps) * CW + i0, (j0 + cps) * CW + i0 + cps, 0, 0, 0, 0)
         end
       end
     end
@@ -1065,6 +1141,7 @@ local tileBuilder = nil
 function M.buildTile(t, rule, forceDecal)
   tileBuilder = tileBuilder or M.newBuilder()
   tileBuilder:reset()
+  rec.n = 0
   if t.rutted then
     M.emitTileCells(tileBuilder, t, 0, rule)
   else
@@ -1075,6 +1152,10 @@ function M.buildTile(t, rule, forceDecal)
   -- copies (several road layers over every rut cell) cost ~0.6 ms of Lua a build and bigger
   -- uploads: 8 trucks on gridmap_v2 ran 46 instead of 57 fps. main marks a tile built
   -- without them dirty when it falls quiet (P.decalQuiet).
+  -- road copies (deepnode_roadCopy, roads.mode 'copy'): on every build, from the quads
+  -- recorded above
+  local rc = extensions and extensions.deepnode_roadCopy
+  if rc and rc.isEnabled() then rc.emit(tileBuilder, t.key, t.N) end
   local dec = extensions and extensions.deepnode_decals
   if dec then
     local quiet = ctx.cfg.roads.overlayQuiet or 1

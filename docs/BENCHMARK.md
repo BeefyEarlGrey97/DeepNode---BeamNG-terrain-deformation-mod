@@ -176,3 +176,17 @@ branch after d44ae41 / f0a2a93 / 9cebda4:
 
 The copies cost ~3.5 fps against no decal roads on the mud at all; main's logged 52.3 (39.9) was a
 different session.
+
+## 7. gridmap_v2, 8 trucks, road copies rebuilt (deepnode_roadCopy, 2026-11-01)
+
+Same protocol, one session, runs 2-5 (copyA: runs 2-3 of 3):
+
+| variant | fps (low1) | Lua ms | RenderShadows ms | tile upload |
+|---|---|---|---|---|
+| old copies (deepnode_decals) on every build, probe | 43.9 (24.3) | 8.30 | 7.58 | 4617 verts, 5.9 ms |
+| **roadCopy, copies on every build** (copyA / copyB) | 51.9 (35.2) / 50.8 (32.6) | 4.06 / 4.47 | 6.31 / 6.71 | 1066 verts, 2.8 ms |
+| no decal roads on the mud (noDec2) | 57.4 (44.4) | 2.54 | 5.55 | - |
+
+gridmap_v2's mud pit is the worst case: 3-4 overlapping decal layers (puddle water 25 m wide,
+mud_large, furrows, tire tracks) over every dug cell. Copy Lua ~1.2 ms per tile build, much of it
+clipping triangles along the narrow furrow strips.
