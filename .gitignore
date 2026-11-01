@@ -14,3 +14,6 @@ tools/benchmark/out/
 tools/benchmark/metrics_*.json
 # release packages
 dist/
+
+# Claude Code personal settings
+.claude/settings.local.json
