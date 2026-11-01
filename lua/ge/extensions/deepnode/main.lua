@@ -201,6 +201,10 @@ local defaults = {
     meshBuildBurst = 24,
     maxVehicles = 8,        -- vehicles that get an active ring (nearest to the camera)
     vehicleRange = 400,     -- vehicles further than this from the camera are ignored
+    -- vehicles that dig ruts (P.isPhysical): 'all', 'player' or 'near' (player + vehicles
+    -- within physicalRange m of the camera); the others only leave screen-space prints
+    physicalVehicles = 'all',
+    physicalRange = 40,
     meshRange = 70,         -- m: vehicles further from the camera dig without meshes (beyond
                             -- sectors.loadRadius the mud is drawn as lowered terrain anyway)
     settleRebuildHz = 2,    -- rebuild rate of a tile that only settles (no tyre on it)
@@ -297,6 +301,10 @@ local defaults = {
     -- tyre bottom (also load scaled) and never below the floor.
     spinDigRate = 0.012,    -- m of dig per (m/s of spin * s)
     spinDigMax = 0.12,      -- m below the tyre bottom at refWheelLoad
+    -- drive torque digs (driven wheels squat under hard throttle): m per s per unit of
+    -- traction ratio (drive force / wheel load) above torqueDigStart, capped by spinDigMax
+    torqueDigRate = 0.08,
+    torqueDigStart = 0.25,
     refWheelLoad = 3500,    -- N per wheel (about a 1400 kg car on 4 wheels)
     jitterZ = 0.015,        -- clumpy vertical jitter at full track intensity (m)
     jitterXY = 0.03,        -- horizontal jitter at full track intensity (m)
@@ -561,6 +569,12 @@ local defaults = {
       grassReach = 12,     -- 25 m level cells: a box 16 m from grass still hid some, 24 m none; with grass.cellSize 10: none at 13 m
       grassHold = 1.0,
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
+      -- stopped vehicles keep their floor (deepnode_physics heldWheels): no floor lowering
+      -- under the wheels of a vehicle slower than holdSpeed m/s unless the wheel spins
+      -- faster than holdSpin m/s; reach: wheel radius x 0.8 + holdPad squares
+      holdSpeed = 0.8,
+      holdSpin = 1.0,
+      holdPad = 0.75,
       -- rut walls of the mud mesh push the tyres (P.rutGuide): lateral force = -gain x
       -- wheel load x relief slope across the tyre (|slope| <= maxSlope), sampled over the
       -- tyre width + edge on each side
@@ -669,6 +683,16 @@ local defaults = {
     puddles = 0.7,
     puddleDepth = 0.1,
     puddleMurk = 0.7,
+    -- 'fill': water pools in the closed hollows of the ruts (cell heights flood-filled per
+    -- quiet tile, puddles = share of each hollow's spill depth that holds water); 'noise': the
+    -- old patchy level below puddleDepth
+    puddleMode = 'fill',
+    poolMin = 0.03,         -- m: shallower hollows hold no water
+    poolQuiet = 0.8,        -- s a tile must go unstamped before its pools are worked out
+    poolMaxPerSec = 6,      -- tiles per second
+    -- wet trenches: mud ruts deeper than start m below the undisturbed ground get wetter
+    -- (up to wet), smoother and darker (darken) over range m
+    trench = { start = 0.08, range = 0.12, wet = 0.95, darken = 0.12 },
     minNormalZ = 0.45,      -- ground steeper than this fades out (geometric slope from depth)
     bermReach = { mud = 2.4, sand = 2.6 }, -- berm band beside the print, x tyre half width
     -- soft layers whose name contains one of these read as dry soil: sand look (no wet mud,
@@ -3818,6 +3842,8 @@ local function writeOne(tx, ty, i, j, z, tr)
   if tr > t.track[idx] then t.track[idx] = tr end
   t.rutted = true
   t.lastStamp = simTime
+  local pd = P.poolDirty
+  if pd then pd[t] = true end
   t.pendSince = t.pendSince or simTime
   P.lag.writes = P.lag.writes + 1
   -- terrain squares written since the last build, see P.dirtyHidden
@@ -4202,6 +4228,7 @@ function P.stampWheel(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, fwx, fwy, R, W, tr
   -- screen-space rut overlay (deepnode_overlay sets it while running)
   local ovs = P.overlayStamp
   if ovs then ovs(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, W) end
+  if P.printOnly then return end -- not a physical vehicle (P.isPhysical): prints only
   local dx, dy, dz = p1x - p0x, p1y - p0y, p1z - p0z
   local L = sqrt(dx * dx + dy * dy)
   local n = max(1, min(64, ceil(L / CELL)))
@@ -4652,15 +4679,35 @@ function M.onVehicleBox(vid, cx, cy, fx, fy, hl, hw, px, py)
   vs.box = b
 end
 
-P.REPORT_STRIDE = 15
--- wheels flat stride 15: i, hub xyz, axle xyz, forward x y, wheel load (N), radius, width, immersion,
--- slip, |omega|
+P.REPORT_STRIDE = 16
+-- wheels flat stride 16: i, hub xyz, axle xyz, forward x y, wheel load (N, the wheel's own
+-- down force), radius, width, immersion, slip, |omega|, drive torque (N m)
 -- nodes flat stride 4: cid, x, y, z
+
+-- Vehicles that change the ground (ring.physicalVehicles): 'all', 'player' (the player's
+-- vehicle only) or 'near' (the player's and every vehicle within ring.physicalRange m of
+-- the camera). The others only paint screen-space prints (overlay) and coat their tyres:
+-- no stamps, so no rut meshes, uploads or floor writes for them.
+function P.isPhysical(vid)
+  local mode = cfg.ring.physicalVehicles or 'all'
+  if mode == 'all' then return true end
+  local pid = be:getPlayerVehicleID(0)
+  if vid == pid then return true end
+  if mode ~= 'near' or not P.camx then return false end
+  local veh = getObjectByID(vid)
+  local p = veh and veh:getPosition()
+  if not p then return false end
+  local r = cfg.ring.physicalRange or 40
+  return (p.x - P.camx) ^ 2 + (p.y - P.camy) ^ 2 < r * r
+end
+
 function M.onMudReport(vid, w, nodes, tris)
   if not running then return end
   local vs = P.vehs[vid]
   if not vs then return end
   local st = cfg.stamp
+  local phys = P.isPhysical(vid)
+  P.printOnly = not phys
   local wm = P.mod('wheelMud')
   -- vehicles beyond meshRange (lod >= 3): no slump pass (half the stamp time); their
   -- ruts are only seen later, frozen
@@ -4676,6 +4723,8 @@ function M.onMudReport(vid, w, nodes, tris)
       local fx, fy = w[k + 7], w[k + 8]
       local load = w[k + 9]
       local R, W, d, slip, om = w[k + 10], w[k + 11], w[k + 12], w[k + 13], w[k + 14]
+      local torque = w[k + 15]
+      if not isFinite(torque) then torque = 0 end
       local ok = isFinite(wi) and isFinite(px) and isFinite(py) and isFinite(pz) and isFinite(ax) and isFinite(ay)
         and isFinite(az) and isFinite(fx) and isFinite(fy) and isFinite(R) and isFinite(W) and isFinite(d)
         and isFinite(slip) and isFinite(om) and R > 0.05 and R < 3 and W > 0.02 and W < 2
@@ -4712,7 +4761,7 @@ function M.onMudReport(vid, w, nodes, tris)
           local still = prev and prev.cx and (px - prev.cx) ^ 2 + (py - prev.cy) ^ 2 < 0.0004 and spin < 0.5
           local tr = floor(clamp(st.trackBase + st.trackSpinGain * spin + st.trackDepthGain * max(0, d), 0, 1) * 255)
           local Wt = vs.tyres[wi] or W
-          if heavyGuide and d > 0.01 then
+          if heavyGuide and phys and d > 0.01 then
             -- lateral force from the rut walls under this tyre (before its own stamp)
             local tw = W
             if type(Wt) == 'table' then
@@ -4730,6 +4779,16 @@ function M.onMudReport(vid, w, nodes, tris)
           local rdt = prev and clamp(simTime - prev.t, 0, 0.1) or (1 / 30)
           local dig = (st.spinDigRate or 0) * spin * rdt * ls
           local digMax = (st.spinDigMax or 0) * sqrt(ls)
+          -- drive torque digs: a driven wheel pulling hard (traction force over its load
+          -- above torqueDigStart) churns the mud under it even before it spins, so under
+          -- hard throttle the driven axle (the rear of a rear-wheel-drive car) squats into
+          -- the mud while the free-rolling wheels stay on top
+          local tq = st.torqueDigRate or 0
+          if tq > 0 and d > 0 and abs(torque) > 0 then
+            local q = abs(torque) / R / max(isFinite(load) and load or ref, ref * 0.2)
+            local q0 = st.torqueDigStart or 0.25
+            if q > q0 then dig = dig + tq * min(q - q0, 1.5) * rdt * ls end
+          end
           -- ground kind under the hub: berms, wall slope, soil memory, slip sinkage
           local K = P.setStampKind(P.kindAtWorld(px, py), d, (vid % 2000) * 32 + wi % 32)
           if K then
@@ -4741,7 +4800,7 @@ function M.onMudReport(vid, w, nodes, tris)
               pzs = pz - K.slipBeta * sr / (sr + 0.2) * min(d, R * 0.5)
             end
           end
-          if prev then prev.still = still end
+          if prev then prev.still, prev.spin, prev.R = still, spin, R end
           if still then
             -- skip
           elseif prev and simTime - prev.t < 0.35 and (tgx - prev.x) ^ 2 + (tgy - prev.y) ^ 2 < st.maxSweep * st.maxSweep then
@@ -4780,7 +4839,7 @@ function M.onMudReport(vid, w, nodes, tris)
   -- body dents only where they are drawn (vehicles within meshRange, lod < 3): the
   -- chassis nodes under the mud were ~25 stamps per frame with 7 trucks
   P.soil = nil
-  if type(nodes) == 'table' and (vs.lod or 1) < 3 then
+  if phys and type(nodes) == 'table' and (vs.lod or 1) < 3 then
     for k = 1, #nodes - 3, 4 do
       local cid, x, y, z = nodes[k], nodes[k + 1], nodes[k + 2], nodes[k + 3]
       if isFinite(cid) and isFinite(x) and isFinite(y) and isFinite(z) then
@@ -4797,11 +4856,12 @@ function M.onMudReport(vid, w, nodes, tris)
       end
     end
   end
-  if type(tris) == 'table' and #tris >= 10 and (vs.lod or 1) < 3 and cfg.stamp.hull ~= false then
+  if phys and type(tris) == 'table' and #tris >= 10 and (vs.lod or 1) < 3 and cfg.stamp.hull ~= false then
     P.stampHull(vs, tris)
   end
   -- later stamps (relax, other callers) use the global rules
   P.soil, P.kBerm, P.kSlope = nil, nil, nil
+  P.printOnly = false
 end
 
 -------------------------------------------------------------------------------

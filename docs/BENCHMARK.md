@@ -124,6 +124,28 @@ against a mod-off run from the same session before drawing conclusions.
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | d2473d5, overlay on (all defaults) | 56.9 (43.6) | - | runs on before off; the whole set ~2 fps slower than earlier sets (session drift) |
 | 2026-10-31 | gridmap_v2, 6 trucks | heavy | d2473d5, overlay off | 57.8 (43.9) | - | same set |
 
+## 4b. gridmap_v2, 6 trucks, review items (2026-11-01)
+
+Protocol of section 4 (heavy, user GUI settings: overlay on, targetFps 70; vsync and the 60 fps
+limiter off for the runs), runs 2-5. Old = 8455e64, new = pooled water, wet trenches, torque dig
+with per-wheel load, stopped-vehicle floor hold. The first set of the session (old code, 63.6 fps)
+ran before the session settled; compare the later sets.
+
+| variant | fps (low1) | Lua ms | Render ms | RenderShadows ms |
+|---|---|---|---|---|
+| old, first set of the session | 63.6 (48.6) | 2.60 | 4.50 | 4.96 |
+| new, set 1 | 58.6 (43.5) | 2.89 | 4.66 | 4.92 |
+| old, set 2 | 59.6 (46.1) | 2.63 | 4.50 | 4.83 |
+| new, set 2 | 58.5 (43.4) | 2.72 | 4.67 | 4.74 |
+| new, trench noise only in deep ruts | 58.75 (45.5) | 2.77 | 4.64 | 4.88 |
+| new, `ring.physicalVehicles` 'player' (truck 1 digs, 5 print only) | 69.5 (58.1) | 1.26 | 4.63 | 4.14 |
+| new, truck 1 alone (all physical, 3 runs) | 76.9 (62.1) | 0.99 | 4.90 | 2.99 |
+
+The new code costs about 1 fps (Render +0.15 ms: the pooled water and trench terms in the overlay
+shader; Lua +0.1-0.2 ms), about the spread of single sets. Rut front latency of truck 1 (the
+camera truck) is 0.60-0.66 s alone and in 'player' mode; the 6-truck figure (0.13-0.20 s) is an
+average over all trucks (OPEN_ISSUES 16).
+
 ## 5. gridmap_v2, 8 trucks, user GUI settings (2026-10-31c)
 
 8 Percherons (`gridmap_setup.lua`), heavy physics, the user's GUI settings (overlay on, tileRebuildHz 40,

@@ -12,6 +12,9 @@
 //       4 mud splat thrown by a spinning wheel, 5 grass track, 6 dirt track, 7 wet track;
 //       a wet track keeps its paint time (s, mod 64) in g instead of the phase and is erased
 //       here once older than the drying time)
+// Pooled water (overlay.lua pools, puddleMode 'fill'): a mud print texel under a pool keeps
+// r, b and a and stores -1 - (water surface depth below its undisturbed ground, m) in g
+// (g < -0.5: water; the print phase is lost there, the water hides the pattern).
 // The phase continues from one wheel report to the next (arc length at the segment start
 // comes from Lua), so the print pattern continues along curved tracks.
 // A newer print replaces what was under it; a berm only covers untouched ground or berms.
@@ -111,8 +114,20 @@ float storedLat(float a)
 
 // segment i: dnA = start xy, end xy; dnB = half width, ground z - baseZ, heading (rad), arc length at
 // the start (m); dnC = kind, strength, berm reach (x half width), unused
+// kind 8 (water) / 9 (dry): dnA = rect x0, y0, x1, y1; dnB.y = water surface z - baseZ. Water
+// marks the mud print texels in the rect; dry takes the water off the rect's texels.
 #define SEG(i)                                                                         \
-    if (i < n) {                                                                       \
+    if (i < n && dnC##i.x > 7.5) {                                                     \
+        if (all(p >= dnA##i.xy) && all(p <= dnA##i.zw) && res.r > 0.0                  \
+            && round(res.a / 4.0) == 0.0) {                                            \
+            if (dnC##i.x < 8.5) {                                                      \
+                if (abs(storedLat(res.a)) <= 1.0)                                      \
+                    res.g = -1.0 - max(res.b - dnB##i.y, 0.0);                         \
+            } else if (res.g < -0.5) {                                                 \
+                res.g = 0.0;                                                           \
+            }                                                                          \
+        }                                                                              \
+    } else if (i < n) {                                                                \
         float2 a = dnA##i.xy;                                                          \
         float2 ab = dnA##i.zw - a;                                                     \
         float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-6));                   \

@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added
+- Pooled water in the ruts (`overlay.puddleMode` 'fill', default): once a rut tile has been quiet
+  for `poolQuiet` (0.8 s), its cell heights are flood-filled (priority flood over the tile and one
+  tile around it); every closed hollow holds water up to `puddles` (0.7) of its spill depth. The
+  pools go into the rut map as water rects in the paint slots the prints leave free; the overlay
+  draws water wherever the surface lies below the stored level, so the shoreline follows the rut.
+  Replaces the patchy noise level (still there as `puddleMode` 'noise'). gridmap_v2, one
+  Percheron through fresh mud: 23 tiles, 27 pools, 48 rects, 0.58 ms per tile (max 0.76 ms),
+  `poolMaxPerSec` 6.
+- Wet trenches (`overlay.trench`): mud ruts deeper than `start` (8 cm) get wetter, smoother
+  (fewer crumbs) and darker over `range` (12 cm), with a slow smeared pattern.
+- Only the player's vehicle digs ruts, optional (`ring.physicalVehicles` 'all' / 'player' /
+  'near' + `ring.physicalRange`, GUI Run tab "Ruts: ..."): the other vehicles leave screen-space
+  prints only (no stamps, rut meshes, uploads or floor writes). gridmap_v2, 6 Percherons, runs
+  2-5: 69.5 fps (low1 58.1), Lua 1.26 ms against 58.8 (45.5), Lua 2.77 ms with every truck digging.
+- Driven wheels dig under drive torque (`stamp.torqueDigRate` 0.08, `torqueDigStart` 0.25): above
+  a traction ratio (drive force / wheel load) of 0.25 the driven wheel churns the mud under it
+  before it spins. Wheel reports carry each wheel's own load (smoothed down force: weight transfer
+  under throttle) and drive torque (report stride 16). Moonhawk (RWD) launch in gridmap_v2 mud,
+  2 s: rear wheels 0.35-0.43 m below the undisturbed surface with the floor dug to 0.22 m, the
+  front wheels 0.19-0.20 m on a 0.10-0.12 m floor.
+
 ### Changed
 - Decal roads over the mud rebuilt (`roads.mode` 'copy', new module `deepnode_roadCopy`): copies
   of every road over a mud mesh are built on every mesh build, so a truck digging a road no
@@ -26,6 +48,13 @@
   followed the dip under the sector's mud, a light line along tile edges.
 
 ### Fixed
+- Vehicles sank after stopping in heavy mud: the rut floor writes trail a driving vehicle and
+  caught up under its parked wheels (Percheron braking in fresh gridmap_v2 mud: -22 cm over 6 s
+  after standing still, 1800 more floor writes). The floor under the wheels of a vehicle slower
+  than `physics.heavy.holdSpeed` (0.8 m/s) is no longer lowered while they stand there, unless
+  the wheel spins faster than `holdSpin` (1 m/s): it digs itself in. Same test: no floor write
+  after the stop; a one-off settle of ~5 cm into the engine's soft layer as the wheels stop
+  rolling remains, then the truck holds still (+0.1 mm in 4 s).
 - Grass blinking next to digging trucks (heavy physics). The v0.1.1 fix (`pool.hideFrames`)
   covers a different cause, mesh swaps; this blink comes from the rut-floor terrain writes:
   every `tb:updateGrid` drops the GroundCover cells over its box for a frame, and the level's

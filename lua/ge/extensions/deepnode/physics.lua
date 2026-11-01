@@ -202,6 +202,58 @@ local function wantedLift(gx, gy, k, h)
   return l
 end
 
+-- Stopped vehicles keep their floor. While a vehicle drives, the floor writes trail it
+-- (floorHz, upload budget), so it rides on the undug terrain; once it stops they caught up
+-- under its parked wheels and it sank (measured 2026-11-01, Percheron braking in fresh
+-- gridmap_v2 mud: -22 cm in 6 s after standing still). The floor under the wheels of a
+-- vehicle slower than holdSpeed is not lowered while they stand there; a wheel spinning
+-- faster than holdSpin keeps digging itself in. Held vertices are tried again later.
+local held, heldN, heldT = {}, 0, -huge
+local function heldWheels(h)
+  local now = ctx.simTime and ctx.simTime() or 0
+  if now >= heldT and now - heldT < 0.1 then return heldN end
+  heldT = now
+  heldN = 0
+  local vmax = h.holdSpeed or 0.8
+  if vmax <= 0 then return 0 end
+  local smax = h.holdSpin or 1.0
+  local pad = (h.holdPad or 0.75) * ctx.ter.sq
+  for vid, vs in pairs(P.vehs or {}) do
+    local veh = getObjectByID(vid)
+    local v = veh and veh:getVelocity()
+    if v and v:length() < vmax and vs.lastWheel then
+      for _, w in pairs(vs.lastWheel) do
+        if w.ax and now - (w.at or -huge) < 1 and (w.spin or 0) < smax then
+          heldN = heldN + 1
+          local e = held[heldN]
+          if not e then e = {}; held[heldN] = e end
+          local r = (w.R or 0.5) * 0.8 + pad
+          e[1], e[2], e[3] = w.ax, w.ay, r * r
+        end
+      end
+    end
+  end
+  return heldN
+end
+
+local function isHeld(gx, gy)
+  local ter = ctx.ter
+  local x, y = ter.ox + gx * ter.sq, ter.oy + gy * ter.sq
+  for i = 1, heldN do
+    local e = held[i]
+    if (e[1] - x) ^ 2 + (e[2] - y) ^ 2 < e[3] then return true end
+  end
+  return false
+end
+
+-- try the floor of the tile holding vertex (gx, gy) again at the next collect
+local function remark(gx, gy)
+  local TS, KEY = ctx.ts, ctx.KEY
+  local tx, ty = floor(gx / TS), floor(gy / TS)
+  local key = ty * KEY + tx
+  if not P.floorTiles[key] then P.floorTiles[key] = { mode = 'lower', tx = tx, ty = ty } end
+end
+
 local function vehiclePositions()
   local list = {}
   for _, veh in ipairs(getAllVehicles and getAllVehicles() or {}) do
@@ -219,6 +271,7 @@ local function collect(h)
   local clear2 = (h.raiseClear or 8) ^ 2
   local vpos = nil
   local keep = nil
+  local nHeld = heldWheels(h)
   for key, e in pairs(P.floorTiles) do
     local gx0, gy0 = e.tx * TS, e.ty * TS
     local blocked = false
@@ -228,7 +281,10 @@ local function collect(h)
         if k and P.sinkLift0[k] > 0 then
           local want = wantedLift(gx, gy, k, h)
           local cur = P.sinkLift[k]
-          if want < cur - 0.005 then
+          if want < cur - 0.005 and nHeld > 0 and isHeld(gx, gy) then
+            blocked = true
+            stats.wheelHeld = (stats.wheelHeld or 0) + 1
+          elseif want < cur - 0.005 then
             if not pending[k] then npend = npend + 1 end
             pending[k] = { gx, gy, want }
           elseif e.mode == 'reset' and want > cur + 0.005 then
@@ -397,10 +453,17 @@ local function write(h)
   local n = 0
   local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
   local timer = hptimer and hptimer()
+  local nHeld = heldWheels(h)
   for k, w in pairs(pending) do
     if n >= maxV then break end
     local gx, gy, lift = w[1], w[2], w[3]
-    if take[floor(gy / cs) * CKEY + floor(gx / cs)] then
+    if nHeld > 0 and lift < P.sinkLift[k] and isHeld(gx, gy) then
+      -- queued while the vehicle still drove: wait until its wheel leaves
+      pending[k] = nil
+      npend = npend - 1
+      remark(gx, gy)
+      stats.wheelHeld = (stats.wheelHeld or 0) + 1
+    elseif take[floor(gy / cs) * CKEY + floor(gx / cs)] then
       local old = P.sinkLift[k]
       -- absolute: full sink level + lift (the sink pass's clamp still holds)
       local hz = P.sinkBase[k] + lift

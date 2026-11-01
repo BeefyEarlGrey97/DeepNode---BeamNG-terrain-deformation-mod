@@ -146,6 +146,7 @@ local function save(m)
   put('physics.mode')
   put('roads.mode')
   put('overlay.enabled')
+  put('ring.physicalVehicles')
   m.saveGuiConfig(out)
 end
 
@@ -334,6 +335,20 @@ local function tabRun(m)
         'heavy: thicker mud/sand ground models, ruts lower the hard floor (rut walls).\n' ..
         'Restarts the mod: switch with no vehicle sunk in the mud.')
     end
+  end
+  -- vehicles that dig ruts (main P.isPhysical); live, no restart
+  local PV = { all = 'all vehicles', player = 'player only', near = 'player + near' }
+  local NEXT = { all = 'player', player = 'near', near = 'all' }
+  local pv = m.cfg.ring.physicalVehicles or 'all'
+  if im.Button('Ruts: ' .. (PV[pv] or pv) .. '###physveh', im.ImVec2(186, 0)) then
+    m.cfg.ring.physicalVehicles = NEXT[pv] or 'all'
+    changed()
+  end
+  if im.IsItemHovered() then
+    im.SetTooltip('Which vehicles dig ruts (meshes, rut floor):\n' ..
+      'all vehicles; player only; player + vehicles within ring.physicalRange m of the camera.\n' ..
+      'The others leave tread prints only (needs Experimental tread prints). Saves frame time\n' ..
+      'with AI traffic: 6 trucks 58.8 -> 69.5 fps with player only (gridmap_v2).')
   end
   im.Separator()
   if im.Checkbox('Tyre mud', ptr['clods.enabled']) then m.setClodsEnabled(ptr['clods.enabled'][0]); changed() end

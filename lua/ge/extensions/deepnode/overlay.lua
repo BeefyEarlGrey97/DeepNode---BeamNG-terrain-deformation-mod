@@ -401,6 +401,234 @@ local function clearRect(x0, y0, x1, y1)
   clr[b + 1], clr[b + 2], clr[b + 3], clr[b + 4] = x0, y0, x1, y1
 end
 
+-- Pooled water (overlay.puddleMode 'fill'). A rut tile that has been quiet for poolQuiet s
+-- gets its pools worked out from its cell heights (priority flood over the tile and a margin
+-- of one tile, missing tiles as undug ground at the tile's mean rest height; the window border
+-- drains): every closed hollow fills to puddles x its spill depth. The pools are sent to the
+-- map as water rects (one per pool and 1 m row band, plus a dry rect over the tile first) in
+-- the paint slots the prints leave free; the stamp pass marks the mud print texels in a rect
+-- with the level, the overlay draws water where the surface lies below it. Ruts too shallow
+-- or too short to close hold none.
+local ffi = require('ffi')
+local huge = math.huge
+local KIND_WATER, KIND_DRY = 8, 9
+local poolQ, pqHead, pqTail = {}, 1, 0
+local poolDirty = {}
+local poolBudget = 0
+local pz, pF, pDone, pLab, heapI, heapV = nil, nil, nil, nil, nil, nil
+local pCap = 0
+local poolStats = { tiles = 0, pools = 0, rects = 0, ms = 0, maxMs = 0 }
+
+local function poolArrays(n)
+  if n <= pCap then return end
+  pCap = n
+  pz = ffi.new('double[?]', n)
+  pF = ffi.new('double[?]', n)
+  pDone = ffi.new('uint8_t[?]', n)
+  pLab = ffi.new('int32_t[?]', n)
+  heapI = ffi.new('int32_t[?]', n + 1)
+  heapV = ffi.new('double[?]', n + 1)
+end
+
+local function poolRect(x0, y0, x1, y1, z, kind)
+  pqTail = pqTail + 1
+  local e = poolQ[pqTail]
+  if not e then e = {}; poolQ[pqTail] = e end
+  e[1], e[2], e[3], e[4], e[5], e[6] = x0, y0, x1, y1, z, kind
+end
+
+-- binary min-heap over cell indices (heapI) keyed by fill level (heapV), hn entries
+local hn = 0
+local function hpush(q, v)
+  hn = hn + 1
+  local c = hn
+  while c > 1 do
+    local par = floor(c / 2)
+    if heapV[par] <= v then break end
+    heapI[c], heapV[c] = heapI[par], heapV[par]
+    c = par
+  end
+  heapI[c], heapV[c] = q, v
+end
+local function hpop()
+  local q, v = heapI[1], heapV[1]
+  local lq, lv = heapI[hn], heapV[hn]
+  hn = hn - 1
+  if hn == 0 then return q, v end
+  local c = 1
+  while true do
+    local l = c * 2
+    if l > hn then break end
+    if l < hn and heapV[l + 1] < heapV[l] then l = l + 1 end
+    if heapV[l] >= lv then break end
+    heapI[c], heapV[c] = heapI[l], heapV[l]
+    c = l
+  end
+  heapI[c], heapV[c] = lq, lv
+  return q, v
+end
+
+local DI, DJ = { -1, 1, 0, 0 }, { 0, 0, -1, 1 }
+
+-- pools of rut tile t (see above); returns the number of pools found
+local function computePools(t)
+  local N, KEY, tiles, decodeZ, CELL = ctx.N, ctx.KEY, ctx.tiles, ctx.decodeZ, ctx.cell
+  local ter = ctx.ter
+  if not (N and tiles and decodeZ and CELL and ter and t.rut and t.rest) then return 0 end
+  local Mg = N
+  local W = N + 2 * Mg + 1
+  poolArrays(W * W)
+  local N1 = N + 1
+  -- undug level of the tile: mean rest height
+  local rs = 0
+  for k = 0, N1 * N1 - 1 do rs = rs + t.rest[k] end
+  local restMean = rs / (N1 * N1)
+  local cx0, cy0 = t.tx * N - Mg, t.ty * N - Mg
+  for j = 0, W - 1 do
+    local cy = cy0 + j
+    local ty = floor(cy / N)
+    local ly = cy - ty * N
+    for i = 0, W - 1 do
+      local cx = cx0 + i
+      local tx = floor(cx / N)
+      local tt = tiles[ty * KEY + tx]
+      local q = j * W + i
+      if tt and tt.rut then pz[q] = decodeZ(tt, ly * N1 + cx - tx * N) else pz[q] = restMean end
+      pDone[q] = 0
+      pLab[q] = 0
+    end
+  end
+  -- priority flood from the window border: pF = lowest level water at a cell can drain at
+  hn = 0
+  for i = 0, W - 1 do
+    local a, b, c, d = i, (W - 1) * W + i, i * W, i * W + W - 1
+    if pDone[a] == 0 then pDone[a] = 1; pF[a] = pz[a]; hpush(a, pz[a]) end
+    if pDone[b] == 0 then pDone[b] = 1; pF[b] = pz[b]; hpush(b, pz[b]) end
+    if pDone[c] == 0 then pDone[c] = 1; pF[c] = pz[c]; hpush(c, pz[c]) end
+    if pDone[d] == 0 then pDone[d] = 1; pF[d] = pz[d]; hpush(d, pz[d]) end
+  end
+  while hn > 0 do
+    local q, v = hpop()
+    local i, j = q % W, floor(q / W)
+    for d = 1, 4 do
+      local ni, nj = i + DI[d], j + DJ[d]
+      if ni >= 0 and nj >= 0 and ni < W and nj < W then
+        local nq = nj * W + ni
+        if pDone[nq] == 0 then
+          pDone[nq] = 1
+          local f = pz[nq]
+          if f < v then f = v end
+          pF[nq] = f
+          hpush(nq, f)
+        end
+      end
+    end
+  end
+  -- pools inside the tile: wet cells joined 4-way at the same spill level
+  local minD = oc.poolMin or 0.03
+  local fill = min(1, max(0, oc.puddles or 0))
+  local band = max(1, floor(1 / CELL + 0.5))
+  local x0w, y0w = ter.ox + cx0 * CELL, ter.oy + cy0 * CELL
+  local half = CELL * 0.5
+  -- dry the tile first (its pools may have shrunk or moved)
+  poolRect(x0w + Mg * CELL - half, y0w + Mg * CELL - half, x0w + (Mg + N) * CELL + half,
+    y0w + (Mg + N) * CELL + half, 0, KIND_DRY)
+  local npool = 0
+  local stack, cells = {}, {}
+  for j = Mg, Mg + N do
+    for i = Mg, Mg + N do
+      local q = j * W + i
+      if pLab[q] == 0 and pF[q] - pz[q] > 0.002 then
+        npool = npool + 1
+        local F = pF[q]
+        local zmin = huge
+        local nc = 0
+        stack[1] = q
+        local sn = 1
+        pLab[q] = npool
+        while sn > 0 do
+          local c = stack[sn]
+          sn = sn - 1
+          nc = nc + 1
+          cells[nc] = c
+          if pz[c] < zmin then zmin = pz[c] end
+          local ci, cj = c % W, floor(c / W)
+          for d = 1, 4 do
+            local ni, nj = ci + DI[d], cj + DJ[d]
+            if ni >= Mg and nj >= Mg and ni <= Mg + N and nj <= Mg + N then
+              local nq = nj * W + ni
+              if pLab[nq] == 0 and pF[nq] - pz[nq] > 0.002 and abs(pF[nq] - F) < 1e-4 then
+                pLab[nq] = npool
+                sn = sn + 1
+                stack[sn] = nq
+              end
+            end
+          end
+        end
+        local D = F - zmin
+        if D >= minD then
+          local level = zmin + D * fill
+          -- bounding rect per row band of the cells under the level
+          local boxes = {}
+          for k = 1, nc do
+            local c = cells[k]
+            if pz[c] < level then
+              local ci, cj = c % W, floor(c / W)
+              local b = floor((cj - Mg) / band)
+              local bx = boxes[b]
+              if not bx then
+                boxes[b] = { ci, cj, ci, cj }
+              else
+                if ci < bx[1] then bx[1] = ci end
+                if cj < bx[2] then bx[2] = cj end
+                if ci > bx[3] then bx[3] = ci end
+                if cj > bx[4] then bx[4] = cj end
+              end
+            end
+          end
+          for _, bx in pairs(boxes) do
+            poolRect(x0w + bx[1] * CELL - half, y0w + bx[2] * CELL - half, x0w + bx[3] * CELL + half,
+              y0w + bx[4] * CELL + half, level, KIND_WATER)
+            poolStats.rects = poolStats.rects + 1
+          end
+          poolStats.pools = poolStats.pools + 1
+        end
+      end
+    end
+  end
+  return npool
+end
+
+-- main marks every stamped tile (P.poolDirty); quiet ones within the map get their pools
+local function poolFrame(dt)
+  if (oc.puddleMode or 'fill') ~= 'fill' or (oc.puddles or 0) <= 0 then return end
+  poolBudget = min(2, poolBudget + dt * (oc.poolMaxPerSec or 6))
+  if poolBudget < 1 or not win.set then return end
+  local now = ctx.simTime and ctx.simTime() or 0
+  local quiet = oc.poolQuiet or 0.8
+  for t in pairs(poolDirty) do
+    if not t.rut then
+      poolDirty[t] = nil
+    elseif now - (t.lastStamp or 0) > quiet then
+      poolDirty[t] = nil
+      local x = ctx.ter.ox + (t.tx + 0.5) * ctx.N * ctx.cell
+      local y = ctx.ter.oy + (t.ty + 0.5) * ctx.N * ctx.cell
+      local inWin = x > win.x0 and y > win.y0 and x < win.x0 + win.span and y < win.y0 + win.span
+      local dry = (P.kindAtWorld and P.kindAtWorld(x, y) == 'sand') or drySoil(x, y)
+      if inWin and not dry then
+        local timer = hptimer and hptimer()
+        computePools(t)
+        local ms = timer and timer:stop() or 0
+        poolStats.tiles = poolStats.tiles + 1
+        poolStats.ms = poolStats.ms + ms
+        if ms > poolStats.maxMs then poolStats.maxMs = ms end
+        poolBudget = poolBudget - 1
+        return
+      end
+    end
+  end
+end
+
 -- tyre wetness the tyre pass draws: water (puddles) or a fresh mud coat, drying after the
 -- tyre left the mud (overlay.tyreMudDry s)
 local function tyreWet(W)
@@ -1126,6 +1354,9 @@ function M.start(main)
   end
   P.overlayStamp = stampSoft
   P.overlayClear = clearRect
+  poolQ, pqHead, pqTail, poolDirty, poolBudget = {}, 1, 0, {}, 0
+  for k in pairs(poolStats) do poolStats[k] = 0 end
+  P.poolDirty = ((oc.puddleMode or 'fill') == 'fill' and (oc.puddles or 0) > 0) and poolDirty or nil
   active = true
   local okR, errR = pcall(startRoads)
   if not okR then log('E', 'deepnode', 'road look failed: ' .. tostring(errR)) end
@@ -1134,7 +1365,7 @@ function M.start(main)
 end
 
 function M.stop()
-  if P then P.overlayStamp, P.overlayClear = nil, nil end
+  if P then P.overlayStamp, P.overlayClear, P.poolDirty = nil, nil, nil end
   active = false
   killRoadEffects()
   for _, n in ipairs({ FX_STAMP, FX_COPY, FX_OVER, FX_TYRE, SB_STAMP, SB_OVER }) do kill(n) end
@@ -1183,6 +1414,8 @@ function M.stats()
     carried = stats.carried, tyres = stats.tyres, splats = stats.splats or 0, merged = stats.merged or 0,
     tracks = stats.tracks or 0, wetTracks = stats.wetTracks or 0,
     pending = qTail - qHead + 1,
+    pools = { tiles = poolStats.tiles, pools = poolStats.pools, rects = poolStats.rects, waiting = pqTail - pqHead + 1,
+      ms = poolStats.ms, maxMs = poolStats.maxMs },
     window = { win.x0, win.y0, win.span, win.z } }
 end
 
@@ -1203,6 +1436,8 @@ function M.frame()
       recentre(x, y, camZ - 3)
     end
   end
+
+  poolFrame(1 / 60)
 
   -- wheels: carried prints (queued before this frame's paint) and tyre pass candidates
   local wm = extensions and extensions.deepnode_wheelMud
@@ -1237,7 +1472,8 @@ function M.frame()
     setConst(FX_STAMP, 'dnCtl', 0, 1, oc.edge, oc.phasePerMetre)
     n = -1
   else
-    n = min(min(oc.segmentsPerFrame, MAX_SEG), qTail - qHead + 1)
+    local slots = min(oc.segmentsPerFrame, MAX_SEG)
+    n = min(slots, qTail - qHead + 1)
     for i = 0, n - 1 do
       local e = queue[qHead + i]
       setConst(FX_STAMP, 'dnA' .. i, e[1], e[2], e[3], e[4])
@@ -1246,6 +1482,17 @@ function M.frame()
     end
     qHead = qHead + n
     if qHead > qTail then qHead, qTail = 1, 0 end
+    -- water rects in the slots the prints left free (after them: a print over a pool wins)
+    local nw = min(slots - n, pqTail - pqHead + 1)
+    for i = 0, nw - 1 do
+      local e = poolQ[pqHead + i]
+      setConst(FX_STAMP, 'dnA' .. (n + i), e[1], e[2], e[3], e[4])
+      setConst(FX_STAMP, 'dnB' .. (n + i), 0, e[5] - win.z, 0, 0)
+      setConst(FX_STAMP, 'dnC' .. (n + i), e[6], 1, 1, 0)
+    end
+    pqHead = pqHead + nw
+    if pqHead > pqTail then pqHead, pqTail = 1, 0 end
+    n = n + nw
     setConst(FX_STAMP, 'dnCtl', n, 0, oc.edge, oc.phasePerMetre)
     stats.painted = stats.painted + n
     if n > 0 then anyPrint = true end
@@ -1320,6 +1567,9 @@ function M.frame()
   setConst(FX_OVER, 'dnKindX', oc.sand.relief or 1, oc.sand.crumbHeight or 1, oc.mud.crumbLift or 0.12,
     oc.sand.crumbLift or 0.12)
   setConst(FX_OVER, 'dnWater', oc.puddles or 0, oc.puddleDepth or 0.1, oc.puddleMurk or 0.7, oc.maxDepth or 1.2)
+  local tr2 = oc.trench or {}
+  setConst(FX_OVER, 'dnTrench', tr2.start or 0.08, tr2.range or 0.12, tr2.wet or 0, tr2.darken or 0)
+  setConst(FX_OVER, 'dnPool', (oc.puddleMode or 'fill') == 'fill' and 1 or 0, 0, 0, 0)
 end
 
 -- test hook: paint a print without a vehicle (world xy path, ground z, width, kind 0..3)

@@ -549,13 +549,19 @@ local function sendReport()
       local om = abs(tonumber(w.wd.angularVelocity) or 0)
       local vf = vx * fx + vy * fy
       local slip = om * w.R - abs(vf)
-      local vals = { i, hx, hy, hz, ax, ay, az, fx, fy, wheelLoad, w.R, w.W, imm, slip, om }
+      -- the wheel's own load (smoothed down force: weight transfer under throttle and
+      -- braking) and drive torque; the static share of the weight when the engine has none
+      local load = tonumber(w.wd.downForce) or 0
+      if not isFinite(load) or load <= 0 then load = wheelLoad end
+      local torque = tonumber(w.wd.propulsionTorque) or 0
+      if not isFinite(torque) then torque = 0 end
+      local vals = { i, hx, hy, hz, ax, ay, az, fx, fy, load, w.R, w.W, imm, slip, om, torque }
       local ok = true
       for q = 1, #vals do if not isFinite(vals[q]) then ok = false; break end end
       if ok then
-        wparts[#wparts + 1] = sfmt('%d,%s,%s,%s,%s,%s,%s,%s,%s,%.0f,%s,%s,%s,%s,%s', i,
+        wparts[#wparts + 1] = sfmt('%d,%s,%s,%s,%s,%s,%s,%s,%s,%.0f,%s,%s,%s,%s,%s,%.0f', i,
           fmtNum(hx), fmtNum(hy), fmtNum(hz), fmtNum(ax), fmtNum(ay), fmtNum(az), fmtNum(fx), fmtNum(fy),
-          wheelLoad, fmtNum(w.R), fmtNum(w.W), fmtNum(imm), fmtNum(slip), fmtNum(om))
+          load, fmtNum(w.R), fmtNum(w.W), fmtNum(imm), fmtNum(slip), fmtNum(om), torque)
       end
     end
   end

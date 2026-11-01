@@ -49,8 +49,9 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 10. Vehicle reports are Lua strings compiled by the game (~160 per second): measured 0.06 ms per frame, not worth changing.
 12. Research follow-ups still open (layer-map rut material, engine tread decals, ground-model speed calibration, rut persistence): see docs/OPEN_ISSUES.md §13.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
-13. Experimental ground look: GPU cost not measured exactly, puddle level is noise, night/rain unchecked: see docs/OPEN_ISSUES.md §14.
+13. Experimental ground look: GPU cost not measured exactly, night/rain unchecked; pooled water only on print texels: see docs/OPEN_ISSUES.md §14.
 14. Heavy mode: grass within one 10 m groundcover cell of a digging truck can still blink about once a second (every terrain update rebuilds the cells over it): docs/OPEN_ISSUES.md §15.
+15. Crossing ruts merge on the 1 m terrain grid (ridge between a truck's rut lines is 0.8 m); a ~5 cm settle when a vehicle stops: docs/OPEN_ISSUES.md §17.
 
 ## Contributing and forking
 

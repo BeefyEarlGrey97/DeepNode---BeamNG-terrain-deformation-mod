@@ -155,8 +155,11 @@ Not done yet:
   session drift.
 - Wet sky sheen uses the sampled sky colour, so under an overcast or dark sky it follows that; with
   no sky on screen (looking down) it falls back to an estimate.
-- Puddles: the water level is a noise field, not a real fill of the rut's lowest parts; ruts
-  whose ground height was unknown when stamped get no water.
+- Puddles: since 2026-11-01 the water fills the closed hollows of the ruts (`puddleMode`
+  'fill', flood fill per quiet tile). Open: water only shows on texels that hold a mud print
+  (body dents and slumped cells without a print stay dry); the flood window is the tile and one
+  tile around it, so a hollow longer than that drains at the window edge; the level is fixed per
+  pool (no rain / evaporation); not checked on johnson_valley.
 - Night / rain not checked (gridmap_v2's sky ignores the time of day). johnson_valley only
   checked briefly (dusty dirt prints are subtle).
 - Grass tracks hide under the grass blades (groundcover); the groundcover itself is not bent.
@@ -189,6 +192,20 @@ of a digging truck blinks at most once a second (`grassHold`), e.g. johnson_vall
 grass layer itself is soft, or the gridmap_v2 material ramp (grass 6-8 m from the mud strip).
 Not found: a terrain update for physics only (setHeightGrid / setHeightWs alone leave physics
 stale). Not tried: delaying near-grass writes while those cells are in view.
+
+## 17. Review items left open (2026-11-01)
+
+From an outside play test (gridmap_v2): what was done is in CHANGELOG [Unreleased]. Left:
+- Crossing ruts (dip, rise, dip): the terrain grid is coarser than the ridge between a truck's
+  rut lines (measured, REFERENCE "Heavy physics option"); `floorReach` 0.3 kept.
+- A ~5 cm settle into the engine soft layer when a vehicle stops (ground model, not the floor).
+- Torque dig: Moonhawk launch shows the driven rear squatting, but no clean A/B against
+  `torqueDigRate` 0 yet (the second launch started in an old rut and bogged); Percheron ruts reach
+  the hard floor either way (-17.8 vs -18.0 cm mean).
+- Mud mesh squares next to the ruts and material seams: the mud material already uses the
+  terrain's world-space top-down UV; the visible edges come from per-square layer materials (no
+  layer blend) and missing decal patterns (6). Smaller tiles cost more uploads (1).
+- Tyre mud flicker reported; not looked at (the tester's weather mod will own tyre / body dirt).
 
 ## 16. Rut lags behind trucks in sand / mud at speed (heavy mode, 8 trucks) - open, 2026-10-31
 

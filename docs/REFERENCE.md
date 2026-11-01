@@ -224,6 +224,18 @@ BeamNG's own physics:
   stronger slip sinkage and spin digging. Measured 2026-10-31 (4 Percherons, gridmap_v2): mud
   cells passed twice 0.147 m mean depth, four times 0.180 m; sand reached its 0.15 m floor by the
   second pass.
+* Stopped vehicles keep their floor (`holdSpeed` 0.8 m/s, `holdSpin` 1 m/s, `holdPad` 0.75
+  squares): the floor writes trail a driving vehicle, so they used to catch up under its parked
+  wheels and sink it (-22 cm in 6 s, measured). The floor under the wheels of a slower vehicle is
+  not lowered while they stand there (a wheel spinning faster than `holdSpin` keeps digging);
+  held vertices are written once the wheels leave. A ~5 cm settle into the engine's soft layer
+  when the wheels stop rolling remains.
+* Crossing ruts: the terrain grid (1 m on gridmap_v2) is coarser than the ridge between a
+  Percheron's two rut lines (0.8 m, measured): a vertex is lowered by the deepest carved cell
+  within `floorReach`, so at 0.3 squares the vertex in the middle of the ridge went down to the
+  rut floor (-19 cm, ridge +2 cm) and the two ruts feel like one. 0.15 keeps such a vertex but
+  lets the terrain cover part of the rut wall; not changed. Ruts further apart than ~2 m (other
+  vehicles, crossing tracks) keep their ridge.
 * Rut guide (`physics.heavy.rutGuide`): the terrain grid cannot hold a 0.3 m wide rut,
   so the rut walls of the mud mesh act on the tyres as the ground would. With every
   wheel report the mod fits the slope of the rut relief across the tyre (5 samples over
@@ -521,6 +533,8 @@ Lengths are metres, speeds m/s, times seconds.
 | Key | Default | Meaning |
 |---|---|---|
 | `boxMargin` | 3 | Tiles within this distance of a vehicle's footprint box are active (GUI slider) |
+| `physicalVehicles` | all | Vehicles that dig ruts: 'all', 'player', 'near' (player + vehicles within `physicalRange` m of the camera). The others leave screen-space prints only (GUI "Ruts: ...") |
+| `physicalRange` | 40 | 'near' mode: m from the camera |
 | `releaseMargin` | 4 | Extra distance before a tile leaves the ring (no flip-flopping) |
 | `lookaheadTime` | 2.0 | Tiles are prepared where the vehicle will be in this time |
 | `minLookahead` | 10 | Look ahead at least this far (m) whenever the vehicle moves faster than 1 m/s |
@@ -591,6 +605,8 @@ Lengths are metres, speeds m/s, times seconds.
 | `relaxWindow` | 0.3 | Seconds after the last stamp; settling then snaps to its end shape (instantSettle off) |
 | `spinDigRate` | 0.012 | Visual only: dig per (m/s of wheel spin x s) under a spinning wheel |
 | `spinDigMax` | 0.12 | Visual only: deepest spin hole below the tyre at `refWheelLoad` |
+| `torqueDigRate` | 0.08 | Dig under a driven wheel per s per unit of traction ratio (drive force / wheel load) above `torqueDigStart`; capped like spin digging. Heavy mode: the floor follows, so a rear-wheel-drive car squats into the mud under hard throttle |
+| `torqueDigStart` | 0.25 | Traction ratio below which drive torque does not dig |
 | `refWheelLoad` | 3500 | Wheel load (N) the dig numbers are tuned for; heavier digs more |
 | `relaxKeep` | 0.75 | Share of the deepest rut that stays after settling |
 | `relaxKeepBerm` | 0.8 | Share of the highest berm that stays after settling |
@@ -787,8 +803,13 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.zTolerance` | 0.35 | Pixels this far above the undisturbed ground are left alone (vehicles over the ruts) |
 | `overlay.bermZTolerance` | 0.5 | Same over a berm (berms stand above the ground) |
 | `overlay.maxDepth` | 1.2 | Deepest rut floor below the undisturbed ground that is drawn (m) |
-| `overlay.puddles` | 0.7 | Water pooling in mud ruts, 0 = none, 1 = every rut deeper than `puddleDepth` (patchy level) |
-| `overlay.puddleDepth` | 0.1 | Rut depth below the undisturbed ground where water starts (m) |
+| `overlay.puddles` | 0.7 | Water in the mud ruts, 0 = none; 'fill': share of each closed hollow's spill depth that holds water; 'noise': 1 = every rut deeper than `puddleDepth` |
+| `overlay.puddleMode` | fill | 'fill': water pools in the closed hollows of the ruts (cell heights flood-filled per quiet tile, the level stored in the rut map); 'noise': the old patchy level below `puddleDepth` |
+| `overlay.poolMin` | 0.03 | Hollows shallower than this (m, spill depth) hold no water |
+| `overlay.poolQuiet` | 0.8 | Seconds a tile must go unstamped before its pools are worked out |
+| `overlay.poolMaxPerSec` | 6 | Tiles per second whose pools are worked out (0.6-0.8 ms each) |
+| `overlay.trench` | start 0.08, range 0.12, wet 0.95, darken 0.12 | Wet trench look: mud ruts deeper than `start` m get wetter (up to `wet`), smoother and darker (`darken`) over `range` m |
+| `overlay.puddleDepth` | 0.1 | 'noise' mode: rut depth below the undisturbed ground where water starts (m) |
 | `overlay.puddleMurk` | 0.7 | How opaque the muddy water is |
 | `overlay.minNormalZ` | 0.45 | Steeper ground fades out (slope from the depth buffer, not the normal-mapped G-buffer normal) |
 | `overlay.drySoil` | dust, dry, desert, sand | Soft layers whose name contains one of these get the sand look (no wet darkening, no puddles), e.g. johnson_valley `dirt_loose_dusty` |

@@ -17,8 +17,12 @@
 //    on whatever ground they land on;
 //  * a wet sheen: sun highlight on the wet mud, its light level estimated from the scene;
 //  * puddles (MudRunner-style water pooling in ruts): the map stores the undisturbed ground
-//    height, so the shader knows how deep a pixel lies in the rut; below a patchy water level
-//    the mud floor turns into flat murky water with a sky sheen, sun glint and ripples.
+//    height, so the shader knows how deep a pixel lies in the rut. Pools (overlay.lua, rut
+//    heights flood-filled per tile) store their water level in the texels they cover (g < 0);
+//    below it the mud floor turns into flat murky water with a sky sheen, sun glint and
+//    ripples. The old patchy level (puddleMode 'noise') is the fallback;
+//  * wet trenches: the deeper a mud rut, the wetter, smoother and darker its floor
+//    (dnTrench), slick clay instead of crumbs.
 // Fog and translucent objects draw over it afterwards.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
@@ -68,6 +72,8 @@ cbuffer perDraw : register(b0)
     uniform float4 dnGrain;   // crumb size (m), crumb height (x size), print crumb density, churn noise size (m)
     uniform float4 dnKindX;   // sand relief (x mud), sand crumb height (x mud), crumb lift mud, crumb lift sand
     uniform float4 dnWater;   // puddle amount (0..1), depth where water starts (m), murk, deepest rut (m)
+    uniform float4 dnTrench;  // wet trench: depth it starts (m), depth range (m), wetness, slick darkening
+    uniform float4 dnPool;    // pooled water only (1) or the noise level where no pool is stored (0), unused x3
 };
 
 #include "../postFx.hlsl"
@@ -145,12 +151,15 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     int2 ti = clamp((int2)floor(uv * dnMask.w), 0, (int)dnMask.w - 1);
     float4 rp = rutMapTex.Load(int3(ti, 0));
     float kindF = round(rp.a / 4.0);
+    // pooled water stored in the texel (rutStampP.hlsl): level below the undisturbed ground
+    bool poolT = rp.g < -0.5;
+    float poolLevel = rp.g + 1.0;
     // interpolated lateral position; where texels of other kinds blend in, the interpolated
     // channel is no valid position (the kind is packed on top): the point value there
     float latB = r.a - 4.0 * kindF;
     float lat = clamp(abs(latB) > 2.0 ? rp.a - 4.0 * kindF : latB, -2.0, 2.0);
     // phase: interpolated, except next to the wrap seam (point value there)
-    float phase = abs(wrapDiff(r.g - rp.g)) > 1.0 ? rp.g : r.g;
+    float phase = poolT ? 0.0 : (abs(wrapDiff(r.g - rp.g)) > 1.0 || r.g < 0.0 ? max(rp.g, 0.0) : r.g);
     float per = PHASE_WRAP / max(dnTread.x, 1e-3); // m before the along coordinate wraps
     float along = phase / max(dnTread.x, 1e-3);
 
@@ -309,8 +318,19 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         // more saturated
         float inPrint = berm ? 0.75 * saturate(2.2 - abs(lat)) : 1.0;
         wet = K.z * inPrint * (0.55 + 0.45 * churn) * (0.8 + 0.4 * groove);
+        // wet trench: deep mud ruts hold water in the soil, the floor is slick wet clay
+        // (wetter, smoother, darker, a slow smeared pattern instead of the churn and crumbs)
+        float trench = (kind == 0 && !berm) ? saturate((-dz - dnTrench.x) / max(dnTrench.y, 1e-3)) : 0.0;
+        float slick = 1.0;
+        if (trench > 0.0) {
+            float smear = dnNoise(wf * float2(0.9, 2.3) + 5.7) * 0.6 + dnNoise(wf * 4.1 + 1.9) * 0.4;
+            wet = lerp(wet, max(wet, dnTrench.z), trench);
+            crumbK *= 1.0 - 0.8 * trench;
+            ratio = lerp(ratio, 1.0, 0.5 * trench);
+            slick = 1.0 - dnTrench.w * trench * (0.55 + 0.45 * smear);
+        }
         C2 = scene * (1.0 - K.x * wet);
-        C2 = max(lerp(dnLum(C2).xxx, C2, 1.0 + K.y * wet), 0.0);
+        C2 = max(lerp(dnLum(C2).xxx, C2, 1.0 + K.y * wet), 0.0) * slick;
         // fresh crumbs a little drier than the wet floor under them
         C2 *= 1.0 + (kind == 1 ? dnKindX.w : dnKindX.z) * crumbK * (berm ? 1.0 : 0.5);
     } else {
@@ -340,6 +360,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     // smooth wetness for the sheen: the print's kind wetness and coverage only (the per-groove and
     // churn variation made it streaky)
     float wetS = (!carried && !splat && !wetT && !pressed) ? K.z * saturate(str) * (berm ? 0.4 : 1.0) : wet;
+    if (kind == 0 && !berm) wetS = max(wetS, dnTrench.z * saturate((-dz - dnTrench.x) / max(dnTrench.y, 1e-3)));
     if (wetS > 0.05 && dnTime.w > 0.0) {
         // flat-water normal (0,0,1): per-pixel normals (relief, depth-buffer facets) made the
         // Fresnel spike on every streak and mesh edge (blue speckle); a wet film is smooth
@@ -351,10 +372,11 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     }
 
     // --- puddles: water pooled in the deepest parts of mud ruts ---------------------------
-    if (kind == 0 && !berm && dnWater.x > 0.0) {
-        // water level below the undisturbed ground: patchy (some ruts dry, some full)
+    if (kind == 0 && !berm && dnWater.x > 0.0 && (poolT || dnPool.x < 0.5)) {
+        // water level below the undisturbed ground: the pool's stored level, else (noise mode)
+        // a patchy level (some ruts dry, some full)
         float patch = dnNoise(wf * 0.35 + 3.3) * 0.7 + dnNoise(wf * 1.1 + 8.1) * 0.3;
-        float level = -dnWater.y - (1.0 - dnWater.x) * 0.25 - (1.0 - patch) * 0.12;
+        float level = poolT ? poolLevel : -dnWater.y - (1.0 - dnWater.x) * 0.25 - (1.0 - patch) * 0.12;
         float depthW = level - dz;  // water depth over this pixel (m)
         float wk = smoothstep(0.0, 0.015, depthW) * inside * (1.0 - underVehicle(wp.xy));
         if (wk > 0.0) {
