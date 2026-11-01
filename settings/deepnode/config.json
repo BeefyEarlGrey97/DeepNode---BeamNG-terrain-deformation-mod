@@ -16,7 +16,7 @@
   },
   "roads": {
     "enabled": true,
-    "mode": "copy",
+    "mode": "off",
     "overlayOriginal": true,
     "overlayOnRuts": true,
     "hideOnMud": true,

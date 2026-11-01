@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-01 — water in the ruts, trucks that stay put, tread prints on by default
+
+### Changed defaults
+- Tread prints on (`overlay.enabled` true, GUI "Experimental tread prints").
+- Decal roads on the mud off (`roads.mode` 'off' in config.json, was 'copy'; GUI "Experimental
+  decal road") and the screen-space road look off (`overlay.roads.enabled` false).
+
+### Results (gridmap_v2, 6 Percherons, runs 2-5, one session)
+- Mod off 88.7 fps (low1 84.2); vanilla physics 63.7 (51.0); heavy 59.5 (47.5); heavy with only
+  the player's truck digging 69.5 (58.1). Release notes: docs/RELEASE_NOTES_v0.3.0.md.
+
 ### Added
 - Pooled water in the ruts (`overlay.puddleMode` 'fill', default): once a rut tile has been quiet
   for `poolQuiet` (0.8 s), its cell heights are flood-filled (priority flood over the tile and one

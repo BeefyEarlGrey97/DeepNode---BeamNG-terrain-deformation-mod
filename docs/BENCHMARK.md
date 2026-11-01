@@ -141,6 +141,14 @@ ran before the session settled; compare the later sets.
 | new, `ring.physicalVehicles` 'player' (truck 1 digs, 5 print only) | 69.5 (58.1) | 1.26 | 4.63 | 4.14 |
 | new, truck 1 alone (all physical, 3 runs) | 76.9 (62.1) | 0.99 | 4.90 | 2.99 |
 
+Release v0.3.0 defaults (tread prints on, decal roads and road look off), same session, runs 2-5:
+
+| variant | fps (low1) | Lua ms | Render ms | RenderShadows ms | end speed |
+|---|---|---|---|---|---|
+| mod off | 88.7 (84.2) | 0.57 | 3.02 | 3.89 | 12.2 m/s |
+| v0.3.0 vanilla physics | 63.7 (51.0) | 2.65 | 3.25 | 4.82 | 12.0 m/s |
+| v0.3.0 heavy physics | 59.5 (47.5) | 3.13 | 4.41 | 5.02 | 3.0-3.7 m/s |
+
 The new code costs about 1 fps (Render +0.15 ms: the pooled water and trench terms in the overlay
 shader; Lua +0.1-0.2 ms), about the spread of single sets. Rut front latency of truck 1 (the
 camera truck) is 0.60-0.66 s alone and in 'player' mode; the 6-truck figure (0.13-0.20 s) is an

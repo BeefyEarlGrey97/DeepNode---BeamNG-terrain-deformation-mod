@@ -118,7 +118,7 @@ local defaults = {
     -- (P.coverRoads)
     -- 'copy': the engine's decals stay; the mud meshes around ruts carry copies of the roads
     -- over them (deepnode_roadCopy). 'overlay' = the older copies (deepnode_decals).
-    mode = 'copy',
+    mode = 'off',
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; one copyLiftStep per renderPriority level
     copyLiftStep = 0.002,
@@ -624,13 +624,13 @@ local defaults = {
   -- onto hard ground by coated tyres); wet tyres drawn darker and glossy. No mesh uploads; the
   -- rut shape still comes from the mud meshes.
   overlay = {
-    enabled = false,
+    enabled = true,         -- GUI "Experimental tread prints", on by default since v0.3.0
     -- Decal roads DeepNode hides over soft ground (roads.mode 'off', hideOnMud) drawn again in
     -- screen space from a world-space road map: on whatever surface is there, so they sink
     -- into the ruts (deepnode_overlay, roadStampP / roadDrawP.hlsl). One pass per material
     -- (at most 8 materials).
     roads = {
-      enabled = true,
+      enabled = false,      -- off by default since v0.3.0 (decal roads stay off on the mud)
       -- the map holds two road layers side by side (2 x mapSize by mapSize, RGBA16F, plus a
       -- copy of it): 1024 = 2 x 16.8 MB of video memory, 18.75 cm texels over 192 m
       mapSize = 1024,       -- texels per side and layer

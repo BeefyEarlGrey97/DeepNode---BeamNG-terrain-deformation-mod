@@ -2,7 +2,7 @@
 
 Terrain deformation for BeamNG.drive 0.40: deep mud and sand that sink, rut and remember every tyre.
 
-**Install:** download `DeepNode-v0.1.0.zip` from [Releases](../../releases) and drop it, unextracted, into
+**Install:** download `DeepNode-v0.3.0.zip` from [Releases](../../releases) and drop it, unextracted, into
 `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\`. *Physics* **HEAVY** is the default (DeepNode
 window, Run tab); decal roads on the mud and sand are under **Experimental decal road** (off by default:
 no decal road on soft ground). To set the mod UI keybinds: Search for DeepNode under Controls
@@ -22,7 +22,7 @@ learned by reading the Dynamic Dirt mod; none of its code, shaders or textures a
 - Ruts carved ahead of each wheel, so they appear under the tyre (front latency ~0.1 s)
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
 - Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
-- Experimental screen-space ground look (after MudRunner): universal tyre prints, wet churned mud, crumbs on the berms, puddles in deep ruts, mud splats from spinning wheels, mud carried onto hard ground, grass / dirt tracks, wet tracks that dry, wet glossy tyres, all drawn by GPU post effects (no mesh uploads), off by default
+- Experimental screen-space ground look (after MudRunner): universal tyre prints, wet churned mud, crumbs on the berms, water pooled in the rut hollows, wet trenches, mud splats from spinning wheels, mud carried onto hard ground, grass / dirt tracks, wet tracks that dry, wet glossy tyres, all drawn by GPU post effects (no mesh uploads), on by default (GUI **Experimental tread prints**)
 - Simple UI with live settings and performance stats
   
 ## Benchmarks included

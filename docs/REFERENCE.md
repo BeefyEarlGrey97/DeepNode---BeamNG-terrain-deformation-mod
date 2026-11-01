@@ -764,7 +764,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 
 | Key | Default | Meaning |
 |---|---|---|
-| `overlay.enabled` | false | On/off (GUI "Experimental tread prints") |
+| `overlay.enabled` | true | On/off (GUI "Experimental tread prints"); on by default since v0.3.0 |
 | `overlay.mapSize` | 2048 | Texels per side of the print map |
 | `overlay.span` | 128 | Metres covered by the map (6.25 cm texels) |
 | `overlay.recentreMargin` | 24 | The map window moves (8 m steps, prints kept) when the camera is this close to its edge |
@@ -783,7 +783,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.wetSheen` | 0.3 | Sky reflection on wet ground at grazing angles (flat-water Fresnel x a smooth wetness: kind wetness x print strength; sky sampled from the top of the screen). The per-groove wetness made it streaky |
 | `overlay.useShadowMask` | true | Use the engine screen shadow mask (no relief / highlight in shadow) |
 | `overlay.groundAlbedo` | 0.3 | Ground albedo guess: light level for the highlight = scene / this |
-| `overlay.roads.enabled` | true | Draw the decal roads hidden over soft ground from the road map (needs the overlay on and `roads.mode` off) |
+| `overlay.roads.enabled` | false | Draw the decal roads hidden over soft ground from the road map (needs the overlay on and `roads.mode` off); off by default since v0.3.0 |
 | `overlay.roads.mapSize` | 1024 | Texels per side and layer of the road map (the target is 2 x this by this) |
 | `overlay.roads.span` | 192 | Metres covered around the camera (18.75 cm texels) |
 | `overlay.roads.recentreMargin` | 48 | The road map moves (16 m steps, content shifted, only the newly covered quads painted) when the camera is this close to its edge |

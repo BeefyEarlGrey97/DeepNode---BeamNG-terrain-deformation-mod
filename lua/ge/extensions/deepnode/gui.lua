@@ -309,16 +309,16 @@ local function tabRun(m)
       'Off (default): no decal road on the mud or sand, only the terrain material.')
   end
   -- experimental: tread prints + wet darkening drawn on the GPU over the ruts (deepnode_overlay)
-  ptr.rutOverlay = ptr.rutOverlay or im.BoolPtr(false)
+  ptr.rutOverlay = ptr.rutOverlay or im.BoolPtr(true)
   ptr.rutOverlay[0] = m.rutOverlayOn and m.rutOverlayOn() or false
   if im.Checkbox('Experimental tread prints', ptr.rutOverlay) then
     m.setRutOverlay(ptr.rutOverlay[0])
     changed()
   end
   if im.IsItemHovered() then
-    im.SetTooltip('On: tyre tread prints, wet churned mud and crumbs in the ruts, mud carried onto\n' ..
-      'hard ground and wet glossy tyres (screen-space shaders, no mesh uploads).\n' ..
-      'Prints follow the camera within 128 m.\nOff (default): mesh ruts only.')
+    im.SetTooltip('On (default): tyre tread prints, wet churned mud, pooled water and crumbs in the ruts,\n' ..
+      'mud carried onto hard ground and wet glossy tyres (screen-space shaders, no mesh uploads).\n' ..
+      'Prints follow the camera within 128 m.\nOff: mesh ruts only.')
   end
   -- physics option (deepnode_physics): restarts the mod; the terrain under the mud changes,
   -- so switch with no vehicle sunk in it
