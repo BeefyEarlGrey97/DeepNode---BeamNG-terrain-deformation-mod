@@ -212,6 +212,19 @@ BeamNG's own physics:
   near grass is written on its own (with its neighbours near grass) at most every `grassHold`
   (1 s). Measured on the gridmap_v2 material ramp (HT-55 up its mud strip, grass 12-16 m
   away): terrain updates near the grass 58 -> 18 per run (~4/s -> 1/s), all updates 62 -> 25.
+  Since 2026-11-02 (`grassSplit`, default on): `tb:updateGrid` refreshes the physics terrain
+  everywhere whatever its box, but redraws terrain and grass only inside it. Clusters near grass
+  are therefore written at once with a far 1 x 1 dummy box (vehicles sink without the old
+  `grassHold` delay, no grass touched); their real box (terrain drawn lower, the rut showing)
+  follows once the groundcover cells over it are out of the camera's view or `grassHold` s
+  passed, neighbouring waiting clusters in the same update (one blink). `grassViewRange` (160 m):
+  cells farther from the camera count as out of view. gridmap_v2, lc300 circling 9-15 m from the
+  grass meadow for 30 s: visible grass blinks 22 -> 11 (camera on the grass) and 27 -> 12 (chase
+  camera); physics near grass was held 540-640 frames before, now 0.
+  A group forces its redraw (after `grassHold`) only once a vertex sits lower than drawn by more
+  than `grassRedrawShare` (0.7) x `floorMargin`: the rut mesh lies `floorMargin` over the floor,
+  so a smaller drop or a raise leaves the stale terrain under the mesh; those wait for the camera
+  to look away. Without any redraw the stale terrain covers fresh ruts in flat patches (checked).
   Floor heights are written absolute (full sink level from the sink pass + lift): the height grid
   rounds every write to maxHeight / 65536, and the old relative writes drifted (ENGINE_FINDINGS).
   The heavy ground-model values are checked once a second and applied again when the game reloads
@@ -506,6 +519,8 @@ Lengths are metres, speeds m/s, times seconds.
 | `mode` | `"copy"` | Decal roads on the mud: `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
 | `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
 | `copyLift` / `copyLiftStep` | 0.008 / 0.002 | Mode `copy`: m over the mud; one step per renderPriority level (lower numbers higher) |
+| `copyMerge` | true | Mode `copy`: the drawn cells of a dug square go into the copies as greedy planar rectangles instead of one quad per cell |
+| `copyMergeFlat` | 0.004 | Mode `copy`: m; largest mud deviation from a merged copy quad (keep it under `copyLift`) |
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |
 | `overlayOnRuts` | true | Copies also on rut and track cells, clipped to the strip (the pattern drapes over the ruts); false = untouched squares only |
 | `overlayQuiet` | 1.0 | s after a tile's last stamp before its decal copies are built (0 = every build) |

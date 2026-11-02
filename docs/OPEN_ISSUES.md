@@ -175,7 +175,11 @@ Not done yet:
   strip (no vertex alpha in ProceduralMesh); copies are lit forward (on glossy ground slightly
   more sheen than the engine's decal). 2026-11-01: rebuilt as `deepnode_roadCopy` (`roads.mode`
   'copy'): copies on every build, coarse quads on planar squares; ~5 fps against no roads on
-  the mud with 8 trucks (BENCHMARK §6). Research notes (engine routes that do not exist):
+  the mud with 8 trucks (BENCHMARK §6). 2026-11-02 (BENCHMARK §8): with one truck the copies
+  cost ~0.55 ms (uploads, translucent forward drawing, emission); planar rectangles cut the copy
+  corners 23-37 %. Ideas not done: copies in their own objects rebuilt at a lower rate (saves
+  uploads, costs ~2 us of shadow pass per extra object), fewer copy draws by sector. The bigger
+  on / off difference is the level's own stacked decal roads (vanilla cost). Research notes (engine routes that do not exist):
   ENGINE_FINDINGS "Decal roads". After the 8-truck bench the deep, wide rut bands
   in the gridmap_v2 mud pit showed the water layer but few furrow clumps: not checked whether
   the furrow strips cover those cells or copies are missing there. Faint lines along some tile
@@ -190,8 +194,14 @@ and the GroundCover cells are cut to 10 m while the floor is written (`grass.cel
 write 13 m from grass no longer touches it (probe). Still open: grass within one cell (~10 m)
 of a digging truck blinks at most once a second (`grassHold`), e.g. johnson_valley where the
 grass layer itself is soft, or the gridmap_v2 material ramp (grass 6-8 m from the mud strip).
-Not found: a terrain update for physics only (setHeightGrid / setHeightWs alone leave physics
-stale). Not tried: delaying near-grass writes while those cells are in view.
+2026-11-02: found the physics-only update after all: `updateGrid` with a far dummy box refreshes
+physics everywhere and drops no grass. `physics.heavy.grassSplit` writes near-grass floor at once
+(physics) and redraws its terrain when the grass cells are out of view or after `grassHold`
+(REFERENCE "Heavy physics option"): visible blinks about halved, no physics delay near grass.
+Still open: with a chase camera the grass beside the truck is nearly always in view, so it still
+blinks about once per `grassHold` while digging next to it; the redraw is what drops the cells
+(no redraw-only call found). Ideas: exact GroundCover cell bounds instead of the padded box,
+flushing while the camera turns fast, a longer hold now that physics no longer waits.
 
 ## 18. Big terrains (hw550, 2026-11-01)
 

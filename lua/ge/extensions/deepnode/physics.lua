@@ -49,7 +49,7 @@ local pending = {}   -- sink record number -> { gx, gy, lift }
 local npend = 0
 local acc = 0
 local stats = { writes = 0, updates = 0, ms = 0, maxMs = 0, held = 0, lowered = 0, raised = 0, blocked = 0,
-  grassHeld = 0, grassWrites = 0 }
+  grassHeld = 0, grassWrites = 0, physOnly = 0, flushHidden = 0, flushHold = 0 }
 
 local function heavy()
   local ph = ctx and ctx.cfg.physics
@@ -325,11 +325,22 @@ end
 -- in one call as before, every cluster whose joint box stays grassReach m (rounded up to
 -- whole clusters) clear of grass layers; a cluster near grass is written on its own, at most
 -- every grassHold s (the grass beside it blinks that often instead of at floorHz).
+--
+-- 2026-11-02: physics and render split. tb:updateGrid refreshes the physics terrain
+-- everywhere whatever its box (a vertex lowered 0.5 m with a far 1 x 1 box: castRayStatic
+-- hit the new height the next frame), but redraws the terrain and drops GroundCover cells
+-- only inside the box (grass beside it stayed). So clusters near grass are written at once
+-- with a far dummy box (vehicles sink without delay, no grass touched); their real box (the
+-- terrain drawn lower, the rut mesh showing) waits until the grass cells over it are out of
+-- view, at most grassHold s while they are in view (then one blink for that group).
 local grassIdx = nil   -- terrain layer index -> true where a visible GroundCover grows; all = inverted cover
 local blockGrass = {}  -- cluster key -> grass layer squares inside it (cached)
 local clusterT = {}    -- cluster key -> clock of its last write
 local clock = 0
 local CKEY = 65536
+local renderWait = {}  -- cluster key -> { gx0, gy0, gx1, gy1, since, need, ks }: written, terrain not redrawn
+local nWait = 0
+local drawn = {}       -- sink record -> lift the terrain is still drawn at (only while it differs)
 
 local function collectGrassLayers()
   grassIdx = {}
@@ -391,6 +402,97 @@ local function nearGrass(gx0, gy0, gx1, gy1, cs, h)
   return false
 end
 
+-- the GroundCover cells over grid box gx0..gx1 x gy0..gy1 may be on screen: inside the
+-- camera's view cone (main's P.view) and within reach of the covers (grassViewRange)
+local vv = { 0, 0, 0, 0, 0 }
+local function boxInView(gx0, gy0, gx1, gy1, h)
+  local v = P and P.view
+  if not v or not v.ok then return true end
+  local ter = ctx.ter
+  local cell = (ctx.cfg.grass and tonumber(ctx.cfg.grass.cellSize)) or 25
+  if cell <= 0 then cell = 25 end
+  local x0, y0 = ter.ox + gx0 * ter.sq - cell, ter.oy + gy0 * ter.sq - cell
+  local x1, y1 = ter.ox + gx1 * ter.sq + cell, ter.oy + gy1 * ter.sq + cell
+  local range = h.grassViewRange or 160
+  local cx = v.x < x0 and x0 or (v.x > x1 and x1 or v.x)
+  local cy = v.y < y0 and y0 or (v.y > y1 and y1 or v.y)
+  local dx, dy = cx - v.x, cy - v.y
+  if dx * dx + dy * dy > range * range then return false end
+  if v.x >= x0 and v.x <= x1 and v.y >= y0 and v.y <= y1 then return true end
+  local zc = core_terrain and core_terrain.getTerrainHeight(vec3((x0 + x1) * 0.5, (y0 + y1) * 0.5, 0)) or v.z
+  vv[1], vv[2], vv[3], vv[4], vv[5] = x0, x1, (x0 + x1) * 0.5, y0, y1
+  for zi = -1, 1, 2 do
+    local z = zc + zi * 3 - v.z
+    for xi = 1, 3 do
+      for yi = 0, 2 do
+        local px = vv[xi]
+        local py = yi == 0 and y0 or (yi == 1 and y1 or (y0 + y1) * 0.5)
+        local ex, ey = px - v.x, py - v.y
+        local l = math.sqrt(ex * ex + ey * ey + z * z)
+        if l < 1e-3 or (ex * v.fx + ey * v.fy + z * v.fz) / l > v.cosA then return true end
+      end
+    end
+  end
+  return false
+end
+
+-- 1 x 1 box at the terrain corner farthest from the camera: refreshes physics only
+local dummyA, dummyB = nil, nil
+local function dummyBox()
+  local ter = ctx.ter
+  local S = ter.size
+  local v = P and P.view
+  local cx, cy = v and v.x or 0, v and v.y or 0
+  local gx = (cx - ter.ox) / ter.sq < S / 2 and S - 3 or 1
+  local gy = (cy - ter.oy) / ter.sq < S / 2 and S - 3 or 1
+  dummyA = dummyA or vec3(0, 0, 0)
+  dummyB = dummyB or vec3(0, 0, 0)
+  dummyA.x, dummyA.y, dummyB.x, dummyB.y = gx, gy, gx + 1, gy + 1
+  return dummyA, dummyB
+end
+
+-- the oldest render-waiting group that may be redrawn now (hidden, or waited grassHold s):
+-- it and the waiting clusters around it, one box
+local function pickFlush(h)
+  if nWait == 0 then return nil end
+  local hold = h.grassHold or 1.0
+  local best, bestT, why = nil, huge, nil
+  for key, e in pairs(renderWait) do
+    if e[5] < bestT then
+      -- a group whose drawn terrain still hides no rut (lowered less than the rut's margin
+      -- over it, or raised) waits for the camera to look away, however long
+      local hidden = not boxInView(e[1], e[2], e[3], e[4], h)
+      if hidden or (e[6] and clock - e[5] >= hold) then best, bestT, why = key, e[5], hidden end
+    end
+  end
+  if not best then return nil end
+  local ax, ay = best % CKEY, floor(best / CKEY)
+  local x0, y0, x1, y1 = huge, huge, -huge, -huge
+  for key, e in pairs(renderWait) do
+    local kx, ky = key % CKEY, floor(key / CKEY)
+    if max(abs(kx - ax), abs(ky - ay)) <= 1 then
+      x0, y0, x1, y1 = min(x0, e[1]), min(y0, e[2]), max(x1, e[3]), max(y1, e[4])
+      for i = 1, #e[7] do drawn[e[7][i]] = nil end
+      renderWait[key] = nil
+      nWait = nWait - 1
+    end
+  end
+  if why then stats.flushHidden = stats.flushHidden + 1 else stats.flushHold = stats.flushHold + 1 end
+  return x0, y0, x1, y1
+end
+
+local function terrainUpdate(tb, x0, y0, x1, y1, tm)
+  local timer = hptimer and hptimer()
+  tb:updateGrid(vec3(x0, y0, 0), vec3(x1, y1, 0))
+  local ms = timer and timer:stop() or 1
+  if ctx.onFloorChanged then ctx.onFloorChanged(x0, y0, x1, y1) end
+  if tm and tm.recordUpload then tm.recordUpload('F', nil, ms) end
+  stats.updates = stats.updates + 1
+  stats.ms = stats.ms + ms
+  if ms > stats.maxMs then stats.maxMs = ms end
+  return ms
+end
+
 -- write queued vertices: one updateGrid per frame, inside the upload budget
 -- Slow terrains: tb:updateGrid costs more the bigger the terrain, not the box (hw550,
 -- 8192 x 8192: 15-78 ms for a 3 x 3 square box, measured 2026-11-01, with every
@@ -412,6 +514,7 @@ local function write(h)
   end
   local cs = max(2, floor(h.floorCluster or 16))
   local hold = h.grassHold or 1.0
+  local needDrop = (h.floorMargin or 0.03) * (h.grassRedrawShare or 0.7)
   -- clusters of the pending vertices: key -> square box
   for k in pairs(cl) do cl[k] = nil end
   for k in pairs(take) do take[k] = nil end
@@ -432,6 +535,8 @@ local function write(h)
   if slow then
     for key in pairs(cl) do take[key] = true; clusterT[key] = clock end
   end
+  local split = h.grassSplit ~= false
+  local grassAny = false
   local ux0, uy0, ux1, uy1 = huge, huge, -huge, -huge
   for key, b in pairs(slow and {} or cl) do
     if not nearGrass(b[1], b[2], b[3], b[4], cs, h) then
@@ -441,11 +546,15 @@ local function write(h)
         any = true
         ux0, uy0, ux1, uy1 = x0, y0, x1, y1
       end
+    elseif split then
+      -- near grass: into the heightmap now (physics), its terrain redrawn later (renderWait)
+      take[key] = 2
+      grassAny = true
     elseif not alone and clock - (clusterT[key] or -huge) >= hold then
       alone = key
     end
   end
-  if not any then
+  if not any and not grassAny then
     if not alone then
       stats.grassHeld = stats.grassHeld + 1
       return
@@ -477,32 +586,82 @@ local function write(h)
       npend = npend - 1
       remark(gx, gy)
       stats.wheelHeld = (stats.wheelHeld or 0) + 1
-    elseif take[floor(gy / cs) * CKEY + floor(gx / cs)] then
-      local old = P.sinkLift[k]
-      -- absolute: full sink level + lift (the sink pass's clamp still holds)
-      local hz = P.sinkBase[k] + lift
-      if hz < clampRaw then hz = clampRaw end
-      tb:setHeightGrid(gx, gy, hz)
-      P.sinkLift[k] = lift
-      if lift < old then stats.lowered = stats.lowered + 1 else stats.raised = stats.raised + 1 end
-      if gx < bx0 then bx0 = gx end
-      if gx > bx1 then bx1 = gx end
-      if gy < by0 then by0 = gy end
-      if gy > by1 then by1 = gy end
-      pending[k] = nil
-      npend = npend - 1
-      n = n + 1
+    else
+      local ck = floor(gy / cs) * CKEY + floor(gx / cs)
+      local tk = take[ck]
+      if tk then
+        local old = P.sinkLift[k]
+        -- absolute: full sink level + lift (the sink pass's clamp still holds)
+        local hz = P.sinkBase[k] + lift
+        if hz < clampRaw then hz = clampRaw end
+        tb:setHeightGrid(gx, gy, hz)
+        P.sinkLift[k] = lift
+        if lift < old then stats.lowered = stats.lowered + 1 else stats.raised = stats.raised + 1 end
+        if tk == 2 then
+          -- the terrain stays drawn at its old height until the group's redraw: that hides
+          -- the rut mesh only where it is now lower by more than the mesh's margin over it
+          local dl = drawn[k]
+          local fresh = dl == nil
+          if fresh then dl = old; drawn[k] = old end
+          local e = renderWait[ck]
+          if not e then
+            e = { gx, gy, gx, gy, clock, false, {} }
+            renderWait[ck] = e
+            nWait = nWait + 1
+          else
+            if gx < e[1] then e[1] = gx end
+            if gy < e[2] then e[2] = gy end
+            if gx > e[3] then e[3] = gx end
+            if gy > e[4] then e[4] = gy end
+          end
+          if fresh then e[7][#e[7] + 1] = k end
+          if dl - lift > needDrop then
+            if not e[6] then e[6] = true; e[5] = clock end
+          end
+        else
+          drawn[k] = nil
+          if gx < bx0 then bx0 = gx end
+          if gx > bx1 then bx1 = gx end
+          if gy < by0 then by0 = gy end
+          if gy > by1 then by1 = gy end
+        end
+        pending[k] = nil
+        npend = npend - 1
+        n = n + 1
+      end
     end
   end
   if n == 0 then return end
-  tb:updateGrid(vec3(bx0, by0, 0), vec3(bx1, by1, 0))
-  local ms = timer and timer:stop() or 1
-  if ctx.onFloorChanged then ctx.onFloorChanged(bx0, by0, bx1, by1) end
-  if tm and tm.recordUpload then tm.recordUpload('F', nil, ms) end
+  local ms
+  if bx0 <= bx1 then
+    -- clusters clear of grass: physics everywhere and this box redrawn
+    ms = terrainUpdate(tb, bx0, by0, bx1, by1, tm)
+  else
+    local fx0, fy0, fx1, fy1 = pickFlush(h)
+    if fx0 then
+      ms = terrainUpdate(tb, fx0, fy0, fx1, fy1, tm)
+    else
+      -- only clusters near grass: physics now, nothing redrawn (no grass dropped)
+      local da, db = dummyBox()
+      tb:updateGrid(da, db)
+      ms = timer and timer:stop() or 1
+      if tm and tm.recordUpload then tm.recordUpload('F', nil, ms) end
+      stats.physOnly = stats.physOnly + 1
+      stats.ms = stats.ms + ms
+    end
+  end
   stats.writes = stats.writes + n
-  stats.updates = stats.updates + 1
-  stats.ms = stats.ms + ms
-  if ms > stats.maxMs then stats.maxMs = ms end
+  updEma = updEma and updEma * 0.7 + ms * 0.3 or ms
+  lastUpd = clock
+end
+
+-- no vertex pending: redraw a render-waiting group once it may be (one update per frame)
+local function flushOnly(h)
+  local tm = extensions and extensions.deepnode_tileMesh
+  if tm and tm.canUpload and not tm.canUpload('F', 0) then return end
+  local x0, y0, x1, y1 = pickFlush(h)
+  if not x0 then return end
+  local ms = terrainUpdate(ctx.ter.tb, x0, y0, x1, y1, tm)
   updEma = updEma and updEma * 0.7 + ms * 0.3 or ms
   lastUpd = clock
 end
@@ -521,7 +680,7 @@ function M.update(dt)
     acc = 0
     collect(h)
   end
-  if npend > 0 then write(h) end
+  if npend > 0 then write(h) elseif nWait > 0 then flushOnly(h) end
 end
 
 -------------------------------------------------------------------------------
@@ -536,6 +695,7 @@ function M.start(main, layers)
   layersSeen = layers
   -- grass layers are read on the first write (main lifts the groundcover after the sink pass)
   grassIdx, blockGrass, clusterT = nil, {}, {}
+  renderWait, nWait, drawn = {}, 0, {}
   reapplied = 0
   if heavy() then applyGroundModels(layers) end
 end
@@ -566,6 +726,7 @@ function M.stats()
   local s = {}
   for k, v in pairs(stats) do s[k] = v end
   s.pending = npend
+  s.redrawWaiting = nWait
   s.mode = M.mode()
   s.reapplied = reapplied
   s.groundModels = 0

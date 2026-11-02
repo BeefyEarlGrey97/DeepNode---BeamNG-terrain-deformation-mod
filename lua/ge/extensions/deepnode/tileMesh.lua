@@ -806,6 +806,7 @@ local function recQuad(sub, a, b, c, d, ga, gb, gc, gd, da, db, dc, dd)
   rec.d[k - 3], rec.d[k - 2], rec.d[k - 1], rec.d[k] = da, db, dc, dd
 end
 local dadj = {} -- per vertex index of the current grid: border drop to undo
+local mk = {}   -- drawn cells of the current square (road-copy rectangles)
 
 -- Full-resolution cells of a tile (rutted tiles; frozen tiles inside sectors).
 -- stride > 1 (sector copy of a frozen tile): only every stride-th cell line is drawn,
@@ -859,6 +860,60 @@ function M.emitTileCells(b, t, zOff, rule, stride)
       end
     end
     return true
+  end
+  -- the drawn cells of a dug square as few road-copy quads: greedy rectangles of drawn
+  -- cells whose grid vertices lie within copyMergeFlat of the two triangles the copy draws
+  -- for the rectangle (split along (ia,ja)-(ib,jb), as the mesh). A copy quad needs only its
+  -- corners and copies are overlays (T-junctions with the mud cells do not show); the
+  -- tolerance stays under copyLift so the mud never pokes through (1 cm against the
+  -- bilinear surface left dark specks on berm edges). A rut along a cell row or column
+  -- merges along it: 37 % fewer copy corners to upload (one lc300, gridmap_v2 mud pit).
+  local mergeFlat = main.cfg.roads and main.cfg.roads.copyMergeFlat or 0.004
+  local function flatRect(ia, ja, ib, jb)
+    local za, zb = zbuf[ja * W + ia], zbuf[ja * W + ib]
+    local zc, zd = zbuf[jb * W + ia], zbuf[jb * W + ib]
+    local iw, ih = 1 / (ib - ia), 1 / (jb - ja)
+    for j = ja, jb do
+      local fy = (j - ja) * ih
+      local row = j * W
+      for i = ia, ib do
+        local fx = (i - ia) * iw
+        local zp
+        if fy > fx then zp = za + (zc - za) * fy + (zd - zc) * fx
+        else zp = za + (zb - za) * fx + (zd - zb) * fy end
+        local dz = zbuf[row + i] - zp
+        if dz > mergeFlat or dz < -mergeFlat then return false end
+      end
+    end
+    return true
+  end
+  local merge = main.cfg.roads == nil or main.cfg.roads.copyMerge ~= false
+  local function recRects(sub, i0, j0)
+    for lj = 0, cps - 1 do
+      for li = 0, cps - 1 do
+        if mk[lj * cps + li] then
+          local w = 1
+          while merge and li + w < cps and mk[lj * cps + li + w] and flatRect(i0 + li, j0 + lj, i0 + li + w + 1, j0 + lj + 1) do
+            w = w + 1
+          end
+          local h = 1
+          while merge and lj + h < cps do
+            local ok = true
+            for x = li, li + w - 1 do
+              if not mk[(lj + h) * cps + x] then ok = false; break end
+            end
+            if not ok or not flatRect(i0 + li, j0 + lj, i0 + li + w, j0 + lj + h + 1) then break end
+            h = h + 1
+          end
+          for y = lj, lj + h - 1 do
+            for x = li, li + w - 1 do mk[y * cps + x] = false end
+          end
+          local ga, gb = (j0 + lj) * W + i0 + li, (j0 + lj) * W + i0 + li + w
+          local gc, gd = (j0 + lj + h) * W + i0 + li, (j0 + lj + h) * W + i0 + li + w
+          recQuad(sub, vidx[ga], vidx[gb], vidx[gc], vidx[gd], ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
+        end
+      end
+    end
   end
   local soft, sqMat = t.soft, t.sqMat
   local uvOf = main.uvOf
@@ -950,16 +1005,16 @@ function M.emitTileCells(b, t, zOff, rule, stride)
                     local c, d = vtx(ci, cj + 1), vtx(ci + 1, cj + 1)
                     s:tri(a, c, d)
                     s:tri(a, d, bb)
-                    if not coarse then
-                      local ga, gb, gc, gd = r0 + ci, r0 + ci + 1, r1 + ci, r1 + ci + 1
-                      recQuad(s, a, bb, c, d, ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
-                    end
+                    if not coarse then mk[(cj - j0) * cps + ci - i0] = true end
                   else
                     all = false
+                    mk[(cj - j0) * cps + ci - i0] = false
                   end
                 end
               end
-              if coarse then
+              if not coarse then
+                recRects(s, i0, j0)
+              else
                 if all then
                   local ga, gb, gc, gd = j0 * W + i0, j0 * W + i0 + cps, (j0 + cps) * W + i0, (j0 + cps) * W + i0 + cps
                   recQuad(s, vidx[ga], vidx[gb], vidx[gc], vidx[gd], ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])

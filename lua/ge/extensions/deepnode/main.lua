@@ -122,6 +122,8 @@ local defaults = {
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; one copyLiftStep per renderPriority level
     copyLiftStep = 0.002,
+    copyMerge = true,       -- drawn cells of a dug square merged into planar rectangles for the copies
+    copyMergeFlat = 0.004,  -- m: largest mud deviation from a merged copy quad (under copyLift)
     -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
     -- the level's decal); false = alpha-clipped matte copies (old look)
     overlayOriginal = true,
@@ -574,7 +576,16 @@ local defaults = {
       -- layers; a cluster near grass is written alone at most every grassHold s
       floorCluster = 16,
       grassReach = 12,     -- 25 m level cells: a box 16 m from grass still hid some, 24 m none; with grass.cellSize 10: none at 13 m
-      grassHold = 1.0,
+      grassHold = 1.0,     -- with grassSplit: longest wait for the redraw while the grass is in view
+      -- tb:updateGrid refreshes physics everywhere but redraws terrain and grass only in its
+      -- box: clusters near grass go to physics at once (far dummy box) and are redrawn once
+      -- their grass cells are out of view (or after grassHold s)
+      grassSplit = true,
+      grassViewRange = 160, -- m: grass cells farther from the camera count as out of view
+      -- a waiting group forces its redraw (after grassHold) only once a vertex is lower than
+      -- drawn by more than this share of floorMargin (the stale terrain then hides the rut);
+      -- smaller changes and raises wait until the grass is out of view
+      grassRedrawShare = 0.7,
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
       -- terrain updates cost more on big terrains (hw550 8192^2: 15-78 ms each): above
       -- slowUpdateMs (measured) the floor is written at most every slowUpdateGap s

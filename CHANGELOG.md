@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Changed
+- Decal road copies (`roads.mode` 'copy'): the drawn cells of a dug square are merged into planar
+  rectangles for the copies (`roads.copyMerge`, `copyMergeFlat` 4 mm, tested against the two
+  triangles the copy draws). gridmap_v2, one lc300 in a 60 m circle: copy corners per upload
+  2750 -> 2110 (-23 %), same look; the fps change was inside the noise.
+
+### Fixed
+- Grass blinking next to digging (heavy physics), and the rut floor waiting near grass:
+  `tb:updateGrid` turned out to refresh physics for the whole terrain whatever its box, while it
+  redraws terrain and grass only inside the box. Near grass the floor now goes to physics at once
+  through a far dummy box and the terrain is redrawn once the grass cells are out of view or after
+  `grassHold` (`physics.heavy.grassSplit`, `grassViewRange`). gridmap_v2, lc300 circling next to
+  the grass meadow, 30 s: visible blinks 22 -> 11 (camera on the grass), 27 -> 12 (chase camera);
+  vehicles near grass no longer ride on the old terrain for up to 1 s (540-640 held frames -> 0).
+  A waiting group is redrawn while in view only once its terrain would hide the rut (lowered by
+  more than 0.7 x `floorMargin` since drawn, `grassRedrawShare`); smaller changes wait until the
+  grass is out of view (90 s next to the meadow: 12 / 13 / 7 visible redraws per 30 s).
+
+### Found
+- Why decal roads on cost so much frame rate (BENCHMARK 8): mostly the level's own decal roads.
+  gridmap_v2's pits carry 238 stacked decal roads (~2.6 ms in a close view, vanilla included);
+  mode `off` hides them and runs faster than vanilla. The copies add ~0.55 ms with one truck
+  (uploads ~0.22, drawing ~0.25, emission ~0.08).
+- Tried and dropped: no copies where the mud lies within ~1 cm of the terrain (the engine's decal
+  does not reliably draw over the mesh up close: plain half-squares), skipping by road opacity
+  (opacity maps are dense).
+
 ## [0.3.1] — 2026-11-01 — big maps: trees, grass and frame rate fixed
 
 ### Fixed

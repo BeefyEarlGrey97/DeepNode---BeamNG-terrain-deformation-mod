@@ -69,6 +69,13 @@ They explain most design decisions; please extend this file when you measure som
   a 4 x 3 m box 13 m away; with 10 m cells (20 / 9) none; 5-7 m cells changed the look (long
   grass evenly spread instead of patches). `tb:setHeightWs` leaves physics stale like
   `setHeightGrid`; no other update call exists (`updateGridMaterials`, `updateAllTextures`).
+- `tb:updateGrid` refreshes physics for the whole terrain whatever its box, but redraws the
+  terrain and drops GroundCover cells only inside the box (2026-11-02, gridmap_v2): a vertex
+  lowered 0.5 m then `updateGrid` on a 1 x 1 box at the far terrain corner -> `castRayStatic` hit
+  the new height the next frame, the terrain looked unchanged until an update over the vertex,
+  and grass beside a per-frame far-box update stayed (per-frame `updateGrid` or
+  `updateGridMaterials` over a box in the meadow removed its long grass). Its cost growing with
+  the terrain, not the box, fits a whole-terrain physics refresh.
 - `setHeightGrid` without `updateGrid` changes nothing for physics (a parked truck stayed up and
   `castRayStatic` hit the old surface); `updateGrid` is the only update (no physics-only call in
   the TerrainBlock API).
@@ -107,6 +114,18 @@ They explain most design decisions; please extend this file when you measure som
   alpha for opaque decal copies.
 - A screen-space redraw of decal roads cannot match them: no albedo buffer, own lighting
   (2026-10-31 A/B on gridmap_v2: the overlay road was far paler and flatter than the decal).
+- A decal road's depth bias does not reliably draw it over a mesh a few mm above the terrain at
+  close range (2026-11-02, camera ~8 m away: a mesh 6-12 mm over the terrain hid the decal over a
+  half terrain square). The earlier "beats a mesh up to ~5 cm" was seen from further away: the bias
+  is in depth units, so its world size shrinks near the camera. Copies cannot be left out where
+  the mud lies just over the terrain.
+- Cost (gridmap_v2, 2026-11-02): the level's decal roads over the pits cost ~2.6 ms of frame time
+  in a close view of the mud pit (124 -> 186 fps when hidden), vanilla included. Translucent copy
+  materials on a ProceduralMesh: about half of their draw cost is pixel shading (normal,
+  roughness and AO maps), the rest per draw. Road opacity maps are dense (BC4, 10-25 % of texels
+  transparent), so skipping copies by texture alpha would save little.
+- Terrain squares are two triangles split along the (0,0)-(1,1) diagonal (gridmap_v2, both
+  square parities); `core_terrain.getTerrainHeight` costs ~0.36 us a call.
 
 ## Custom shaders (2026-10-31, D3D12 backend, gridmap_v2)
 
