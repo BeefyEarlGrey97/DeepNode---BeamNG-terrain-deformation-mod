@@ -13,7 +13,7 @@ DeepNode is written from scratch. It uses only BeamNG's public Lua interface. Ho
 behaves was learned from the game's shipped Lua scripts and from measurements in the running game MCP server. The engine facts it relies
 on are documented in [docs/ENGINE_FINDINGS.md](docs/ENGINE_FINDINGS.md). The post-effect technique behind the
 experimental tread prints (own HLSL passes fed by shader constants, a world-space map in a named render target) was
-learned by reading the Dynamic Dirt mod; none of its code, shaders or textures are used.
+learned by reading the Dynamic Scratch mod; none of its code, shaders or textures are used.
 
 ## Features
 
