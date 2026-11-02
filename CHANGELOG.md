@@ -16,6 +16,9 @@
   `grassHold` (`physics.heavy.grassSplit`, `grassViewRange`). gridmap_v2, lc300 circling next to
   the grass meadow, 30 s: visible blinks 22 -> 11 (camera on the grass), 27 -> 12 (chase camera);
   vehicles near grass no longer ride on the old terrain for up to 1 s (540-640 held frames -> 0).
+  A waiting group is redrawn while in view only once its terrain would hide the rut (lowered by
+  more than 0.7 x `floorMargin` since drawn, `grassRedrawShare`); smaller changes wait until the
+  grass is out of view (90 s next to the meadow: 12 / 13 / 7 visible redraws per 30 s).
 
 ### Found
 - Why decal roads on cost so much frame rate (BENCHMARK 8): mostly the level's own decal roads.

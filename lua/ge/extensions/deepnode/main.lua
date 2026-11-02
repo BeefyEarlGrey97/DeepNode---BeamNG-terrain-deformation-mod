@@ -582,6 +582,10 @@ local defaults = {
       -- their grass cells are out of view (or after grassHold s)
       grassSplit = true,
       grassViewRange = 160, -- m: grass cells farther from the camera count as out of view
+      -- a waiting group forces its redraw (after grassHold) only once a vertex is lower than
+      -- drawn by more than this share of floorMargin (the stale terrain then hides the rut);
+      -- smaller changes and raises wait until the grass is out of view
+      grassRedrawShare = 0.7,
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
       -- terrain updates cost more on big terrains (hw550 8192^2: 15-78 ms each): above
       -- slowUpdateMs (measured) the floor is written at most every slowUpdateGap s

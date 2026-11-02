@@ -221,6 +221,10 @@ BeamNG's own physics:
   cells farther from the camera count as out of view. gridmap_v2, lc300 circling 9-15 m from the
   grass meadow for 30 s: visible grass blinks 22 -> 11 (camera on the grass) and 27 -> 12 (chase
   camera); physics near grass was held 540-640 frames before, now 0.
+  A group forces its redraw (after `grassHold`) only once a vertex sits lower than drawn by more
+  than `grassRedrawShare` (0.7) x `floorMargin`: the rut mesh lies `floorMargin` over the floor,
+  so a smaller drop or a raise leaves the stale terrain under the mesh; those wait for the camera
+  to look away. Without any redraw the stale terrain covers fresh ruts in flat patches (checked).
   Floor heights are written absolute (full sink level from the sink pass + lift): the height grid
   rounds every write to maxHeight / 65536, and the old relative writes drifted (ENGINE_FINDINGS).
   The heavy ground-model values are checked once a second and applied again when the game reloads

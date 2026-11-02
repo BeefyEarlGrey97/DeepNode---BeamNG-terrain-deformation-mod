@@ -338,8 +338,9 @@ local blockGrass = {}  -- cluster key -> grass layer squares inside it (cached)
 local clusterT = {}    -- cluster key -> clock of its last write
 local clock = 0
 local CKEY = 65536
-local renderWait = {}  -- cluster key -> { gx0, gy0, gx1, gy1, since }: written, terrain not redrawn
+local renderWait = {}  -- cluster key -> { gx0, gy0, gx1, gy1, since, need, ks }: written, terrain not redrawn
 local nWait = 0
+local drawn = {}       -- sink record -> lift the terrain is still drawn at (only while it differs)
 
 local function collectGrassLayers()
   grassIdx = {}
@@ -458,8 +459,10 @@ local function pickFlush(h)
   local best, bestT, why = nil, huge, nil
   for key, e in pairs(renderWait) do
     if e[5] < bestT then
+      -- a group whose drawn terrain still hides no rut (lowered less than the rut's margin
+      -- over it, or raised) waits for the camera to look away, however long
       local hidden = not boxInView(e[1], e[2], e[3], e[4], h)
-      if hidden or clock - e[5] >= hold then best, bestT, why = key, e[5], hidden end
+      if hidden or (e[6] and clock - e[5] >= hold) then best, bestT, why = key, e[5], hidden end
     end
   end
   if not best then return nil end
@@ -469,6 +472,7 @@ local function pickFlush(h)
     local kx, ky = key % CKEY, floor(key / CKEY)
     if max(abs(kx - ax), abs(ky - ay)) <= 1 then
       x0, y0, x1, y1 = min(x0, e[1]), min(y0, e[2]), max(x1, e[3]), max(y1, e[4])
+      for i = 1, #e[7] do drawn[e[7][i]] = nil end
       renderWait[key] = nil
       nWait = nWait - 1
     end
@@ -510,6 +514,7 @@ local function write(h)
   end
   local cs = max(2, floor(h.floorCluster or 16))
   local hold = h.grassHold or 1.0
+  local needDrop = (h.floorMargin or 0.03) * (h.grassRedrawShare or 0.7)
   -- clusters of the pending vertices: key -> square box
   for k in pairs(cl) do cl[k] = nil end
   for k in pairs(take) do take[k] = nil end
@@ -593,9 +598,15 @@ local function write(h)
         P.sinkLift[k] = lift
         if lift < old then stats.lowered = stats.lowered + 1 else stats.raised = stats.raised + 1 end
         if tk == 2 then
+          -- the terrain stays drawn at its old height until the group's redraw: that hides
+          -- the rut mesh only where it is now lower by more than the mesh's margin over it
+          local dl = drawn[k]
+          local fresh = dl == nil
+          if fresh then dl = old; drawn[k] = old end
           local e = renderWait[ck]
           if not e then
-            renderWait[ck] = { gx, gy, gx, gy, clock }
+            e = { gx, gy, gx, gy, clock, false, {} }
+            renderWait[ck] = e
             nWait = nWait + 1
           else
             if gx < e[1] then e[1] = gx end
@@ -603,7 +614,12 @@ local function write(h)
             if gx > e[3] then e[3] = gx end
             if gy > e[4] then e[4] = gy end
           end
+          if fresh then e[7][#e[7] + 1] = k end
+          if dl - lift > needDrop then
+            if not e[6] then e[6] = true; e[5] = clock end
+          end
         else
+          drawn[k] = nil
           if gx < bx0 then bx0 = gx end
           if gx > bx1 then bx1 = gx end
           if gy < by0 then by0 = gy end
@@ -679,7 +695,7 @@ function M.start(main, layers)
   layersSeen = layers
   -- grass layers are read on the first write (main lifts the groundcover after the sink pass)
   grassIdx, blockGrass, clusterT = nil, {}, {}
-  renderWait, nWait = {}, 0
+  renderWait, nWait, drawn = {}, 0, {}
   reapplied = 0
   if heavy() then applyGroundModels(layers) end
 end
@@ -710,6 +726,7 @@ function M.stats()
   local s = {}
   for k, v in pairs(stats) do s[k] = v end
   s.pending = npend
+  s.redrawWaiting = nWait
   s.mode = M.mode()
   s.reapplied = reapplied
   s.groundModels = 0
