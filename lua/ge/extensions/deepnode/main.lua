@@ -576,7 +576,12 @@ local defaults = {
       -- layers; a cluster near grass is written alone at most every grassHold s
       floorCluster = 16,
       grassReach = 12,     -- 25 m level cells: a box 16 m from grass still hid some, 24 m none; with grass.cellSize 10: none at 13 m
-      grassHold = 1.0,
+      grassHold = 1.0,     -- with grassSplit: longest wait for the redraw while the grass is in view
+      -- tb:updateGrid refreshes physics everywhere but redraws terrain and grass only in its
+      -- box: clusters near grass go to physics at once (far dummy box) and are redrawn once
+      -- their grass cells are out of view (or after grassHold s)
+      grassSplit = true,
+      grassViewRange = 160, -- m: grass cells farther from the camera count as out of view
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
       -- terrain updates cost more on big terrains (hw550 8192^2: 15-78 ms each): above
       -- slowUpdateMs (measured) the floor is written at most every slowUpdateGap s

@@ -8,6 +8,15 @@
   triangles the copy draws). gridmap_v2, one lc300 in a 60 m circle: copy corners per upload
   2750 -> 2110 (-23 %), same look; the fps change was inside the noise.
 
+### Fixed
+- Grass blinking next to digging (heavy physics), and the rut floor waiting near grass:
+  `tb:updateGrid` turned out to refresh physics for the whole terrain whatever its box, while it
+  redraws terrain and grass only inside the box. Near grass the floor now goes to physics at once
+  through a far dummy box and the terrain is redrawn once the grass cells are out of view or after
+  `grassHold` (`physics.heavy.grassSplit`, `grassViewRange`). gridmap_v2, lc300 circling next to
+  the grass meadow, 30 s: visible blinks 22 -> 11 (camera on the grass), 27 -> 12 (chase camera);
+  vehicles near grass no longer ride on the old terrain for up to 1 s (540-640 held frames -> 0).
+
 ### Found
 - Why decal roads on cost so much frame rate (BENCHMARK 8): mostly the level's own decal roads.
   gridmap_v2's pits carry 238 stacked decal roads (~2.6 ms in a close view, vanilla included);

@@ -69,6 +69,13 @@ They explain most design decisions; please extend this file when you measure som
   a 4 x 3 m box 13 m away; with 10 m cells (20 / 9) none; 5-7 m cells changed the look (long
   grass evenly spread instead of patches). `tb:setHeightWs` leaves physics stale like
   `setHeightGrid`; no other update call exists (`updateGridMaterials`, `updateAllTextures`).
+- `tb:updateGrid` refreshes physics for the whole terrain whatever its box, but redraws the
+  terrain and drops GroundCover cells only inside the box (2026-11-02, gridmap_v2): a vertex
+  lowered 0.5 m then `updateGrid` on a 1 x 1 box at the far terrain corner -> `castRayStatic` hit
+  the new height the next frame, the terrain looked unchanged until an update over the vertex,
+  and grass beside a per-frame far-box update stayed (per-frame `updateGrid` or
+  `updateGridMaterials` over a box in the meadow removed its long grass). Its cost growing with
+  the terrain, not the box, fits a whole-terrain physics refresh.
 - `setHeightGrid` without `updateGrid` changes nothing for physics (a parked truck stayed up and
   `castRayStatic` hit the old surface); `updateGrid` is the only update (no physics-only call in
   the TerrainBlock API).

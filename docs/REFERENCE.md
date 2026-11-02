@@ -212,6 +212,15 @@ BeamNG's own physics:
   near grass is written on its own (with its neighbours near grass) at most every `grassHold`
   (1 s). Measured on the gridmap_v2 material ramp (HT-55 up its mud strip, grass 12-16 m
   away): terrain updates near the grass 58 -> 18 per run (~4/s -> 1/s), all updates 62 -> 25.
+  Since 2026-11-02 (`grassSplit`, default on): `tb:updateGrid` refreshes the physics terrain
+  everywhere whatever its box, but redraws terrain and grass only inside it. Clusters near grass
+  are therefore written at once with a far 1 x 1 dummy box (vehicles sink without the old
+  `grassHold` delay, no grass touched); their real box (terrain drawn lower, the rut showing)
+  follows once the groundcover cells over it are out of the camera's view or `grassHold` s
+  passed, neighbouring waiting clusters in the same update (one blink). `grassViewRange` (160 m):
+  cells farther from the camera count as out of view. gridmap_v2, lc300 circling 9-15 m from the
+  grass meadow for 30 s: visible grass blinks 22 -> 11 (camera on the grass) and 27 -> 12 (chase
+  camera); physics near grass was held 540-640 frames before, now 0.
   Floor heights are written absolute (full sink level from the sink pass + lift): the height grid
   rounds every write to maxHeight / 65536, and the old relative writes drifted (ENGINE_FINDINGS).
   The heavy ground-model values are checked once a second and applied again when the game reloads

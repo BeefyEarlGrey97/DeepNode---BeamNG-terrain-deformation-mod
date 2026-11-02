@@ -194,8 +194,14 @@ and the GroundCover cells are cut to 10 m while the floor is written (`grass.cel
 write 13 m from grass no longer touches it (probe). Still open: grass within one cell (~10 m)
 of a digging truck blinks at most once a second (`grassHold`), e.g. johnson_valley where the
 grass layer itself is soft, or the gridmap_v2 material ramp (grass 6-8 m from the mud strip).
-Not found: a terrain update for physics only (setHeightGrid / setHeightWs alone leave physics
-stale). Not tried: delaying near-grass writes while those cells are in view.
+2026-11-02: found the physics-only update after all: `updateGrid` with a far dummy box refreshes
+physics everywhere and drops no grass. `physics.heavy.grassSplit` writes near-grass floor at once
+(physics) and redraws its terrain when the grass cells are out of view or after `grassHold`
+(REFERENCE "Heavy physics option"): visible blinks about halved, no physics delay near grass.
+Still open: with a chase camera the grass beside the truck is nearly always in view, so it still
+blinks about once per `grassHold` while digging next to it; the redraw is what drops the cells
+(no redraw-only call found). Ideas: exact GroundCover cell bounds instead of the padded box,
+flushing while the camera turns fast, a longer hold now that physics no longer waits.
 
 ## 18. Big terrains (hw550, 2026-11-01)
 
