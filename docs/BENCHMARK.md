@@ -220,3 +220,33 @@ Same protocol, one session, runs 2-5 (copyA: runs 2-3 of 3):
 gridmap_v2's mud pit is the worst case: 3-4 overlapping decal layers (puddle water 25 m wide,
 mud_large, furrows, tire tracks) over every dug cell. Copy Lua ~1.2 ms per tile build, much of it
 clipping triangles along the narrow furrow strips.
+
+## 8. gridmap_v2, one lc300 in a 60 m circle, decal roads on (2026-11-02)
+
+User question: why does turning decal roads on drop the frame rate so much? One lc300 (player),
+`dntestCircles` R = 30 m around (-337, -310) at 25 km/h through both pits, fixed free camera,
+vsync and the 60 fps limit off, user GUI settings (cellSize 0.2, tileRebuildHz 40, uploadMsMax 6).
+Frame times from a per-frame recorder; ruts cleared before every run; variants interleaved.
+
+Where the drop comes from (static views, no ruts, fps):
+
+| view | mod on, roads `copy` | vanilla (mod stopped) | mod on, decal roads on soft ground hidden (`off`) |
+|---|---|---|---|
+| close over the mud pit | 122.7 / 124.3 | 124.5 / 124.5 | 183.8 / 188.1 |
+
+The level's own decal roads over the pits (238 roads; 28 stacked over the mud pit, up to 5 layers
+per point) cost ~2.6 ms in that view in vanilla too. Mode `off` hides them, so it runs faster than
+vanilla; most of the on / off difference is the engine's decals, not the mod.
+
+What the copies cost while digging (30 s runs, fresh ruts, fps):
+
+| variant | fps | copy corners / upload (+ padding) | tile upload ms / frame |
+|---|---|---|---|
+| decals only (copies off, engine decals shown) | 122.6 / 122.0 | - | 0.16 / 0.19 |
+| copies, one quad per dug cell (before) | 115.5 / 114.7 | 2818 / 2674 (+1200) | 0.42 / 0.44 |
+| **copies, merged planar rectangles (copyMerge)** | 116.0 / 113.0 | 2194 / 2031 (+860) | 0.36 / 0.44 |
+
+Copies cost ~0.55 ms a frame with one truck: uploads ~0.22 (copy submeshes more than double the
+tile upload), drawing ~0.25 (about half of it pixel shading of the translucent forward-lit copies:
+stripping their normal / roughness / AO maps saved half; the other half per draw), copy emission
+~0.08. Merging cut the copy corners 23-37 %; the fps change stayed inside the run-to-run noise.

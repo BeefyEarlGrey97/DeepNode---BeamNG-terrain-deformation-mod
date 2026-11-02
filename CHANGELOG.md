@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Changed
+- Decal road copies (`roads.mode` 'copy'): the drawn cells of a dug square are merged into planar
+  rectangles for the copies (`roads.copyMerge`, `copyMergeFlat` 4 mm, tested against the two
+  triangles the copy draws). gridmap_v2, one lc300 in a 60 m circle: copy corners per upload
+  2750 -> 2110 (-23 %), same look; the fps change was inside the noise.
+
+### Found
+- Why decal roads on cost so much frame rate (BENCHMARK 8): mostly the level's own decal roads.
+  gridmap_v2's pits carry 238 stacked decal roads (~2.6 ms in a close view, vanilla included);
+  mode `off` hides them and runs faster than vanilla. The copies add ~0.55 ms with one truck
+  (uploads ~0.22, drawing ~0.25, emission ~0.08).
+- Tried and dropped: no copies where the mud lies within ~1 cm of the terrain (the engine's decal
+  does not reliably draw over the mesh up close: plain half-squares), skipping by road opacity
+  (opacity maps are dense).
+
 ## [0.3.1] — 2026-11-01 — big maps: trees, grass and frame rate fixed
 
 ### Fixed

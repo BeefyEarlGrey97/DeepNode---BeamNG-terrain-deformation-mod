@@ -175,7 +175,11 @@ Not done yet:
   strip (no vertex alpha in ProceduralMesh); copies are lit forward (on glossy ground slightly
   more sheen than the engine's decal). 2026-11-01: rebuilt as `deepnode_roadCopy` (`roads.mode`
   'copy'): copies on every build, coarse quads on planar squares; ~5 fps against no roads on
-  the mud with 8 trucks (BENCHMARK §6). Research notes (engine routes that do not exist):
+  the mud with 8 trucks (BENCHMARK §6). 2026-11-02 (BENCHMARK §8): with one truck the copies
+  cost ~0.55 ms (uploads, translucent forward drawing, emission); planar rectangles cut the copy
+  corners 23-37 %. Ideas not done: copies in their own objects rebuilt at a lower rate (saves
+  uploads, costs ~2 us of shadow pass per extra object), fewer copy draws by sector. The bigger
+  on / off difference is the level's own stacked decal roads (vanilla cost). Research notes (engine routes that do not exist):
   ENGINE_FINDINGS "Decal roads". After the 8-truck bench the deep, wide rut bands
   in the gridmap_v2 mud pit showed the water layer but few furrow clumps: not checked whether
   the furrow strips cover those cells or copies are missing there. Faint lines along some tile

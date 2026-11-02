@@ -122,6 +122,8 @@ local defaults = {
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; one copyLiftStep per renderPriority level
     copyLiftStep = 0.002,
+    copyMerge = true,       -- drawn cells of a dug square merged into planar rectangles for the copies
+    copyMergeFlat = 0.004,  -- m: largest mud deviation from a merged copy quad (under copyLift)
     -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
     -- the level's decal); false = alpha-clipped matte copies (old look)
     overlayOriginal = true,

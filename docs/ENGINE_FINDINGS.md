@@ -107,6 +107,18 @@ They explain most design decisions; please extend this file when you measure som
   alpha for opaque decal copies.
 - A screen-space redraw of decal roads cannot match them: no albedo buffer, own lighting
   (2026-10-31 A/B on gridmap_v2: the overlay road was far paler and flatter than the decal).
+- A decal road's depth bias does not reliably draw it over a mesh a few mm above the terrain at
+  close range (2026-11-02, camera ~8 m away: a mesh 6-12 mm over the terrain hid the decal over a
+  half terrain square). The earlier "beats a mesh up to ~5 cm" was seen from further away: the bias
+  is in depth units, so its world size shrinks near the camera. Copies cannot be left out where
+  the mud lies just over the terrain.
+- Cost (gridmap_v2, 2026-11-02): the level's decal roads over the pits cost ~2.6 ms of frame time
+  in a close view of the mud pit (124 -> 186 fps when hidden), vanilla included. Translucent copy
+  materials on a ProceduralMesh: about half of their draw cost is pixel shading (normal,
+  roughness and AO maps), the rest per draw. Road opacity maps are dense (BC4, 10-25 % of texels
+  transparent), so skipping copies by texture alpha would save little.
+- Terrain squares are two triangles split along the (0,0)-(1,1) diagonal (gridmap_v2, both
+  square parities); `core_terrain.getTerrainHeight` costs ~0.36 us a call.
 
 ## Custom shaders (2026-10-31, D3D12 backend, gridmap_v2)
 
