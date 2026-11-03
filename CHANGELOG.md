@@ -14,7 +14,9 @@
   (1001 x 1001 squares): load 8-14 ms over 3-4 frames, switch frame 4-13 ms; after a far jump the
   terrain matches its original heights exactly (54 rutted floor vertices restored); ruts in the
   overlap survive a shift. Memory per array: ~1 MB per km2 instead of S x S bytes (268 MB each
-  on a 16384 x 16384 terrain); start no longer reads or scans the whole map.
+  on a 16384 x 16384 terrain); start no longer reads or scans the whole map. hw550 (8192 x
+  8192, 67 km2, region on by 'auto'): start 1.35 s (42586 vertices sunk in 90 ms), shifts of
+  300-1000 m: load 9-15 ms over 3-4 frames, switch frame 4-12 ms.
 - Terrain files up to 32768 x 32768 vertices (was 16384).
 
 ### Changed

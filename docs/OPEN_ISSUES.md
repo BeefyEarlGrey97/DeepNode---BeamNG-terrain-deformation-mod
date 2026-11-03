@@ -215,7 +215,8 @@ later. Vanilla physics mode writes no terrain while driving (no hitches). Covers
 
 Region mode (`region`, REFERENCE) keeps start and memory bounded on maps of any size; tested on
 gridmap_v2 forced to regions of 300 m and 1 km (shift switch frame 4-13 ms, load 8-14 ms over 3-4
-frames, exact terrain restore). Not tested on a real BeamNG.earth map yet. Known limits:
+frames, exact terrain restore) and on hw550 (8192 x 8192, auto: switch 4-12 ms, load 9-15 ms over
+3-4 frames, no rut writes in those shifts). Not tested on a real BeamNG.earth map yet. Known limits:
 - Ruts outside the stable overlap are dropped at a shift (they are >= size / 2 - shiftAt from
   the player); AI vehicles outside the region leave no ruts.
 - `roads.mode` 'drape': roads stay draped as at start (a collision reload per shift is ~370 ms).
