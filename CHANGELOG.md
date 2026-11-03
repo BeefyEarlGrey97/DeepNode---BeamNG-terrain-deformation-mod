@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-03 — large maps: streamed 1 km² region, coarse and packed terrains
+
 ### Fixed
 - Mud material on huge_desert drew a rough, dark patch over the sand. Three causes, all now
   read the way the terrain shader reads them: (1) layer strengths are clamped to 0..1 (the
@@ -26,6 +28,17 @@
 - Packed levels (terrain file inside a zip) seek by decompressing: huge_desert 534 ms per
   100 MB, so each region read stalled ~0.7-1.5 s in one frame. Big packed terrains (> 4096^2,
   8 MB seek probe over 5 ms) read their region layers from the engine instead.
+
+- Grass blinking next to digging (heavy physics), and the rut floor waiting near grass:
+  `tb:updateGrid` turned out to refresh physics for the whole terrain whatever its box, while it
+  redraws terrain and grass only inside the box. Near grass the floor now goes to physics at once
+  through a far dummy box and the terrain is redrawn once the grass cells are out of view or after
+  `grassHold` (`physics.heavy.grassSplit`, `grassViewRange`). gridmap_v2, lc300 circling next to
+  the grass meadow, 30 s: visible blinks 22 -> 11 (camera on the grass), 27 -> 12 (chase camera);
+  vehicles near grass no longer ride on the old terrain for up to 1 s (540-640 held frames -> 0).
+  A waiting group is redrawn while in view only once its terrain would hide the rut (lowered by
+  more than 0.7 x `floorMargin` since drawn, `grassRedrawShare`); smaller changes wait until the
+  grass is out of view (90 s next to the meadow: 12 / 13 / 7 visible redraws per 30 s).
 
 ### Added
 - Region mode for big maps (BeamNG.earth, hw550): on terrains over 16 km2 (`region.enabled`
@@ -52,18 +65,6 @@
   rectangles for the copies (`roads.copyMerge`, `copyMergeFlat` 4 mm, tested against the two
   triangles the copy draws). gridmap_v2, one lc300 in a 60 m circle: copy corners per upload
   2750 -> 2110 (-23 %), same look; the fps change was inside the noise.
-
-### Fixed
-- Grass blinking next to digging (heavy physics), and the rut floor waiting near grass:
-  `tb:updateGrid` turned out to refresh physics for the whole terrain whatever its box, while it
-  redraws terrain and grass only inside the box. Near grass the floor now goes to physics at once
-  through a far dummy box and the terrain is redrawn once the grass cells are out of view or after
-  `grassHold` (`physics.heavy.grassSplit`, `grassViewRange`). gridmap_v2, lc300 circling next to
-  the grass meadow, 30 s: visible blinks 22 -> 11 (camera on the grass), 27 -> 12 (chase camera);
-  vehicles near grass no longer ride on the old terrain for up to 1 s (540-640 held frames -> 0).
-  A waiting group is redrawn while in view only once its terrain would hide the rut (lowered by
-  more than 0.7 x `floorMargin` since drawn, `grassRedrawShare`); smaller changes wait until the
-  grass is out of view (90 s next to the meadow: 12 / 13 / 7 visible redraws per 30 s).
 
 ### Found
 - Why decal roads on cost so much frame rate (BENCHMARK 8): mostly the level's own decal roads.

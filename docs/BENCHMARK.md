@@ -250,3 +250,12 @@ Copies cost ~0.55 ms a frame with one truck: uploads ~0.22 (copy submeshes more 
 tile upload), drawing ~0.25 (about half of it pixel shading of the translucent forward-lit copies:
 stripping their normal / roughness / AO maps saved half; the other half per draw), copy emission
 ~0.08. Merging cut the copy corners 23-37 %; the fps change stayed inside the run-to-run noise.
+
+## 9. Region mode and large maps (2026-11-03, v0.4.0)
+
+No truck fps benchmark. Region numbers from single-truck tests (teleports of 300-5000 m, log
+"region moved to"): gridmap_v2 forced to a 1 km region: load 8-14 ms over 3-4 frames, switch
+frame 4-13 ms; hw550 (auto): start 1.35 s, load 9-15 ms, switch 4-12 ms; huge_desert (8192^2 x
+64 m, packed, virtual 1 m grid): start 0.8 s, load 14-31 ms over 4-7 frames, switch 17-59 ms,
+lc300 digging at 58-60 fps (mod frame <= 8.5 ms). Terrain after leaving a region: max height
+difference to the original 0 (gridmap_v2 heavy and vanilla, huge_desert).
