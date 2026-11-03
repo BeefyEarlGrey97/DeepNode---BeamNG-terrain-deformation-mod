@@ -262,3 +262,11 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   reads as mud (gridmap_v2 sand lane start line). Test softness with `P.softAtWorld`.
 - Vehicles spawned from Lua start in `realistic` gearbox mode (stay in neutral):
   `controller.mainController.setGearboxMode('arcade')`.
+- Terrain files inside a level zip: `io` seek works but decompresses up to the offset
+  (huge_desert, 8192^2 v8: 534 ms per 100 MB forward). A seek beyond the end of an unpacked file
+  returns nil (gridmap_v2).
+- huge_desert: 8192 x 8192 squares of 64 m; `setHeightGrid` rounds heights to steps of up to
+  ~9 cm there (maxHeight / 65536), read back after writing. `tb:updateGrid` costs 15-60 ms per
+  call on it (any box), like hw550.
+- A game frozen by Lua for seconds ends as launcher error `0xCFFFFFFF STATUS_APPLICATION_HANG`
+  (Windows kills it); beamng.log may miss the mod's lines when the 15000-line cap cuts the middle.

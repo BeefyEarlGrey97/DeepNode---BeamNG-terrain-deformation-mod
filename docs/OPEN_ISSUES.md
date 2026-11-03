@@ -225,8 +225,13 @@ frames, exact terrain restore) and on hw550 (8192 x 8192, auto: switch 4-12 ms, 
 - The switch frame walks the whole region (1M vertices per km2 on a 1 m grid); each vertex that
   enters needs a getHeightGrid. With a terrain update (vanilla mode, or rutted vertices
   restored) one `updateGrid`, which costs 15-78 ms on 8192 x 8192 terrains (§18).
-- Coarse terrains (BeamNG.earth often uses squares of several metres): tiles are one square wide
-  with `tiles.cellSize` cells, so a 30 m square makes a 150 x 150 cell tile. Not looked at yet.
+- Coarse terrains (squares over `region.maxSquare`, huge_desert 64 m) run on a 1 m virtual grid
+  (fixed 2026-11-03, was a hang). Left: the terrain is lowered per real vertex, so within one
+  square (64 m) of hard ground, roads or the region border it stays up and ruts there are hidden
+  under it; no rut floor (vehicles sink by the lowering, not into the ruts); the lowering between
+  real vertices is taken bilinear while the terrain draws triangles (a few cm off in border
+  squares); lifted grass copies float where the terrain is not lowered; the height grid rounds
+  writes to ~9 cm on huge_desert (the lowering read back is used, so it can be 0.11-0.29 m).
 - Zones count inside the region only.
 
 ## 17. Review items left open (2026-11-01)

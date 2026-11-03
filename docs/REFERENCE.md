@@ -514,6 +514,8 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `shiftAt` | 250 | Distance (either axis) of the player from the region centre that recentres it; also when the player is outside it |
 | `checkEvery` | 0.5 | Seconds between checks |
 | `loadBudgetMs` | 4 | ms per frame for loading the next region's layer map and distance field (the switch itself runs in one frame) |
+| `maxSquare` | 2 | Terrains with squares over this many m get a virtual grid (huge_desert: 64 m) |
+| `virtualSquare` | 1 | m per square of that virtual grid; tiles, ruts and mud work on it. The terrain is lowered on its real vertices only where all mud within one square is at full depth; no rut floor writes |
 
 ### layers
 

@@ -676,6 +676,8 @@ function M.update(dt)
     watchAcc = 0
     watchGroundModels()
   end
+  -- coarse terrain (main's virtual grid): no rut floor, one real vertex spans many ruts
+  if (ctx.ter.K or 1) > 1 then P.floorTiles = {}; return end
   if acc >= 1 / max(0.5, h.floorHz or 5) then
     acc = 0
     collect(h)

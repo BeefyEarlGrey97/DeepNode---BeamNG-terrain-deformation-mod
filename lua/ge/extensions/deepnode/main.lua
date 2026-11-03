@@ -100,6 +100,10 @@ local defaults = {
     shiftAt = 250,          -- m off the region centre (either axis) that moves it
     checkEvery = 0.5,       -- s between checks
     loadBudgetMs = 4,       -- ms per frame for loading the next region (layer map, distance field)
+    -- terrains with squares over maxSquare m (huge_desert: 64 m) get a virtual grid of
+    -- virtualSquare m: tiles, ruts and mud work on it; heights come from the terrain surface
+    maxSquare = 2,
+    virtualSquare = 1,
   },
   roads = {
     -- Decal roads lie on the terrain at the height the mud surface is drawn, so the mud
@@ -859,7 +863,11 @@ M.ter = nil
 -- the box only (index (gy - regY0) * regW + gx - regX0), so a 16384^2 map needs ~1 MB per
 -- km2 instead of 268 MB for each of them, and start / shifts touch the box only.
 local regX0, regY0, regX1, regY1, regW = 0, 0, -1, -1, 0
-local rows = nil           -- layer map rows of the region (Lua strings, gy order: rows[gy - regY0 + 1])
+-- Coarse terrains (ter.K > 1, see P.initTerrain): the grid above is a virtual grid K times
+-- finer than the terrain's; the layer map is held for the real vertices rRegX0.. (rRegW wide)
+-- and a virtual vertex takes the layer of its nearest real vertex. K = 1: both the same.
+local regK, rRegX0, rRegY0, rRegW = 1, 0, 0, 0
+local rows = nil           -- layer map rows of the region (Lua strings, real gy order: rows[ry - rRegY0 + 1])
 local engineFallback = false
 P.orientation = 'none'
 local f2e = ffi.new('uint8_t[256]')
@@ -941,7 +949,15 @@ M.KEY = KEY
 function P.sectorKeyOfTile(tx, ty) return floor(ty / SEC) * KEY + floor(tx / SEC) end
 
 -- terrain-vertex world z (pitfall 1: getHeightGrid may be local or world)
+P.hv = nil
 local function gridZ(gx, gy)
+  if ter.K > 1 then
+    -- virtual vertex: the terrain surface there
+    local v = P.hv
+    if not v then v = vec3(); P.hv = v end
+    v:set(ter.ox + gx * ter.sq, ter.oy + gy * ter.sq, 0)
+    return ter.tb:getHeight(v)
+  end
   local h = ter.tb:getHeightGrid(gx, gy)
   if ter.localZ then return h + ter.oz end
   return h
@@ -1099,12 +1115,23 @@ function P.readTerHeader(fn)
   local f = io.open(fn, 'rb')
   if not f then return nil, 'cannot open ' .. tostring(fn) end
   local head = f:read(5)
-  f:close()
-  if not head or #head < 5 then return nil, 'short header' end
+  if not head or #head < 5 then f:close(); return nil, 'short header' end
   local version = byte(head, 1)
   local S = byte(head, 2) + byte(head, 3) * 256 + byte(head, 4) * 65536 + byte(head, 5) * 16777216
   -- 32768: sink record indices gy * S + gx stay inside int32
-  if S < 2 or S > 32768 then return nil, 'bad terrain size ' .. S end
+  if S < 2 or S > 32768 then f:close(); return nil, 'bad terrain size ' .. S end
+  -- A level packed in a zip seeks by decompressing up to the offset (huge_desert, 8192^2:
+  -- 534 ms per 100 MB, measured 2026-11-03): every region read cost ~0.7 s in one frame.
+  -- Big packed terrains read their regions from the engine instead (P.loadRegion).
+  -- (an 8 MB probe: ~40 ms packed, ~0 on disk)
+  local probe = min(8388608, 5 + 2 * S * S)
+  local t0 = newTimer()
+  local okSeek, pos = pcall(f.seek, f, 'set', probe)
+  local seekMs = t0:stop()
+  f:close()
+  if S > 4096 and (not okSeek or pos ~= probe or seekMs > 5) then
+    return { version = version, size = S, file = fn, packed = true, seekMs = seekMs }
+  end
   local names = nil
   local g = P.fileAt(fn, 5 + 3 * S * S)
   local cs = g and g:read(4)
@@ -1141,9 +1168,9 @@ function P.readTerRows(hdr, fr0, fr1, gx0, gx1)
 end
 
 -- layer rows of the box x0..x1 x y0..y1 in vertex order (out[gy - y0 + 1]) for a file row
--- order: 'direct' (file row = gy) or 'flipped' (file row = S - 1 - gy)
+-- order: 'direct' (file row = gy) or 'flipped' (file row = S - 1 - gy); real vertices
 function P.regionRows(x0, y0, x1, y1, order)
-  local S = ter.size
+  local S = ter.realSize
   if order == 'flipped' then
     local blk, err = P.readTerRows(P.terHdr, S - 1 - y1, S - 1 - y0, x0, x1)
     if not blk then return nil, err end
@@ -1162,7 +1189,7 @@ function P.readEngineLayerMap(x0, y0, x1, y1)
   local map = ffi.new('uint8_t[?]', w * (y1 - y0 + 1))
   local tb = ter.tb
   local v = vec3()
-  local ox, oy, sq = ter.ox + 0.01, ter.oy + 0.01, ter.sq
+  local ox, oy, sq = ter.ox + 0.01, ter.oy + 0.01, ter.realSq
   for gy = y0, y1 do
     P.coYield()
     local base = (gy - y0) * w - x0
@@ -1179,8 +1206,9 @@ end
 -- outside the region every vertex is hard ground (255)
 local function layerAt(gx, gy)
   if gx < regX0 or gy < regY0 or gx > regX1 or gy > regY1 then return 255 end
-  if engineFallback then return engineCache[(gy - regY0) * regW + gx - regX0] end
-  return f2e[byte(rows[gy - regY0 + 1], gx - regX0 + 1)]
+  if regK > 1 then gx, gy = floor(gx / regK + 0.5), floor(gy / regK + 0.5) end
+  if engineFallback then return engineCache[(gy - rRegY0) * rRegW + gx - rRegX0] end
+  return f2e[byte(rows[gy - rRegY0 + 1], gx - rRegX0 + 1)]
 end
 M.layerAt = layerAt
 
@@ -1210,7 +1238,7 @@ function P.verifyOrientation(direct, flipped, x0, y0, x1, y1)
     local fl = f2e[byte(flipped[j + 1], i + 1)]
     if d ~= fl then
       disc = disc + 1
-      v:set(ter.ox + (x0 + i) * ter.sq + 0.01, ter.oy + (y0 + j) * ter.sq + 0.01, 0)
+      v:set(ter.ox + (x0 + i) * ter.realSq + 0.01, ter.oy + (y0 + j) * ter.realSq + 0.01, 0)
       local e = tonumber(ter.tb:getMaterialIdxWs(v)) or -1
       if e == d then agreeD = agreeD + 1 elseif e == fl then agreeF = agreeF + 1 end
     end
@@ -1346,18 +1374,28 @@ function P.buildDistanceField(c)
   local w, h = c.w, c.y1 - c.y0 + 1
   local cap = distCap
   local d = ffi.new('uint8_t[?]', w * h)
+  -- virtual column / row -> real one (nearest real vertex); the same on a K = 1 grid
+  local K = c.K
+  local ri = ffi.new('int32_t[?]', w)
+  for i = 0, w - 1 do ri[i] = floor((c.x0 + i) / K + 0.5) - c.rx0 end
   for j = 0, h - 1 do
     if j % 64 == 0 then P.coYield() end
     local base = j * w
+    local rj = floor((c.y0 + j) / K + 0.5) - c.ry0
     if c.fallback then
-      local ec = c.cache
+      local ec, rb = c.cache, rj * c.rw
       for i = 0, w - 1 do
-        d[base + i] = (layerSoft[ec[base + i]] ~= 0) and cap or 0
+        d[base + i] = (layerSoft[ec[rb + ri[i]]] ~= 0) and cap or 0
       end
-    else
-      local row = c.rows[j + 1]
+    elseif K == 1 then
+      local row = c.rows[rj + 1]
       for i = 0, w - 1 do
         d[base + i] = (layerSoft[f2e[byte(row, i + 1)]] ~= 0) and cap or 0
+      end
+    else
+      local row = c.rows[rj + 1]
+      for i = 0, w - 1 do
+        d[base + i] = (layerSoft[f2e[byte(row, ri[i] + 1)]] ~= 0) and cap or 0
       end
     end
   end
@@ -2421,7 +2459,7 @@ function P.meshedSoftArea()
   local sq = ter.sq
   local h = cfg.physics and cfg.physics.mode == 'heavy' and cfg.physics.heavy
   local function meshed(kind, depth)
-    if not h then return true end
+    if not h or ter.K > 1 then return true end
     local l = tonumber(h.floorLift and h.floorLift[kind]) or 0
     return l < depth - 1e-3
   end
@@ -2543,9 +2581,24 @@ function P.initTerrain()
   ter.clampRaw = 0 -- heights are unsigned above the terrain origin (pitfall 1)
   if not ter.localZ then ter.clampRaw = ter.oz end
 
+  -- Coarse terrains (squares over region.maxSquare, e.g. huge_desert's 64 m): the mod works
+  -- on a virtual grid K times finer (region.virtualSquare, 1 m). Tiles of one 64 m square
+  -- with 0.2 m cells were 320 x 320 cells (100k-vertex meshes, the game hung).
+  local K = 1
+  local rc = cfg.region or {}
+  if sq > (tonumber(rc.maxSquare) or 2) then K = ceil(sq / (tonumber(rc.virtualSquare) or 1)) end
+  ter.K, ter.realSq, ter.realSize = K, sq, S
+  if K > 1 then
+    ter.sq, ter.invSq, ter.size = sq / K, K / sq, (S - 1) * K + 1
+    log('I', logTag, sfmt('coarse terrain: %g m squares, working on a %g m grid (x%d); no rut floor writes', sq, ter.sq, K))
+  end
+
   P.refreshLayerDepths()
 
-  if lm then
+  if lm and lm.packed then
+    P.orientation, P.orientSure = 'engine', true
+    log('I', logTag, sfmt('layer map %dx%d v%d packed (seek %.0f ms): region layers read from the engine', S, S, lm.version, lm.seekMs))
+  elseif lm then
     P.orientation, P.orientSure = 'direct', false
     log('I', logTag, sfmt('layer map %dx%d v%d', S, S, lm.version))
   else
@@ -2558,6 +2611,7 @@ function P.initTerrain()
   P.reg.cx, P.reg.cy = fx, fy
   local c = P.loadRegion(P.regionBox(fx, fy))
   P.setRegion(c)
+  P.regionData = c
   P.stats.layerMapMs = P.stats.layerMapMs + c.layerMs
   P.stats.distMs = c.distMs
   P.stats.orientation = P.orientation
@@ -2608,15 +2662,22 @@ end
 -- The row order is checked on the first region that tells (P.orientSure).
 function P.loadRegion(x0, y0, x1, y1)
   local c = { x0 = x0, y0 = y0, x1 = x1, y1 = y1, w = x1 - x0 + 1 }
+  -- the real vertices nearest to the box's virtual ones (the box itself when K = 1)
+  local K, rS = ter.K, ter.realSize
+  c.K = K
+  c.rx0, c.ry0 = clamp(floor(x0 / K + 0.5), 0, rS - 1), clamp(floor(y0 / K + 0.5), 0, rS - 1)
+  c.rx1, c.ry1 = clamp(floor(x1 / K + 0.5), 0, rS - 1), clamp(floor(y1 / K + 0.5), 0, rS - 1)
+  c.rw = c.rx1 - c.rx0 + 1
+  local rx0, ry0, rx1, ry1 = c.rx0, c.ry0, c.rx1, c.ry1
   local t0 = newTimer()
   if P.terHdr and P.orientation ~= 'engine' then
     if P.orientSure then
-      c.rows = P.regionRows(x0, y0, x1, y1, P.orientation)
+      c.rows = P.regionRows(rx0, ry0, rx1, ry1, P.orientation)
     else
-      local dr = P.regionRows(x0, y0, x1, y1, 'direct')
-      local fr = dr and P.regionRows(x0, y0, x1, y1, 'flipped')
+      local dr = P.regionRows(rx0, ry0, rx1, ry1, 'direct')
+      local fr = dr and P.regionRows(rx0, ry0, rx1, ry1, 'flipped')
       if dr and fr then
-        local o, disc, aD, aF = P.verifyOrientation(dr, fr, x0, y0, x1, y1)
+        local o, disc, aD, aF = P.verifyOrientation(dr, fr, rx0, ry0, rx1, ry1)
         P.orientation = o
         P.orientSure = disc >= 20
         log('I', logTag, sfmt('layer map row order check: %s (%d samples, direct %d, flipped %d)%s', o, disc, aD, aF,
@@ -2632,21 +2693,207 @@ function P.loadRegion(x0, y0, x1, y1)
   if not c.rows then
     c.fallback = true
     local t1 = newTimer()
-    c.cache = P.readEngineLayerMap(x0, y0, x1, y1)
-    log('W', logTag, sfmt('layer map of %d x %d vertices read from the engine vertex by vertex (%.0f ms)',
-      c.w, y1 - y0 + 1, t1:stop()))
+    c.cache = P.readEngineLayerMap(rx0, ry0, rx1, ry1)
+    log((P.terHdr and P.terHdr.packed) and 'D' or 'W', logTag, sfmt('layer map of %d x %d vertices read from the engine vertex by vertex (%.0f ms)',
+      c.rw, ry1 - ry0 + 1, t1:stop()))
   end
   c.layerMs = t0:stopAndReset()
   c.dist = P.buildDistanceField(c)
+  if K > 1 then P.coarseLowering(c) end
   c.distMs = t0:stop()
   return c
 end
 
 function P.setRegion(c)
   regX0, regY0, regX1, regY1, regW = c.x0, c.y0, c.x1, c.y1, c.w
+  regK, rRegX0, rRegY0, rRegW = c.K, c.rx0, c.ry0, c.rw
   rows, engineCache, engineFallback = c.rows, c.cache, c.fallback == true
   dist = c.dist
   M.region = { c.x0, c.y0, c.x1, c.y1 }
+end
+
+-------------------------------------------------------------------------------
+-- coarse terrains (ter.K > 1): sink on the real vertices
+-------------------------------------------------------------------------------
+-- The mod's grid is K times finer than the terrain's (1 m on huge_desert's 64 m squares).
+-- One real vertex moves the terrain over 2K x 2K virtual squares, so it is lowered only by
+-- the smallest full sink depth on every virtual vertex of the squares around it (0 where
+-- any of them is hard ground, feathered, outside the region or in a zone only). The terrain
+-- between real vertices follows their interpolation, so it never lies deeper than the mud
+-- drawn over it; where it is not lowered the terrain draws the ground (terrain-first) and
+-- ruts there stay hidden under it. No rut floor writes (deepnode_physics): one real vertex
+-- cannot make a rut. Loaded with the region (coroutine), applied by P.coarseSink.
+function P.coarseLowering(c)
+  local K, w, h = c.K, c.w, c.y1 - c.y0 + 1
+  local rw, rh = c.rw, c.ry1 - c.ry0 + 1
+  local d = c.dist
+  local full = TOUCH + 3 * featherVerts
+  local ri = ffi.new('int32_t[?]', w)
+  for i = 0, w - 1 do ri[i] = floor((c.x0 + i) / K + 0.5) - c.rx0 end
+  -- pass 1: per virtual row, the minimum over each real vertex's x window
+  local rowMin = ffi.new('float[?]', h * rw)
+  for j = 0, h - 1 do
+    if j % 16 == 0 then P.coYield() end
+    local base = j * w
+    local rj = floor((c.y0 + j) / K + 0.5) - c.ry0
+    local row = c.rows and c.rows[rj + 1]
+    local cb = rj * rw
+    for rx = 0, rw - 1 do
+      local cx = (c.rx0 + rx) * K - c.x0
+      local lo, hi = cx - K, cx + K
+      local m = 0
+      if lo >= 0 and hi <= w - 1 then
+        m = huge
+        for i = lo, hi do
+          local dv = 0
+          if d[base + i] >= full then
+            local e = row and f2e[byte(row, ri[i] + 1)] or c.cache[cb + ri[i]]
+            dv = layerDepth[e]
+          end
+          if dv < m then
+            m = dv
+            if m <= 0 then break end
+          end
+        end
+      end
+      rowMin[j * rw + rx] = m
+    end
+  end
+  -- pass 2: per real vertex, the minimum over its y window
+  local low = ffi.new('float[?]', rw * rh)
+  for ry = 0, rh - 1 do
+    local cy = (c.ry0 + ry) * K - c.y0
+    local lo, hi = cy - K, cy + K
+    for rx = 0, rw - 1 do
+      local m = 0
+      if lo >= 0 and hi <= h - 1 then
+        m = huge
+        for j = lo, hi do
+          local v = rowMin[j * rw + rx]
+          if v < m then
+            m = v
+            if m <= 0 then break end
+          end
+        end
+      end
+      low[ry * rw + rx] = m
+    end
+  end
+  c.low = low
+end
+
+-- terrain lowering under virtual vertex (gx, gy): the real vertices' lowering interpolated
+function P.coarseLowAt(gx, gy)
+  local cv = P.cv
+  if not cv then return 0 end
+  local K = ter.K
+  local fx, fy = gx / K - cv.rx0, gy / K - cv.ry0
+  local rw, rh = cv.rw, cv.rh
+  if fx < 0 or fy < 0 or fx > rw - 1 or fy > rh - 1 or rw < 2 or rh < 2 then return 0 end
+  local ix, iy = min(floor(fx), rw - 2), min(floor(fy), rh - 2)
+  local ax, ay = fx - ix, fy - iy
+  local L, b = cv.low, iy * rw + ix
+  return (L[b] * (1 - ax) + L[b + 1] * ax) * (1 - ay) + (L[b + rw] * (1 - ax) + L[b + rw + 1] * ax) * ay
+end
+
+-- Lower the real vertices of region data c (c.low) where they differ from the current
+-- state (P.cv; nil at start), put back the ones that left. Returns the height writes.
+function P.coarseSink(c)
+  local old = P.cv
+  local tb, clampRaw, K = ter.tb, ter.clampRaw, ter.K
+  local rx0, ry0, rx1, ry1, rw = c.rx0, c.ry0, c.rx1, c.ry1, c.rw
+  local rh = ry1 - ry0 + 1
+  -- want: the lowering asked for; low: what the height grid holds after the write (it rounds
+  -- every height to maxHeight / 65536: up to 9 cm off on huge_desert), used for the mud surface
+  local new = { rx0 = rx0, ry0 = ry0, rx1 = rx1, ry1 = ry1, rw = rw, rh = rh, want = c.low,
+    low = ffi.new('float[?]', rw * rh), raw = ffi.new('float[?]', rw * rh) }
+  local wx0, wy0, wx1, wy1 = huge, huge, -huge, -huge
+  local n = 0
+  local function wrote(rx, ry)
+    n = n + 1
+    if rx < wx0 then wx0 = rx end
+    if rx > wx1 then wx1 = rx end
+    if ry < wy0 then wy0 = ry end
+    if ry > wy1 then wy1 = ry end
+  end
+  for ry = ry0, ry1 do
+    for rx = rx0, rx1 do
+      local k = (ry - ry0) * rw + rx - rx0
+      local raw, cur, got = nil, 0, 0
+      if old and rx >= old.rx0 and rx <= old.rx1 and ry >= old.ry0 and ry <= old.ry1 then
+        local ok = (ry - old.ry0) * old.rw + rx - old.rx0
+        raw, cur, got = old.raw[ok], old.want[ok], old.low[ok]
+      else
+        raw = tb:getHeightGrid(rx, ry)
+      end
+      new.raw[k] = raw
+      local want = new.want[k]
+      if raw - want < clampRaw then want = max(0, raw - clampRaw); new.want[k] = want end
+      if abs(want - cur) > 1e-4 then
+        tb:setHeightGrid(rx, ry, raw - want)
+        got = want > 0 and raw - tb:getHeightGrid(rx, ry) or 0
+        wrote(rx, ry)
+      end
+      new.low[k] = got
+    end
+  end
+  if old then
+    for ry = old.ry0, old.ry1 do
+      for rx = old.rx0, old.rx1 do
+        if rx < rx0 or rx > rx1 or ry < ry0 or ry > ry1 then
+          local ok = (ry - old.ry0) * old.rw + rx - old.rx0
+          if old.want[ok] > 1e-4 then
+            tb:setHeightGrid(rx, ry, old.raw[ok])
+            wrote(rx, ry)
+          end
+        end
+      end
+    end
+  end
+  if n > 0 then tb:updateGrid(vec3(wx0, wy0, 0), vec3(wx1, wy1, 0)) end
+  P.cv = new
+  -- sectors over lowered terrain draw the mud (P.loweredSectors), and the box of it
+  P.loweredSectors = {}
+  local span = TS * SEC
+  local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
+  local nLow = 0
+  for ry = ry0, ry1 do
+    for rx = rx0, rx1 do
+      if new.want[(ry - ry0) * rw + rx - rx0] > 1e-4 then
+        nLow = nLow + 1
+        local vx0, vx1 = max(regX0, (rx - 1) * K), min(regX1, (rx + 1) * K)
+        local vy0, vy1 = max(regY0, (ry - 1) * K), min(regY1, (ry + 1) * K)
+        if vx0 < bx0 then bx0 = vx0 end
+        if vx1 > bx1 then bx1 = vx1 end
+        if vy0 < by0 then by0 = vy0 end
+        if vy1 > by1 then by1 = vy1 end
+        for sy = floor(vy0 / span), floor(vy1 / span) do
+          for sx = floor(vx0 / span), floor(vx1 / span) do P.loweredSectors[sy * KEY + sx] = true end
+        end
+      end
+    end
+  end
+  P.sinkBox = nLow > 0 and { bx0, by0, bx1, by1 } or nil
+  P.stats.sunkVertices = nLow
+  return n
+end
+
+function P.coarseRestore()
+  local cv = P.cv
+  P.cv = nil
+  if not cv or not ter then return end
+  local tb = ter.tb
+  local wx0, wy0, wx1, wy1 = huge, huge, -huge, -huge
+  for ry = cv.ry0, cv.ry1 do
+    for rx = cv.rx0, cv.rx1 do
+      local k = (ry - cv.ry0) * cv.rw + rx - cv.rx0
+      if cv.want[k] > 1e-4 then
+        tb:setHeightGrid(rx, ry, cv.raw[k])
+        wx0, wy0, wx1, wy1 = min(wx0, rx), min(wy0, ry), max(wx1, rx), max(wy1, ry)
+      end
+    end
+  end
+  if wx0 <= wx1 then tb:updateGrid(vec3(wx0, wy0, 0), vec3(wx1, wy1, 0)) end
 end
 
 -- lift: m the terrain was left above the full sink (physics 'heavy' rut floor); the
@@ -2695,6 +2942,7 @@ end
 
 -- current lift of a vertex (0 outside the heavy rut floor)
 function P.liftOf(gx, gy)
+  if ter.K > 1 then return depthAt(gx, gy) - P.coarseLowAt(gx, gy) end
   local k = P.sinkFind(gy * ter.size + gx)
   return k and P.sinkLift[k] or 0
 end
@@ -2714,6 +2962,7 @@ function P.vertexFlush(gx, gy)
   if gx < 0 or gy < 0 or gx >= S or gy >= S then return true end
   local d = depthAt(gx, gy)
   if d <= 0 then return true end
+  if ter.K > 1 then return P.coarseLowAt(gx, gy) <= P.FLUSH_TOL end
   local idx = gy * S + gx
   if P.shortfall[idx] then return false end
   local k = P.sinkFind(idx)
@@ -2747,7 +2996,7 @@ end
 -- visual sink of a soft layer: depth minus the heavy floor lift (0 = terrain at the surface)
 function P.layerVisualDepth(L)
   local d = L.sinkDepth or 0
-  if not P.liftOn then return d end
+  if not P.liftOn or ter.K > 1 then return d end
   local h = cfg.physics and cfg.physics.heavy
   local l = tonumber(h and h.floorLift and h.floorLift[L.kind]) or 0
   return max(0, d - min(max(0, l), d))
@@ -2811,6 +3060,16 @@ end
 -- shortfall (pitfall 1). Only at mod start, never while driving.
 function P.sinkPass()
   local t0 = newTimer()
+  if ter.K > 1 then
+    P.liftOn = true -- terrain-first: unlowered ground is drawn by the terrain
+    P.sinkCount, P.shortfall = 0, {}
+    local n = P.coarseSink(P.regionData)
+    sinkApplied = true
+    P.stats.sinkMs = t0:stopAndReset()
+    log('I', logTag, sfmt('sink pass (coarse): %d real vertices lowered, %d height writes in %.1f ms',
+      P.stats.sunkVertices, n, P.stats.sinkMs))
+    return
+  end
   local tb = ter.tb
   local S = ter.size
   P.sinkCount = 0
@@ -2866,6 +3125,12 @@ end
 
 function P.restoreTerrain()
   if not sinkApplied or not ter then sinkApplied = false; return end
+  if ter.K > 1 then
+    P.coarseRestore()
+    log('I', logTag, 'terrain restored (coarse)')
+    sinkApplied, P.sinkBox = false, nil
+    return
+  end
   local tb = ter.tb
   local S = ter.size
   for k = 0, P.sinkCount - 1 do
@@ -2924,6 +3189,7 @@ function P.shiftRegion(fx, fy, c)
   local x0, y0, x1, y1 = c.x0, c.y0, c.x1, c.y1
   local ox0, oy0, ox1, oy1 = regX0, regY0, regX1, regY1
   local loadMs = t0:stopAndReset()
+  if ter.K > 1 then return P.shiftCoarse(fx, fy, c, { ox0, oy0, ox1, oy1 }, t0, loadMs) end
 
   local oN, oIdx, oRaw, oLift, oLift0, oBase = P.sinkCount, P.sinkIdx, P.sinkRaw, P.sinkLift, P.sinkLift0, P.sinkBase
   local oShort = P.shortfall
@@ -3030,10 +3296,28 @@ function P.shiftRegion(fx, fy, c)
   local gridMs = t0:stopAndReset()
   if ph and ph.remapRecords then ph.remapRecords(map, oN) end
 
-  -- tiles and sectors outside the stable box
-  local m = ceil(distCap / 3) + 2
-  local sx0, sy0 = max(ox0, x0) + m, max(oy0, y0) + m
-  local sx1, sy1 = min(ox1, x1) - m, min(oy1, y1) - m
+  P.shiftTail(fx, fy, { ox0, oy0, ox1, oy1 }, { x0, y0, x1, y1 }, 0, t0, loadMs, sinkMs, gridMs,
+    sfmt('%d kept, %d new, %d gone, %d height writes', nKept, nNew, nGone, nWrites))
+end
+
+-- Coarse terrain shift: the real vertices' lowering of the new region in place of the
+-- per-vertex sink records (no rut floor to keep).
+function P.shiftCoarse(fx, fy, c, ob, t0, loadMs)
+  P.setRegion(c)
+  P.regionData = c
+  local n = P.coarseSink(c)
+  local sinkMs = t0:stopAndReset()
+  -- a real vertex's lowering depends on the mud within K virtual squares of it
+  P.shiftTail(fx, fy, ob, { c.x0, c.y0, c.x1, c.y1 }, 2 * ter.K, t0, loadMs, sinkMs, 0,
+    sfmt('%d real vertices lowered, %d height writes (coarse)', P.stats.sunkVertices, n))
+end
+
+-- After a shift: tiles and sectors outside the stable box (inside both regions, the
+-- feather reach plus extra squares from their borders) go; roads follow the soft ground.
+function P.shiftTail(fx, fy, ob, nb, extra, t0, loadMs, sinkMs, gridMs, what)
+  local m = ceil(distCap / 3) + 2 + extra
+  local sx0, sy0 = max(ob[1], nb[1]) + m, max(ob[2], nb[2]) + m
+  local sx1, sy1 = min(ob[3], nb[3]) - m, min(ob[4], nb[4]) - m
   local drop = {}
   for _, t in pairs(tiles) do
     if t.gx0 < sx0 or t.gy0 < sy0 or t.gx0 + TS > sx1 or t.gy0 + TS > sy1 then drop[#drop + 1] = t end
@@ -3061,15 +3345,15 @@ function P.shiftRegion(fx, fy, c)
 
   local st = P.stats
   st.regionShifts = (st.regionShifts or 0) + 1
-  st.sunkVertices = P.sinkCount
+  if ter.K == 1 then st.sunkVertices = P.sinkCount end
   local total = loadMs + sinkMs + gridMs + tileMs + roadMs
   st.regionShiftMs = total
   st.regionShiftMaxMs = max(st.regionShiftMaxMs or 0, total)
   local bg = P.reg.coMs and sfmt(', loaded before in %d frames, %.0f ms', P.reg.coFrames, P.reg.coMs) or ''
   P.reg.coMs = nil
-  log('I', logTag, sfmt('region moved to %.0f, %.0f: %d kept, %d new, %d gone, %d height writes, %d tiles dropped; '
+  log('I', logTag, sfmt('region moved to %.0f, %.0f: %s, %d tiles dropped; '
     .. '%.0f ms (layers + distance %.0f, sink %.0f, terrain update %.0f, tiles %.0f, roads %.0f)%s',
-    fx, fy, nKept, nNew, nGone, nWrites, #drop, total, loadMs, sinkMs, gridMs, tileMs, roadMs, bg))
+    fx, fy, what, #drop, total, loadMs, sinkMs, gridMs, tileMs, roadMs, bg))
 end
 
 -- twice a second: recentre the region once the player is shiftAt m off its centre (or
@@ -3315,7 +3599,7 @@ function P.createLayerMaterials()
       -- (terrainImpl.hlsl: uv = terrainUv * layerSize, then uv / size): on Johnson Valley
       -- (0.75 m squares) the 4096 base map spans the 3072 m terrain. Spanning it over
       -- 4096 m put the base map's dark patches in the wrong places.
-      local sq = ter.sq
+      local sq = ter.realSq
       t.macroSize = (t.macroSize or 0) * sq
       local base, bsize = t.base, t.baseSize * sq
       local detail, dsize = t.detail, t.detailSize * sq
@@ -4074,7 +4358,7 @@ function M.getLoweredSectors() return P.loweredSectors end
 P.frameVertexCache = {}
 
 function P.cachedRest(gx, gy)
-  local k = gy * 131072 + gx
+  local k = gy * (ter.size + 1) + gx
   local v = P.frameVertexCache[k]
   if v then return v[1], v[2] end
   local _, member = depthAt(gx, gy)
@@ -6430,6 +6714,11 @@ function P.start()
   TILE = TS * ter.sq
   SEC = max(1, floor(cfg.sectors.tiles))
   M.ts, M.cps, M.N, M.cell, M.tileSize, M.sec = TS, CPS, N, CELL, TILE, SEC
+  -- tile / sector key = y * KEY + x: KEY above the tiles per axis (a coarse terrain's
+  -- virtual grid has 100k+ tiles per axis)
+  KEY = 65536
+  while KEY < ceil(ter.size / TS) + 2 do KEY = KEY * 2 end
+  M.KEY = KEY
 
   tiles = {}
   M.tiles = tiles
@@ -6573,7 +6862,7 @@ function P.stop(objectsAlive)
       if veh then veh:queueLuaCommand('extensions.unload("deepnode_vehicle")') end
     end
   else
-    sinkApplied, P.sinkCount, P.shortfall, P.sinkBox = false, 0, {}, nil
+    sinkApplied, P.sinkCount, P.shortfall, P.sinkBox, P.cv = false, 0, {}, nil, nil
     P.roadsChanged, P.roadsPending, P.roadsById = {}, {}, {}
   end
   P.setSSSOff(false)
@@ -6587,7 +6876,7 @@ function P.stop(objectsAlive)
   P.started = false
   rows, dist, engineCache = nil, nil, nil
   regX0, regY0, regX1, regY1, regW = 0, 0, -1, -1, 0
-  P.reg, M.region = nil, nil
+  P.reg, M.region, P.regionData = nil, nil, nil
   P.roadEdgeList, P.roadMaskOn, P.roadMask, P.roadQuads, P.roadMaskN = nil, nil, {}, nil, 0
   ter = nil
   M.ter = nil

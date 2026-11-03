@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+- The game hung (Windows STATUS_APPLICATION_HANG) on huge_desert: its terrain is 8192 x 8192
+  squares of 64 m (524 km, ~275k km2). Tiles were one 64 m square with 0.2 m cells, i.e.
+  320 x 320 cells and 100k-vertex meshes per tile; the old whole-map sink pass also took 27.8 s
+  (67M vertices). Terrains with squares over `region.maxSquare` (2 m) now get a virtual grid of
+  `region.virtualSquare` (1 m): tiles, ruts and mud work on it, heights come from the terrain
+  surface, and the sink lowers the real 64 m vertices only where all mud within one square of
+  them is at full depth (read back after the write: the height grid rounds to ~9 cm there). No
+  rut floor writes on such terrains (one real vertex spans many ruts). huge_desert: start 0.8 s,
+  ruts at 58-60 fps (mod frame <= 8.5 ms), region shifts load 14-31 ms over 4-7 frames and switch
+  in 17-59 ms (mostly the engine's terrain update on 8192^2), exact terrain restore.
+- Packed levels (terrain file inside a zip) seek by decompressing: huge_desert 534 ms per
+  100 MB, so each region read stalled ~0.7-1.5 s in one frame. Big packed terrains (> 4096^2,
+  8 MB seek probe over 5 ms) read their region layers from the engine instead.
+
 ### Added
 - Region mode for big maps (BeamNG.earth, hw550): on terrains over 16 km2 (`region.enabled`
   'auto') the mod works in a 1 km x 1 km region around the player only. The layer map, distance
