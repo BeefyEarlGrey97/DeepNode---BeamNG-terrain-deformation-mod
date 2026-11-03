@@ -223,6 +223,16 @@ function M.markAllDirty()
   for _, sec in pairs(sectors) do sec.dirty = true end
 end
 
+-- region shift: every sector not wholly inside the vertex box gx0..gx1 x gy0..gy1 (the
+-- terrain data outside it changed); sectors left without content unload on their own
+function M.markDirtyOutside(gx0, gy0, gx1, gy1)
+  local KEY, n = ctx.KEY, ctx.sec * ctx.ts
+  for key, sec in pairs(sectors) do
+    local sx, sy = key % KEY, floor(key / KEY)
+    if sx * n < gx0 or sy * n < gy0 or (sx + 1) * n > gx1 or (sy + 1) * n > gy1 then sec.dirty = true end
+  end
+end
+
 -- A tile mesh leaves the active ring. A handover to an unloaded sector loads it.
 function M.handover(sk, obj, tileKey)
   local sec = sectors[sk]

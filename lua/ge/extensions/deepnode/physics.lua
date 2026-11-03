@@ -700,6 +700,34 @@ function M.start(main, layers)
   if heavy() then applyGroundModels(layers) end
 end
 
+-- main's region shift renumbered the sink records: map[old] = new record, -1 = gone (the
+-- vertex left the region or was sunk again: its queued write is void)
+function M.remapRecords(map, n)
+  local function nk(k) if k < n then return map[k] end return -1 end
+  local np, c = {}, 0
+  for k, w in pairs(pending) do
+    local k2 = nk(k)
+    if k2 >= 0 then np[k2] = w; c = c + 1 end
+  end
+  pending, npend = np, c
+  local nd = {}
+  for k, l in pairs(drawn) do
+    local k2 = nk(k)
+    if k2 >= 0 then nd[k2] = l end
+  end
+  drawn = nd
+  for _, e in pairs(renderWait) do
+    local ks = {}
+    for i = 1, #e[7] do
+      local k2 = nk(e[7][i])
+      if k2 >= 0 then ks[#ks + 1] = k2 end
+    end
+    e[7] = ks
+  end
+  -- grass clusters were read with the old region's layers (hard outside it)
+  blockGrass = {}
+end
+
 function M.stop(objectsAlive)
   restoreGroundModels()
   pending, npend = {}, 0

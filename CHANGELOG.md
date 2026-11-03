@@ -2,7 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+- Region mode for big maps (BeamNG.earth, hw550): on terrains over 16 km2 (`region.enabled`
+  'auto') the mod works in a 1 km x 1 km region around the player only. The layer map, distance
+  field, sink pass, tiles and road cover cover the region; outside it the terrain stays as it is.
+  Once the player is 250 m off the region centre (`region.shiftAt`) or outside it, the region is
+  recentred: the next region's layer map and distance field load over a few frames
+  (`region.loadBudgetMs` 4 ms), then one frame keeps the overlap (sunk vertices, rut floor,
+  tiles), gives the vertices that left their original height back, sinks the ones that entered
+  and drops the tiles outside the stable overlap. Measured on gridmap_v2 forced to region mode
+  (1001 x 1001 squares): load 8-14 ms over 3-4 frames, switch frame 4-13 ms; after a far jump the
+  terrain matches its original heights exactly (54 rutted floor vertices restored); ruts in the
+  overlap survive a shift. Memory per array: ~1 MB per km2 instead of S x S bytes (268 MB each
+  on a 16384 x 16384 terrain); start no longer reads or scans the whole map.
+- Terrain files up to 32768 x 32768 vertices (was 16384).
+
 ### Changed
+- Decal road edges are read once per start (`P.roadEdges`) and reused by the road carve, the
+  road cover and the overlay's road mask. The road mask is built per 64-square chunk at the
+  first lookup (gridmap_v2: whole-map mask 14 ms / 162k squares per km2 -> 4 ms index at start).
 - Decal road copies (`roads.mode` 'copy'): the drawn cells of a dug square are merged into planar
   rectangles for the copies (`roads.copyMerge`, `copyMergeFlat` 4 mm, tested against the two
   triangles the copy draws). gridmap_v2, one lc300 in a 60 m circle: copy corners per upload

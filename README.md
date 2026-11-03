@@ -23,6 +23,7 @@ learned by reading the Dynamic Scratch mod; none of its code, shaders or texture
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
 - Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
 - Experimental screen-space ground look (after MudRunner): universal tyre prints, wet churned mud, crumbs on the berms, water pooled in the rut hollows, wet trenches, mud splats from spinning wheels, mud carried onto hard ground, grass / dirt tracks, wet tracks that dry, wet glossy tyres, all drawn by GPU post effects (no mesh uploads), on by default (GUI **Experimental tread prints**)
+- Big maps (BeamNG.earth, hw550): the mod works in a 1 km2 region around the player that moves with them (`region`)
 - Simple UI with live settings and performance stats
   
 ## Benchmarks included
@@ -52,6 +53,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 13. Experimental ground look: GPU cost not measured exactly, night/rain unchecked; pooled water only on print texels: see docs/OPEN_ISSUES.md §14.
 14. Heavy mode: grass within one 10 m groundcover cell of a digging truck can still blink about once a second (every terrain update rebuilds the cells over it): docs/OPEN_ISSUES.md §15.
 15. Crossing ruts merge on the 1 m terrain grid (ridge between a truck's rut lines is 0.8 m); a ~5 cm settle when a vehicle stops: docs/OPEN_ISSUES.md §17.
+16. Region mode on big maps: ruts outside the overlap are dropped when the region moves, not yet tried on a BeamNG.earth map: docs/OPEN_ISSUES.md §19.
 
 ## Contributing and forking
 

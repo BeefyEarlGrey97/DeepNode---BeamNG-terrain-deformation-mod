@@ -500,6 +500,21 @@ Lengths are metres, speeds m/s, times seconds.
 | `autoStart` | true | Start automatically when a level loads |
 | `softMatch` | ["mud","sand"] | Texts that make a layer soft (layer name or ground model name) |
 
+### region
+
+Big maps: the mod works in a square region around the player (layer map, distance field,
+sink, tiles, road cover); outside it the terrain is left alone. The region follows the player:
+the overlap keeps its ruts, tiles outside it are dropped and their terrain restored.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | 'auto' | true, false, or 'auto' (on for terrains over `autoAboveKm2`) |
+| `autoAboveKm2` | 16 | Terrain area above which 'auto' turns region mode on (gridmap_v2 4, johnson_valley 9.4 stay whole; hw550 67 uses regions) |
+| `size` | 1000 | Side of the region in m (1 km2) |
+| `shiftAt` | 250 | Distance (either axis) of the player from the region centre that recentres it; also when the player is outside it |
+| `checkEvery` | 0.5 | Seconds between checks |
+| `loadBudgetMs` | 4 | ms per frame for loading the next region's layer map and distance field (the switch itself runs in one frame) |
+
 ### layers
 
 | Key | Default | Meaning |

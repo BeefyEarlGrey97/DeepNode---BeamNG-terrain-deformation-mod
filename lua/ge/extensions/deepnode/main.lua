@@ -89,6 +89,18 @@ local defaults = {
     -- 4 cm dip at depth 0 hides terrain LOD wobble along the border line
     edgeDip = 0.04,
   },
+  -- Big maps (BeamNG.earth, hundreds of km2): the mod works in a square region around the
+  -- player only (layer map, distance field, sink, tiles, roads); outside it the terrain is
+  -- left as it is. The region is recentred on the player once they are shiftAt m off its
+  -- centre: the overlap keeps its ruts, the rest is rebuilt in one go (one terrain update).
+  region = {
+    enabled = 'auto',       -- true, false, or 'auto': on for terrains over autoAboveKm2
+    autoAboveKm2 = 16,      -- 4 km x 4 km; gridmap_v2 (4 km2), Johnson Valley (9.4) stay whole
+    size = 1000,            -- m: side of the region (1 km2)
+    shiftAt = 250,          -- m off the region centre (either axis) that moves it
+    checkEvery = 0.5,       -- s between checks
+    loadBudgetMs = 4,       -- ms per frame for loading the next region (layer map, distance field)
+  },
   roads = {
     -- Decal roads lie on the terrain at the height the mud surface is drawn, so the mud
     -- mesh would hide them. Terrain vertices under a decal road are not soft ground:
@@ -841,19 +853,24 @@ P.levelName = nil
 
 local ter = nil            -- terrain info, see initTerrain
 M.ter = nil
-local rows = nil           -- layer map rows (Lua strings, file order)
-local flipRows = false
+-- Region (cfg.region): the mod only works inside a box of terrain vertices regX0..regX1 x
+-- regY0..regY1 around the player (the whole terrain on small maps). Outside it every vertex
+-- counts as hard ground. The layer map, distance field and engine fallback cache below hold
+-- the box only (index (gy - regY0) * regW + gx - regX0), so a 16384^2 map needs ~1 MB per
+-- km2 instead of 268 MB for each of them, and start / shifts touch the box only.
+local regX0, regY0, regX1, regY1, regW = 0, 0, -1, -1, 0
+local rows = nil           -- layer map rows of the region (Lua strings, gy order: rows[gy - regY0 + 1])
 local engineFallback = false
 P.orientation = 'none'
 local f2e = ffi.new('uint8_t[256]')
 local layerSoft = ffi.new('uint8_t[256]')
 local layerDepth = ffi.new('float[256]')
 local layers = {}
-local dist = nil           -- uint8 [S*S]: Chebyshev distance to a non-soft vertex, capped
+local dist = nil           -- uint8 [region]: chamfer distance to a non-soft vertex, capped
 local distCap = 4
 local featherVerts = 3
 local edgeDip = 0.04
-local engineCache = nil    -- fallback: uint8 [S*S] layer map read from the engine
+local engineCache = nil    -- fallback: uint8 [region] layer map read from the engine
 local zones = {}
 local zoneBox = nil
 P.zoneMat = 255
@@ -1048,74 +1065,109 @@ function P.refreshLayerDepths()
   end
 end
 
--- Read the .ter file: u8 version, u32 size, u16 heights[size^2], u8 layers[size^2],
--- then (version 7+) u32 count + count * (u8 len, name). One Lua string per row: the
--- game's LuaJIT does not allow pointer arithmetic on file buffers.
-function P.readLayerMap(fn)
+-- The .ter file: u8 version, u32 size, u16 heights[size^2], u8 layers[size^2], then
+-- (version 7+) u32 count + count * (u8 len, name). Only the header and the layer names are
+-- read here; the layer rows of the region are read by P.readTerRows. One Lua string per
+-- row: the game's LuaJIT does not allow pointer arithmetic on file buffers.
+-- A file handle at byte off (seek, or reading up to it where seek fails), nil on error.
+-- Region loads run in a coroutine over several frames (P.updateRegion): yield once this
+-- frame's share (region.loadBudgetMs) is used. No-op outside that coroutine (start).
+function P.coYield()
+  local r = P.reg
+  if r and r.co and coroutine.running() == r.co and r.coT:stop() > r.coBudget then coroutine.yield() end
+end
+
+function P.fileAt(fn, off)
+  local f = io.open(fn, 'rb')
+  if not f then return nil end
+  local okSeek, pos = pcall(f.seek, f, 'set', off)
+  if okSeek and pos == off then return f end
+  f:close()
+  f = io.open(fn, 'rb')
+  if not f then return nil end
+  local left = off
+  while left > 0 do
+    local n = min(left, 4194304)
+    local s = f:read(n)
+    if not s or #s < n then f:close(); return nil end
+    left = left - n
+  end
+  return f
+end
+
+function P.readTerHeader(fn)
   local f = io.open(fn, 'rb')
   if not f then return nil, 'cannot open ' .. tostring(fn) end
   local head = f:read(5)
-  if not head or #head < 5 then f:close(); return nil, 'short header' end
+  f:close()
+  if not head or #head < 5 then return nil, 'short header' end
   local version = byte(head, 1)
   local S = byte(head, 2) + byte(head, 3) * 256 + byte(head, 4) * 65536 + byte(head, 5) * 16777216
-  if S < 2 or S > 16384 then f:close(); return nil, 'bad terrain size ' .. S end
-  local skip = 2 * S * S
-  local okSeek, pos = pcall(f.seek, f, 'set', 5 + skip)
-  if not okSeek or pos ~= 5 + skip then
-    f:close()
-    f = io.open(fn, 'rb')
-    if not f then return nil, 'reopen failed' end
-    f:read(5)
-    local left = skip
-    while left > 0 do
-      local n = min(left, 4194304)
-      local s = f:read(n)
-      if not s or #s < n then f:close(); return nil, 'short height block' end
-      left = left - n
-    end
-  end
-  local out = {}
-  for r = 1, S do
-    local s = f:read(S)
-    if not s or #s < S then f:close(); return nil, 'short layer map' end
-    out[r] = s
-  end
+  -- 32768: sink record indices gy * S + gx stay inside int32
+  if S < 2 or S > 32768 then return nil, 'bad terrain size ' .. S end
   local names = nil
-  local cs = f:read(4)
+  local g = P.fileAt(fn, 5 + 3 * S * S)
+  local cs = g and g:read(4)
   if cs and #cs == 4 then
     local cnt = byte(cs, 1) + byte(cs, 2) * 256 + byte(cs, 3) * 65536 + byte(cs, 4) * 16777216
     if cnt > 0 and cnt < 256 then
       names = {}
       for i = 0, cnt - 1 do
-        local l = f:read(1)
+        local l = g:read(1)
         if not l then break end
         local len = byte(l)
-        names[i] = len > 0 and (f:read(len) or '') or ''
+        names[i] = len > 0 and (g:read(len) or '') or ''
       end
     end
   end
-  f:close()
-  return { version = version, size = S, rows = out, names = names }
+  if g then g:close() end
+  return { version = version, size = S, names = names, file = fn }
 end
-M.readLayerMap = P.readLayerMap
 
-function P.layerAtEngine(gx, gy)
-  return engineCache[gy * ter.size + gx]
+-- layer bytes gx0..gx1 of file rows fr0..fr1 (0-based), one string per row
+function P.readTerRows(hdr, fr0, fr1, gx0, gx1)
+  local S = hdr.size
+  local f = P.fileAt(hdr.file, 5 + 2 * S * S + fr0 * S)
+  if not f then return nil, 'cannot reach the layer map' end
+  local out, full = {}, gx0 == 0 and gx1 == S - 1
+  for r = fr0, fr1 do
+    if r % 64 == 0 then P.coYield() end
+    local s = f:read(S)
+    if not s or #s < S then f:close(); return nil, 'short layer map' end
+    out[#out + 1] = full and s or s:sub(gx0 + 1, gx1 + 1)
+  end
+  f:close()
+  return out
+end
+
+-- layer rows of the box x0..x1 x y0..y1 in vertex order (out[gy - y0 + 1]) for a file row
+-- order: 'direct' (file row = gy) or 'flipped' (file row = S - 1 - gy)
+function P.regionRows(x0, y0, x1, y1, order)
+  local S = ter.size
+  if order == 'flipped' then
+    local blk, err = P.readTerRows(P.terHdr, S - 1 - y1, S - 1 - y0, x0, x1)
+    if not blk then return nil, err end
+    local out, n = {}, #blk
+    for i = 1, n do out[i] = blk[n + 1 - i] end
+    return out
+  end
+  return P.readTerRows(P.terHdr, y0, y1, x0, x1)
 end
 
 -- Fallback when the .ter file cannot be read or its row order not verified: ask the
--- engine for every vertex once (about 0.3 us per vertex in game: ~5 s for 4096 x 4096).
--- The terrain is lowered over the whole map, so the whole map is needed.
-function P.readEngineLayerMap()
-  local S = ter.size
-  local map = ffi.new('uint8_t[?]', S * S)
+-- engine for every vertex of the box once (about 0.3 us per vertex in game: ~5 s for
+-- 4096 x 4096, ~0.3 s per km2 on a 1 m grid).
+function P.readEngineLayerMap(x0, y0, x1, y1)
+  local w = x1 - x0 + 1
+  local map = ffi.new('uint8_t[?]', w * (y1 - y0 + 1))
   local tb = ter.tb
   local v = vec3()
   local ox, oy, sq = ter.ox + 0.01, ter.oy + 0.01, ter.sq
-  for gy = 0, S - 1 do
-    local base = gy * S
+  for gy = y0, y1 do
+    P.coYield()
+    local base = (gy - y0) * w - x0
     local y = oy + gy * sq
-    for gx = 0, S - 1 do
+    for gx = x0, x1 do
       v:set(ox + gx * sq, y, 0)
       local e = tonumber(tb:getMaterialIdxWs(v)) or -1
       map[base + gx] = (e >= 0 and e < 255) and e or 255
@@ -1124,12 +1176,11 @@ function P.readEngineLayerMap()
   return map
 end
 
+-- outside the region every vertex is hard ground (255)
 local function layerAt(gx, gy)
-  local S = ter.size
-  if gx < 0 or gy < 0 or gx >= S or gy >= S then return 255 end
-  if engineFallback then return P.layerAtEngine(gx, gy) end
-  local row = flipRows and rows[S - gy] or rows[gy + 1]
-  return f2e[byte(row, gx + 1)]
+  if gx < regX0 or gy < regY0 or gx > regX1 or gy > regY1 then return 255 end
+  if engineFallback then return engineCache[(gy - regY0) * regW + gx - regX0] end
+  return f2e[byte(rows[gy - regY0 + 1], gx - regX0 + 1)]
 end
 M.layerAt = layerAt
 
@@ -1141,22 +1192,25 @@ function P.layerNameAt(x, y)
   return L and L.name or nil
 end
 
--- Compare the file rows with the engine on random vertices where the two row
--- orders disagree. Accept an order only with >= 90 % agreement.
-function P.verifyOrientation()
-  local S = ter.size
+-- Compare the two row orders of the region rows with the engine on random vertices where
+-- they disagree. Accept an order only with >= 90 % agreement. disc < 20: the region does
+-- not tell (one layer almost everywhere), 'direct' for now and asked again at the next
+-- region (P.orientSure).
+function P.verifyOrientation(direct, flipped, x0, y0, x1, y1)
+  local w, h = x1 - x0 + 1, y1 - y0 + 1
+  if w < 3 or h < 3 then return 'direct', 0, 0, 0 end
   local rnd = P.lcg(90210)
   local v = vec3()
   local disc, agreeD, agreeF, tries = 0, 0, 0, 0
   while disc < 300 and tries < 8000 do
     tries = tries + 1
-    local gx = 1 + rnd(S - 2)
-    local gy = 1 + rnd(S - 2)
-    local d = f2e[byte(rows[gy + 1], gx + 1)]
-    local fl = f2e[byte(rows[S - gy], gx + 1)]
+    local i = 1 + rnd(w - 2)
+    local j = 1 + rnd(h - 2)
+    local d = f2e[byte(direct[j + 1], i + 1)]
+    local fl = f2e[byte(flipped[j + 1], i + 1)]
     if d ~= fl then
       disc = disc + 1
-      v:set(ter.ox + gx * ter.sq + 0.01, ter.oy + gy * ter.sq + 0.01, 0)
+      v:set(ter.ox + (x0 + i) * ter.sq + 0.01, ter.oy + (y0 + j) * ter.sq + 0.01, 0)
       local e = tonumber(ter.tb:getMaterialIdxWs(v)) or -1
       if e == d then agreeD = agreeD + 1 elseif e == fl then agreeF = agreeF + 1 end
     end
@@ -1166,22 +1220,56 @@ function P.verifyOrientation()
   if agreeF / disc >= 0.9 then return 'flipped', disc, agreeD, agreeF end
   return 'engine', disc, agreeD, agreeF
 end
+-- Visible decal roads with their edge points { lx, ly, rx, ry, ... } (false x4 = gap),
+-- material (lower case) and xy box, read once per start: region shifts carve and cover the
+-- roads again, and walking every road edge through the engine each time was the slow part
+-- on big maps.
+function P.roadEdges()
+  if P.roadEdgeList then return P.roadEdgeList end
+  local list = {}
+  P.roadEdgeList = list
+  local names = scenetree.findClassObjects and scenetree.findClassObjects('DecalRoad')
+  if type(names) ~= 'table' then return list end
+  for _, name in ipairs(names) do
+    local road = scenetree.findObject(name)
+    local okH, hid = pcall(function() return road and road:isHidden() end)
+    if road and okH and not hid then
+      local okC, ec = pcall(function() return road:getEdgeCount() end)
+      ec = okC and tonumber(ec) or 0
+      local e, n = {}, 0
+      local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
+      for i = 0, ec - 1 do
+        local okE, l, r = pcall(function() return road:getLeftEdgePosition(i), road:getRightEdgePosition(i) end)
+        if okE and l and r and isFinite(l.x) and isFinite(l.y) and isFinite(r.x) and isFinite(r.y) then
+          e[n + 1], e[n + 2], e[n + 3], e[n + 4] = l.x, l.y, r.x, r.y
+          bx0, bx1 = min(bx0, l.x, r.x), max(bx1, l.x, r.x)
+          by0, by1 = min(by0, l.y, r.y), max(by1, l.y, r.y)
+        else
+          e[n + 1], e[n + 2], e[n + 3], e[n + 4] = false, false, false, false
+        end
+        n = n + 4
+      end
+      local okM, mat = pcall(function() return tostring(road:getField('material', 0) or ''):lower() end)
+      list[#list + 1] = { road = road, e = e, mat = okM and mat or '', box = { bx0, by0, bx1, by1 } }
+    end
+  end
+  return list
+end
 
 -- Clear the soft mask under decal roads: rasterise every road's edge strip (left/right
 -- edge positions, widened by roads.margin) into `d`, the initial soft mask of the
--- distance field. Returns road count and cleared soft vertices.
-function P.carveRoads(d)
+-- distance field over region box c. Returns road count and cleared soft vertices.
+function P.carveRoads(d, c)
   local rc = cfg.roads
   if not rc or not rc.enabled then return 0, 0 end
-  local names = scenetree.findClassObjects and scenetree.findClassObjects('DecalRoad')
-  if type(names) ~= 'table' then return 0, 0 end
-  local S, sq, invSq, ox, oy = ter.size, ter.sq, ter.invSq, ter.ox, ter.oy
+  local sq, invSq, ox, oy = ter.sq, ter.invSq, ter.ox, ter.oy
+  local cx0, cy0, cx1, cy1, w = c.x0, c.y0, c.x1, c.y1, c.w
   local margin = max(0, tonumber(rc.margin) or 0)
   -- roads that are mud or sand themselves (mud furrows, tyre tracks, puddles) are part of
   -- the soft ground: skip them as well, else they would clear the mud they decorate
   local skip = {}
-  for _, t in ipairs(rc.skipMatch or {}) do skip[#skip + 1] = t end
-  for _, t in ipairs(cfg.softMatch or {}) do skip[#skip + 1] = t end
+  for _, t in ipairs(rc.skipMatch or {}) do skip[#skip + 1] = tostring(t):lower() end
+  for _, t in ipairs(cfg.softMatch or {}) do skip[#skip + 1] = tostring(t):lower() end
   local nRoads, nCleared = 0, 0
   local function inTri(px, py, x1, y1, x2, y2, x3, y3)
     local d1 = (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2)
@@ -1196,13 +1284,13 @@ function P.carveRoads(d)
     local maxx = max(lx0, rx0, lx1, rx1)
     local miny = min(ly0, ry0, ly1, ry1)
     local maxy = max(ly0, ry0, ly1, ry1)
-    local gx0 = max(0, floor((minx - ox) * invSq))
-    local gx1 = min(S - 1, ceil((maxx - ox) * invSq))
-    local gy0 = max(0, floor((miny - oy) * invSq))
-    local gy1 = min(S - 1, ceil((maxy - oy) * invSq))
+    local gx0 = max(cx0, floor((minx - ox) * invSq))
+    local gx1 = min(cx1, ceil((maxx - ox) * invSq))
+    local gy0 = max(cy0, floor((miny - oy) * invSq))
+    local gy1 = min(cy1, ceil((maxy - oy) * invSq))
     for gy = gy0, gy1 do
       local py = oy + gy * sq
-      local base = gy * S
+      local base = (gy - cy0) * w - cx0
       for gx = gx0, gx1 do
         local i = base + gx
         if d[i] ~= 0 then
@@ -1215,102 +1303,95 @@ function P.carveRoads(d)
       end
     end
   end
-  for _, name in ipairs(names) do
-    local road = scenetree.findObject(name)
-    local use = road ~= nil
-    if use then
-      local okH, hid = pcall(function() return road:isHidden() end)
-      if okH and hid then use = false end
+  local bx0, by0 = ox + cx0 * sq - margin - 1, oy + cy0 * sq - margin - 1
+  local bx1, by1 = ox + cx1 * sq + margin + 1, oy + cy1 * sq + margin + 1
+  for ri, r in ipairs(P.roadEdges()) do
+    if ri % 32 == 0 then P.coYield() end
+    local use = true
+    for _, t in ipairs(skip) do
+      if t ~= '' and r.mat:find(t, 1, true) then use = false; break end
     end
-    if use and #skip > 0 then
-      local okM, mat = pcall(function() return tostring(road:getField('material', 0) or ''):lower() end)
-      if okM then
-        for _, t in ipairs(skip) do
-          if t ~= '' and mat:find(tostring(t):lower(), 1, true) then use = false; break end
+    local b = r.box
+    if use and #r.e >= 8 and b[3] >= bx0 and b[1] <= bx1 and b[4] >= by0 and b[2] <= by1 then
+      nRoads = nRoads + 1
+      local e = r.e
+      local pl = nil
+      for i = 1, #e - 3, 4 do
+        local cur = nil
+        if e[i] then
+          local lx, ly, rx, ry = e[i], e[i + 1], e[i + 2], e[i + 3]
+          local dx, dy = lx - rx, ly - ry
+          local len = sqrt(dx * dx + dy * dy)
+          local k = len > 1e-6 and margin / len or 0
+          cur = { lx + dx * k, ly + dy * k, rx - dx * k, ry - dy * k }
         end
-      end
-    end
-    if use then
-      local okC, n = pcall(function() return road:getEdgeCount() end)
-      n = okC and tonumber(n) or 0
-      if n >= 2 then
-        nRoads = nRoads + 1
-        local pl, pr = nil, nil
-        for i = 0, n - 1 do
-          local okE, l, r = pcall(function() return road:getLeftEdgePosition(i), road:getRightEdgePosition(i) end)
-          local cur = nil
-          if okE and l and r and isFinite(l.x) and isFinite(l.y) and isFinite(r.x) and isFinite(r.y) then
-            local dx, dy = l.x - r.x, l.y - r.y
-            local len = sqrt(dx * dx + dy * dy)
-            local k = len > 1e-6 and margin / len or 0
-            cur = { l.x + dx * k, l.y + dy * k, r.x - dx * k, r.y - dy * k }
-          end
-          if cur and pl then
-            fillQuad(pl[1], pl[2], pl[3], pl[4], cur[1], cur[2], cur[3], cur[4])
-          end
-          pl = cur
+        if cur and pl then
+          fillQuad(pl[1], pl[2], pl[3], pl[4], cur[1], cur[2], cur[3], cur[4])
         end
+        pl = cur
       end
     end
   end
   return nRoads, nCleared
 end
 
--- Two-pass 3-4 chamfer distance transform over the soft mask (3 = one vertex
--- straight, 4 = one vertex diagonal), capped at distCap. The chamfer contours are
+-- Two-pass 3-4 chamfer distance transform over the soft mask of region box c (3 = one
+-- vertex straight, 4 = one vertex diagonal), capped at distCap. The chamfer contours are
 -- nearly round, so the mud border does not follow the square steps of the grid.
--- A vertex with any non-soft 8-neighbour has a distance <= 4 (TOUCH). Map-edge
--- vertices count as touching.
+-- A vertex with any non-soft 8-neighbour has a distance <= 4 (TOUCH). Vertices on the box
+-- edge count as touching (map edge, or region edge with hard ground outside): the mud
+-- feathers out towards the region border as towards any hard ground.
 local TOUCH = 4
-function P.buildDistanceField()
-  local S = ter.size
+function P.buildDistanceField(c)
+  local w, h = c.w, c.y1 - c.y0 + 1
   local cap = distCap
-  local d = ffi.new('uint8_t[?]', S * S)
-  for gy = 0, S - 1 do
-    local base = gy * S
-    if engineFallback then
-      for gx = 0, S - 1 do
-        d[base + gx] = (layerSoft[engineCache[base + gx]] ~= 0) and cap or 0
+  local d = ffi.new('uint8_t[?]', w * h)
+  for j = 0, h - 1 do
+    if j % 64 == 0 then P.coYield() end
+    local base = j * w
+    if c.fallback then
+      local ec = c.cache
+      for i = 0, w - 1 do
+        d[base + i] = (layerSoft[ec[base + i]] ~= 0) and cap or 0
       end
     else
-      local row = flipRows and rows[S - gy] or rows[gy + 1]
-      for gx = 0, S - 1 do
-        d[base + gx] = (layerSoft[f2e[byte(row, gx + 1)]] ~= 0) and cap or 0
+      local row = c.rows[j + 1]
+      for i = 0, w - 1 do
+        d[base + i] = (layerSoft[f2e[byte(row, i + 1)]] ~= 0) and cap or 0
       end
     end
   end
-  P.stats.roads, P.stats.roadVerts = P.carveRoads(d)
-  if P.stats.roads > 0 then
-    log('I', logTag, sfmt('decal roads: %d roads, %d soft vertices kept free of mud', P.stats.roads, P.stats.roadVerts))
-  end
-  for gy = 0, S - 1 do
-    local base = gy * S
-    for gx = 0, S - 1 do
-      local i = base + gx
+  P.stats.roads, P.stats.roadVerts = P.carveRoads(d, c)
+  for j = 0, h - 1 do
+    if j % 64 == 0 then P.coYield() end
+    local base = j * w
+    for i0 = 0, w - 1 do
+      local i = base + i0
       local m = d[i]
       if m ~= 0 then
-        if gx == 0 or gy == 0 or gx == S - 1 or gy == S - 1 then
+        if i0 == 0 or j == 0 or i0 == w - 1 or j == h - 1 then
           m = 3
         else
           local a = d[i - 1] + 3; if a < m then m = a end
-          a = d[i - S - 1] + 4; if a < m then m = a end
-          a = d[i - S] + 3; if a < m then m = a end
-          a = d[i - S + 1] + 4; if a < m then m = a end
+          a = d[i - w - 1] + 4; if a < m then m = a end
+          a = d[i - w] + 3; if a < m then m = a end
+          a = d[i - w + 1] + 4; if a < m then m = a end
         end
         d[i] = m
       end
     end
   end
-  for gy = S - 2, 1, -1 do
-    local base = gy * S
-    for gx = S - 2, 1, -1 do
-      local i = base + gx
+  for j = h - 2, 1, -1 do
+    if j % 64 == 0 then P.coYield() end
+    local base = j * w
+    for i0 = w - 2, 1, -1 do
+      local i = base + i0
       local m = d[i]
       if m > 3 then
         local a = d[i + 1] + 3; if a < m then m = a end
-        a = d[i + S + 1] + 4; if a < m then m = a end
-        a = d[i + S] + 3; if a < m then m = a end
-        a = d[i + S - 1] + 4; if a < m then m = a end
+        a = d[i + w + 1] + 4; if a < m then m = a end
+        a = d[i + w] + 3; if a < m then m = a end
+        a = d[i + w - 1] + 4; if a < m then m = a end
         d[i] = m
       end
     end
@@ -1319,23 +1400,8 @@ function P.buildDistanceField()
 end
 
 local function distAt(gx, gy)
-  local S = ter.size
-  if gx < 0 or gy < 0 or gx >= S or gy >= S then return 0 end
-  if dist then return dist[gy * S + gx] end
-  -- fallback (engine queries): Chebyshev ring search, scaled to chamfer units
-  if layerSoft[layerAt(gx, gy)] == 0 then return 0 end
-  local rings = floor(distCap / 3)
-  for r = 1, rings do
-    for k = -r, r do
-      local xs = { gx + k, gx + k, gx - r, gx + r }
-      local ys = { gy - r, gy + r, gy + k, gy + k }
-      for q = 1, 4 do
-        local x, y = xs[q], ys[q]
-        if x < 0 or y < 0 or x >= S or y >= S or layerSoft[layerAt(x, y)] == 0 then return 3 * r end
-      end
-    end
-  end
-  return distCap
+  if gx < regX0 or gy < regY0 or gx > regX1 or gy > regY1 then return 0 end
+  return dist[(gy - regY0) * regW + gx - regX0]
 end
 M.distAt = distAt
 
@@ -1384,7 +1450,9 @@ end
 
 -- mud depth and membership of a terrain vertex
 local function depthAt(gx, gy)
-  local dd = distAt(gx, gy)
+  -- outside the region: hard ground, zones included
+  if gx < regX0 or gy < regY0 or gx > regX1 or gy > regY1 then return 0, false end
+  local dd = dist[(gy - regY0) * regW + gx - regX0]
   local d, member = 0, dd >= 1
   if dd > TOUCH then
     local f = (dd - TOUCH) / (3 * featherVerts)
@@ -1517,61 +1585,91 @@ end
 -- terrain squares under any decal road (all of them, not only those on soft ground): the
 -- screen-space overlay leaves no grass / dirt tracks there (a road over grass terrain).
 -- Each road quad marks its bounding box of squares (a little wide on diagonal roads).
-P.roadMask = {}
-function P.markRoadMask(ed)
-  local inv, ox, oy, S = ter.invSq, ter.ox, ter.oy, ter.size
-  local mask = P.roadMask
-  for i = 1, #ed - 7, 4 do
-    local x0 = min(ed[i], ed[i + 2], ed[i + 4], ed[i + 6])
-    local x1 = max(ed[i], ed[i + 2], ed[i + 4], ed[i + 6])
-    local y0 = min(ed[i + 1], ed[i + 3], ed[i + 5], ed[i + 7])
-    local y1 = max(ed[i + 1], ed[i + 3], ed[i + 5], ed[i + 7])
-    local gx0, gx1 = max(0, floor((x0 - ox) * inv)), min(S - 1, floor((x1 - ox) * inv))
-    local gy0, gy1 = max(0, floor((y0 - oy) * inv)), min(S - 1, floor((y1 - oy) * inv))
-    if (gx1 - gx0) * (gy1 - gy0) < 4096 then
-      for gy = gy0, gy1 do
-        for gx = gx0, gx1 do mask[gy * S + gx] = true end
-      end
-    end
-  end
+-- Built lazily per chunk of RM_CHUNK x RM_CHUNK squares at the first lookup there (the
+-- overlay asks under the wheels only), from an index of road quads per chunk made once at
+-- start: the whole-map mask cost 14 ms per 1 km2 of roads on gridmap_v2 (162k squares) and
+-- would not fit a big map. At most RM_MAX chunks are kept.
+local RM_CHUNK, RM_MAX = 64, 512
+P.roadMask = {}      -- chunk key -> { [square in chunk] = true }
+P.roadMaskN = 0
+P.roadQuads = nil    -- chunk key -> { e1, i1, e2, i2, ... }: road edge list and quad start
+
+-- square box of the road quad starting at e[i] (nil when too big: a broken road edge)
+function P.roadQuadBox(e, i)
+  local inv, ox, oy = ter.invSq, ter.ox, ter.oy
+  local x0 = min(e[i], e[i + 2], e[i + 4], e[i + 6])
+  local x1 = max(e[i], e[i + 2], e[i + 4], e[i + 6])
+  local y0 = min(e[i + 1], e[i + 3], e[i + 5], e[i + 7])
+  local y1 = max(e[i + 1], e[i + 3], e[i + 5], e[i + 7])
+  local gx0, gx1 = floor((x0 - ox) * inv), floor((x1 - ox) * inv)
+  local gy0, gy1 = floor((y0 - oy) * inv), floor((y1 - oy) * inv)
+  if (gx1 - gx0) * (gy1 - gy0) >= 4096 then return nil end
+  return gx0, gy0, gx1, gy1
 end
 
--- scan every visible decal road into P.roadMask (deepnode_overlay at start); returns roads, ms
+-- index every visible decal road's quads by chunk (deepnode_overlay at start); returns roads, ms
 function P.buildRoadMask()
-  P.roadMask = {}
+  P.roadMask, P.roadMaskN, P.roadMaskOn = {}, 0, true
+  P.roadQuads = nil
   if not ter then return 0, 0 end
-  local names = scenetree.findClassObjects and scenetree.findClassObjects('DecalRoad')
-  if type(names) ~= 'table' then return 0, 0 end
   local t0 = newTimer()
+  local idx = {}
   local n = 0
-  local edges = {}
-  for _, name in ipairs(names) do
-    local road = scenetree.findObject(name)
-    local okH, hid = pcall(function() return road and road:isHidden() end)
-    if road and okH and not hid then
-      local okC, ec = pcall(function() return road:getEdgeCount() end)
-      ec = okC and tonumber(ec) or 0
-      local ne = 0
-      for i = 0, ec - 1 do
-        local okE, l, r = pcall(function() return road:getLeftEdgePosition(i), road:getRightEdgePosition(i) end)
-        if okE and l and r and isFinite(l.x) and isFinite(r.x) then
-          edges[ne + 1], edges[ne + 2], edges[ne + 3], edges[ne + 4] = l.x, l.y, r.x, r.y
-          ne = ne + 4
+  for _, r in ipairs(P.roadEdges()) do
+    local okH, hid = pcall(function() return r.road:isHidden() end)
+    if okH and not hid then
+      n = n + 1
+      local e = r.e
+      for i = 1, #e - 7, 4 do
+        if e[i] and e[i + 4] then
+          local gx0, gy0, gx1, gy1 = P.roadQuadBox(e, i)
+          if gx0 then
+            for cy = floor(gy0 / RM_CHUNK), floor(gy1 / RM_CHUNK) do
+              for cx = floor(gx0 / RM_CHUNK), floor(gx1 / RM_CHUNK) do
+                local ck = cy * KEY + cx
+                local l = idx[ck]
+                if not l then l = {}; idx[ck] = l end
+                l[#l + 1] = e
+                l[#l + 1] = i
+              end
+            end
+          end
         end
       end
-      for k = ne + 1, #edges do edges[k] = nil end
-      P.markRoadMask(edges)
-      n = n + 1
     end
   end
+  P.roadQuads = idx
   return n, t0:stop()
 end
 
+function P.roadMaskChunk(ck, cx, cy)
+  if P.roadMaskN >= RM_MAX then P.roadMask, P.roadMaskN = {}, 0 end
+  local m = {}
+  local l = P.roadQuads[ck]
+  if l then
+    local ax, ay = cx * RM_CHUNK, cy * RM_CHUNK
+    for k = 1, #l, 2 do
+      local gx0, gy0, gx1, gy1 = P.roadQuadBox(l[k], l[k + 1])
+      if gx0 then
+        for gy = max(ay, gy0), min(ay + RM_CHUNK - 1, gy1) do
+          local base = (gy - ay) * RM_CHUNK - ax
+          for gx = max(ax, gx0), min(ax + RM_CHUNK - 1, gx1) do m[base + gx] = true end
+        end
+      end
+    end
+  end
+  P.roadMask[ck] = m
+  P.roadMaskN = P.roadMaskN + 1
+  return m
+end
+
 function P.onRoadAt(x, y)
-  if not ter then return false end
-  local S = ter.size
+  if not ter or not P.roadQuads then return false end
   local gx, gy = floor((x - ter.ox) * ter.invSq), floor((y - ter.oy) * ter.invSq)
-  return P.roadMask[gy * S + gx] == true
+  local cx, cy = floor(gx / RM_CHUNK), floor(gy / RM_CHUNK)
+  local ck = cy * KEY + cx
+  local m = P.roadMask[ck] or P.roadMaskChunk(ck, cx, cy)
+  return m[(gy - cy * RM_CHUNK) * RM_CHUNK + gx - cx * RM_CHUNK] == true
 end
 
 function P.collectMudRoads()
@@ -1993,28 +2091,50 @@ end
 -- hidden whole, also its part over hard ground beside the mud. Shown again when the
 -- overlay is switched on or the mod stops.
 P.roadsHidden = {}
-function P.coverRoads(off)
-  for _, o in ipairs(P.roadsHidden) do pcall(function() o:setHidden(false) end) end
+-- Region shifts call it again: only the roads whose state changes are hidden or shown.
+function P.coverRoads(off, quiet)
+  local was = {}
+  for _, o in ipairs(P.roadsHidden) do was[o] = true end
   P.roadsHidden = {}
-  if not off or not ter or cfg.roads.hideOnMud == false then return 0 end
+  local want = {}
   local t0 = newTimer()
-  for _, name in ipairs(scenetree.findClassObjects and scenetree.findClassObjects('DecalRoad') or {}) do
-    local road = scenetree.findObject(name)
-    local okH, hid = pcall(function() return road and road:isHidden() end)
-    local okE, ec = pcall(function() return road:getEdgeCount() end)
-    if road and okH and not hid and okE then
-      for i = 0, (tonumber(ec) or 0) - 1 do
-        local l, r = road:getLeftEdgePosition(i), road:getRightEdgePosition(i)
-        if l and r and isFinite(l.x) and isFinite(r.x)
-            and (P.softAtWorld((l.x + r.x) * 0.5, (l.y + r.y) * 0.5) or P.softAtWorld(l.x, l.y) or P.softAtWorld(r.x, r.y)) then
-          road:setHidden(true)
-          P.roadsHidden[#P.roadsHidden + 1] = road
-          break
+  if off and ter and cfg.roads.hideOnMud ~= false then
+    local sq = ter.sq
+    -- soft ground exists in the region only
+    local bx0, by0 = ter.ox + regX0 * sq - 1, ter.oy + regY0 * sq - 1
+    local bx1, by1 = ter.ox + regX1 * sq + 1, ter.oy + regY1 * sq + 1
+    for _, r in ipairs(P.roadEdges()) do
+      local b = r.box
+      local road = r.road
+      if b[3] >= bx0 and b[1] <= bx1 and b[4] >= by0 and b[2] <= by1 then
+        local hid = false
+        if not was[road] then
+          local okH, h = pcall(function() return road:isHidden() end)
+          hid = not okH or h
+        end
+        if not hid then
+          local e = r.e
+          for i = 1, #e - 3, 4 do
+            local lx, ly, rx, ry = e[i], e[i + 1], e[i + 2], e[i + 3]
+            if lx and (P.softAtWorld((lx + rx) * 0.5, (ly + ry) * 0.5) or P.softAtWorld(lx, ly) or P.softAtWorld(rx, ry)) then
+              want[road] = true
+              P.roadsHidden[#P.roadsHidden + 1] = road
+              break
+            end
+          end
         end
       end
     end
   end
-  log('I', logTag, sfmt('decal roads off: %d roads over soft ground hidden, %.0f ms', #P.roadsHidden, t0:stop()))
+  for o in pairs(was) do
+    if not want[o] then pcall(function() o:setHidden(false) end) end
+  end
+  for _, o in ipairs(P.roadsHidden) do
+    if not was[o] then pcall(function() o:setHidden(true) end) end
+  end
+  if off and not quiet then
+    log('I', logTag, sfmt('decal roads off: %d roads over soft ground hidden, %.0f ms', #P.roadsHidden, t0:stop()))
+  end
   return #P.roadsHidden
 end
 
@@ -2298,7 +2418,7 @@ end
 -- sector mesh, so only kinds whose floor lift is below their sink depth count (sand by default;
 -- every kind with vanilla physics). Sampled on a grid of at most 1024 x 1024 vertices.
 function P.meshedSoftArea()
-  local S, sq = ter.size, ter.sq
+  local sq = ter.sq
   local h = cfg.physics and cfg.physics.mode == 'heavy' and cfg.physics.heavy
   local function meshed(kind, depth)
     if not h then return true end
@@ -2309,13 +2429,13 @@ function P.meshedSoftArea()
   for e, L in pairs(layers) do
     if L.soft and meshed(L.kind, L.sinkDepth or 0) then meshedIdx[e] = true end
   end
-  local step = max(1, floor(S / 1024))
+  -- the region (the whole map on small maps)
+  local step = max(1, floor(max(regW, regY1 - regY0 + 1) / 1024))
   local n = 0
   if next(meshedIdx) then
-    for gy = 0, S - 1, step do
-      local base = gy * S
-      for gx = 0, S - 1, step do
-        if (not dist or dist[base + gx] > TOUCH) and meshedIdx[layerAt(gx, gy)] then n = n + 1 end
+    for gy = regY0, regY1, step do
+      for gx = regX0, regX1, step do
+        if distAt(gx, gy) > TOUCH and meshedIdx[layerAt(gx, gy)] then n = n + 1 end
       end
     end
   end
@@ -2358,7 +2478,8 @@ function P.initTerrain()
   local t0 = newTimer()
   local fn = tb.getTerrFileName and tostring(tb:getTerrFileName() or '') or ''
   local lm, err = nil, 'no terrain file'
-  if fn ~= '' then lm, err = P.readLayerMap(fn) end
+  if fn ~= '' then lm, err = P.readTerHeader(fn) end
+  P.terHdr = lm
   P.stats.layerMapMs = t0:stopAndReset()
 
   local mats, count = P.engineMaterials(tb)
@@ -2386,7 +2507,6 @@ function P.initTerrain()
   for i = 0, 255 do f2e[i] = 255 end
   if lm then
     ter.size = lm.size
-    rows = lm.rows
     if lm.names then
       for fi, nm in pairs(lm.names) do
         local want = nm:lower()
@@ -2425,35 +2545,108 @@ function P.initTerrain()
 
   P.refreshLayerDepths()
 
-  engineFallback = false
-  dist = nil
-  engineCache = nil
   if lm then
-    P.orientation = 'direct'
-    flipRows = false
-    local o, disc, aD, aF = P.verifyOrientation()
-    P.orientation = o
-    log('I', logTag, sfmt('layer map %dx%d v%d, row order check: %s (%d samples, direct %d, flipped %d)', S, S, lm.version, o, disc, aD, aF))
-    if o == 'flipped' then flipRows = true end
-    if o == 'engine' then engineFallback = true end
+    P.orientation, P.orientSure = 'direct', false
+    log('I', logTag, sfmt('layer map %dx%d v%d', S, S, lm.version))
   else
     log('W', logTag, 'layer map not readable (' .. tostring(err) .. '), using per-point engine queries')
-    engineFallback = true
-    P.orientation = 'engine'
+    P.orientation, P.orientSure = 'engine', true
   end
+  -- the region around the player (the whole terrain unless region mode is on)
+  P.reg = { on = P.regionWanted(), t = 0 }
+  local fx, fy = P.regionFocus()
+  P.reg.cx, P.reg.cy = fx, fy
+  local c = P.loadRegion(P.regionBox(fx, fy))
+  P.setRegion(c)
+  P.stats.layerMapMs = P.stats.layerMapMs + c.layerMs
+  P.stats.distMs = c.distMs
   P.stats.orientation = P.orientation
-  if engineFallback then
-    rows = nil
-    local t1 = newTimer()
-    engineCache = P.readEngineLayerMap()
-    local ms = t1:stopAndReset()
-    P.stats.layerMapMs = P.stats.layerMapMs + ms
-    log('W', logTag, sfmt('layer map read from the engine vertex by vertex (%.0f ms)', ms))
+  if P.reg.on then
+    log('I', logTag, sfmt('region mode: %.0f km2 terrain, region %d x %d squares (%.0f m) around %.0f, %.0f, recentred %.0f m off centre',
+      (ter.worldSize / 1000) ^ 2, regW, regY1 - regY0 + 1, regW * ter.sq, fx, fy, cfg.region.shiftAt or 250))
   end
-  local t1 = newTimer()
-  dist = P.buildDistanceField()
-  P.stats.distMs = t1:stopAndReset()
   return true
+end
+
+-------------------------------------------------------------------------------
+-- region (cfg.region): streamed mud area on big maps
+-------------------------------------------------------------------------------
+-- Region mode: cfg.region.enabled true, or 'auto' on terrains over autoAboveKm2.
+function P.regionWanted()
+  local rc = cfg.region or {}
+  local en = rc.enabled
+  if en == true then return true end
+  if en == 'auto' then
+    return (ter.worldSize / 1000) ^ 2 > (tonumber(rc.autoAboveKm2) or 16)
+  end
+  return false
+end
+
+-- the point the region follows: player vehicle, else the camera, else the terrain centre
+function P.regionFocus()
+  local veh = getPlayerVehicle and getPlayerVehicle(0)
+  local p = veh and veh:getPosition()
+  if p and isFinite(p.x) and isFinite(p.y) then return p.x, p.y end
+  local cx, cy = core_camera and core_camera.getPositionXYZ and core_camera.getPositionXYZ()
+  if isFinite(cx) and isFinite(cy) then return cx, cy end
+  return ter.ox + ter.worldSize * 0.5, ter.oy + ter.worldSize * 0.5
+end
+
+-- vertex box of the region centred on world point (fx, fy), clamped to the terrain
+function P.regionBox(fx, fy)
+  local S = ter.size
+  if not (P.reg and P.reg.on) then return 0, 0, S - 1, S - 1 end
+  local half = max(8, ceil((tonumber(cfg.region.size) or 1000) * 0.5 / ter.sq))
+  local gx = floor((fx - ter.ox) / ter.sq + 0.5)
+  local gy = floor((fy - ter.oy) / ter.sq + 0.5)
+  gx = clamp(gx, 0, S - 1)
+  gy = clamp(gy, 0, S - 1)
+  return max(0, gx - half), max(0, gy - half), min(S - 1, gx + half), min(S - 1, gy + half)
+end
+
+-- Layer map and distance field of a region box (nothing of the current region changes).
+-- The row order is checked on the first region that tells (P.orientSure).
+function P.loadRegion(x0, y0, x1, y1)
+  local c = { x0 = x0, y0 = y0, x1 = x1, y1 = y1, w = x1 - x0 + 1 }
+  local t0 = newTimer()
+  if P.terHdr and P.orientation ~= 'engine' then
+    if P.orientSure then
+      c.rows = P.regionRows(x0, y0, x1, y1, P.orientation)
+    else
+      local dr = P.regionRows(x0, y0, x1, y1, 'direct')
+      local fr = dr and P.regionRows(x0, y0, x1, y1, 'flipped')
+      if dr and fr then
+        local o, disc, aD, aF = P.verifyOrientation(dr, fr, x0, y0, x1, y1)
+        P.orientation = o
+        P.orientSure = disc >= 20
+        log('I', logTag, sfmt('layer map row order check: %s (%d samples, direct %d, flipped %d)%s', o, disc, aD, aF,
+          P.orientSure and '' or ', checked again in the next region'))
+        if o == 'direct' then c.rows = dr elseif o == 'flipped' then c.rows = fr end
+      end
+    end
+    if not c.rows and P.orientation ~= 'engine' then
+      log('W', logTag, 'layer map rows not readable, using per-point engine queries')
+      P.orientation, P.orientSure = 'engine', true
+    end
+  end
+  if not c.rows then
+    c.fallback = true
+    local t1 = newTimer()
+    c.cache = P.readEngineLayerMap(x0, y0, x1, y1)
+    log('W', logTag, sfmt('layer map of %d x %d vertices read from the engine vertex by vertex (%.0f ms)',
+      c.w, y1 - y0 + 1, t1:stop()))
+  end
+  c.layerMs = t0:stopAndReset()
+  c.dist = P.buildDistanceField(c)
+  c.distMs = t0:stop()
+  return c
+end
+
+function P.setRegion(c)
+  regX0, regY0, regX1, regY1, regW = c.x0, c.y0, c.x1, c.y1, c.w
+  rows, engineCache, engineFallback = c.rows, c.cache, c.fallback == true
+  dist = c.dist
+  M.region = { c.x0, c.y0, c.x1, c.y1 }
 end
 
 -- lift: m the terrain was left above the full sink (physics 'heavy' rut floor); the
@@ -2613,7 +2806,7 @@ function P.markLowered(gx, gy)
   P.loweredSectors[sy2 * KEY + sx2] = true
 end
 
--- Lower every soft vertex of the map once, in one setHeightGrid + updateGrid pass.
+-- Lower every soft vertex of the region once, in one setHeightGrid + updateGrid pass.
 -- Heights are unsigned above the terrain origin: clamp at 0 and record the
 -- shortfall (pitfall 1). Only at mod start, never while driving.
 function P.sinkPass()
@@ -2633,17 +2826,12 @@ function P.sinkPass()
     zx0 = floor((zoneBox[1] - ter.ox) / ter.sq) - 1; zx1 = ceil((zoneBox[3] - ter.ox) / ter.sq) + 1
     zy0 = floor((zoneBox[2] - ter.oy) / ter.sq) - 1; zy1 = ceil((zoneBox[4] - ter.oy) / ter.sq) + 1
   end
-  for gy = 0, S - 1 do
+  for gy = regY0, regY1 do
     local zoneRow = gy >= zy0 and gy <= zy1
     local base = gy * S
-    for gx = 0, S - 1 do
-      local need
-      if dist then
-        need = dist[base + gx] > TOUCH or (zoneRow and gx >= zx0 and gx <= zx1)
-      else
-        need = true
-      end
-      if need then
+    local db = (gy - regY0) * regW - regX0
+    for gx = regX0, regX1 do
+      if dist[db + gx] > TOUCH or (zoneRow and gx >= zx0 and gx <= zx1) then
         local d = depthAt(gx, gy)
         if d > 0 then
           local raw = tb:getHeightGrid(gx, gy)
@@ -2691,6 +2879,238 @@ function P.restoreTerrain()
   P.shortfall = {}
   P.sinkBox = nil
 end
+
+-- A tile leaves with its ruts (region shift): frozen tiles as on release, active ones drop
+-- their mesh and data; the ring makes them again from the new terrain data if a vehicle
+-- is still on them.
+function P.dropTile(t)
+  if t.state == 'frozen' then P.releaseFrozen(t); return end
+  local sk = P.sectorKeyOfTile(t.tx, t.ty)
+  if P.act[t.key] then
+    P.act[t.key] = nil
+    P.activeCount = P.activeCount - 1
+  end
+  t.relaxing = false
+  local tm = P.mod('tileMesh')
+  if t.obj then tm.deferRelease(t.obj); t.obj = nil end
+  tm.dropSpare(t)
+  tiles[t.key] = nil
+  local ovc = P.overlayClear
+  if ovc then ovc(t.x0, t.y0, t.x0 + TILE, t.y0 + TILE) end
+  local fm = P.mod('farMesh')
+  if fm then fm.markDirty(sk) end
+  P.notifyVehiclesDrop(t.key)
+  P.changedTiles[t.key] = true
+  if P.liftOn and t.rutted then P.markFloor(t, 'reset') end
+  P.markNeighboursDirty(t)
+end
+
+-- Move the region to be centred on world point (fx, fy). The overlap keeps its sunk
+-- vertices (with their rut floor) and tiles; vertices that leave get their original height
+-- back, vertices that enter are sunk; vertices whose depth changed (the old and new region
+-- borders feather the mud out) are redone. Tiles not inside the stable box (both regions,
+-- feather reach inside their borders) are dropped with their ruts: they are at least
+-- size / 2 - shiftAt from the player. One terrain update for all height writes (with the
+-- heavy floor at full lift undug mud is not lowered, so there are only the rutted ones).
+-- c: the new region's data when loaded beforehand (P.updateRegion), else loaded here.
+function P.shiftRegion(fx, fy, c)
+  P.reg.cx, P.reg.cy = fx, fy
+  local t0 = newTimer()
+  if not c then
+    local x0, y0, x1, y1 = P.regionBox(fx, fy)
+    if x0 == regX0 and y0 == regY0 and x1 == regX1 and y1 == regY1 then return end
+    c = P.loadRegion(x0, y0, x1, y1)
+  end
+  local x0, y0, x1, y1 = c.x0, c.y0, c.x1, c.y1
+  local ox0, oy0, ox1, oy1 = regX0, regY0, regX1, regY1
+  local loadMs = t0:stopAndReset()
+
+  local oN, oIdx, oRaw, oLift, oLift0, oBase = P.sinkCount, P.sinkIdx, P.sinkRaw, P.sinkLift, P.sinkLift0, P.sinkBase
+  local oShort = P.shortfall
+  P.setRegion(c)
+  P.sinkCount, P.sinkCapacity = 0, 0
+  P.sinkIdx, P.sinkRaw, P.sinkLift, P.sinkLift0, P.sinkBase = nil, nil, nil, nil, nil
+  P.shortfall = {}
+  P.loweredSectors = {}
+  -- old sink record -> new one (-1: gone or redone), for the physics floor queue
+  local map = ffi.new('int32_t[?]', max(1, oN))
+  ffi.fill(map, max(1, oN) * 4, 255)
+
+  local tb, S = ter.tb, ter.size
+  local clampRaw = ter.clampRaw
+  local ph = P.liftOn and P.mod('physics') or nil
+  local wx0, wy0, wx1, wy1 = huge, huge, -huge, -huge
+  local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
+  local nKept, nNew, nGone, nWrites = 0, 0, 0, 0
+  local span = TS * SEC
+  local zx0, zx1, zy0, zy1 = -1, -2, -1, -2
+  if zoneBox then
+    zx0 = floor((zoneBox[1] - ter.ox) / ter.sq) - 1; zx1 = ceil((zoneBox[3] - ter.ox) / ter.sq) + 1
+    zy0 = floor((zoneBox[2] - ter.oy) / ter.sq) - 1; zy1 = ceil((zoneBox[4] - ter.oy) / ter.sq) + 1
+  end
+  -- an old record leaves: original height back where it differs (rut floor, vanilla sink)
+  local function restore(k)
+    local hz = oBase[k] + oLift[k]
+    if hz < clampRaw then hz = clampRaw end
+    local raw = oRaw[k]
+    if abs(hz - raw) > 1e-4 then
+      local i = oIdx[k]
+      local gx, gy = i % S, floor(i / S)
+      tb:setHeightGrid(gx, gy, raw)
+      nWrites = nWrites + 1
+      if gx < wx0 then wx0 = gx end
+      if gx > wx1 then wx1 = gx end
+      if gy < wy0 then wy0 = gy end
+      if gy > wy1 then wy1 = gy end
+    end
+    nGone = nGone + 1
+  end
+  local p = 0
+  for gy = y0, y1 do
+    local zoneRow = gy >= zy0 and gy <= zy1
+    local base = gy * S
+    local db = (gy - y0) * regW - x0
+    local prev = -10
+    for gx = x0, x1 do
+      local idx = base + gx
+      while p < oN and oIdx[p] < idx do restore(p); p = p + 1 end
+      local old = nil
+      if p < oN and oIdx[p] == idx then old = p; p = p + 1 end
+      local d = 0
+      if dist[db + gx] > TOUCH or (zoneRow and gx >= zx0 and gx <= zx1) then d = depthAt(gx, gy) end
+      if d > 0 then
+        if old and abs((oRaw[old] - oBase[old]) - d) < 1e-4 then
+          P.recordSink(idx, oRaw[old], oLift0[old], oBase[old])
+          P.sinkLift[P.sinkCount - 1] = oLift[old]
+          map[old] = P.sinkCount - 1
+          local sf = oShort[idx]
+          if sf then P.shortfall[idx] = sf end
+          nKept = nKept + 1
+        else
+          local raw = old and oRaw[old] or tb:getHeightGrid(gx, gy)
+          local cur = raw
+          if old then
+            cur = oBase[old] + oLift[old]
+            if cur < clampRaw then cur = clampRaw end
+          end
+          local lift = ph and ph.initialLift(gx, gy, d) or 0
+          local nr = raw - d + lift
+          if nr < clampRaw then
+            P.shortfall[idx] = clampRaw - nr
+            nr = clampRaw
+          end
+          if abs(nr - cur) > 1e-4 then
+            tb:setHeightGrid(gx, gy, nr)
+            nWrites = nWrites + 1
+            if gx < wx0 then wx0 = gx end
+            if gx > wx1 then wx1 = gx end
+            if gy < wy0 then wy0 = gy end
+            if gy > wy1 then wy1 = gy end
+          end
+          P.recordSink(idx, raw, lift, raw - d)
+          nNew = nNew + 1
+        end
+        if gx < bx0 then bx0 = gx end
+        if gx > bx1 then bx1 = gx end
+        if gy < by0 then by0 = gy end
+        if gy > by1 then by1 = gy end
+        -- the sectors of a run of vertices in a row only change at sector edges
+        local m = gx % span
+        if gx ~= prev + 1 or m <= 1 then P.markLowered(gx, gy) end
+        prev = gx
+      elseif old then
+        restore(old)
+      end
+    end
+  end
+  while p < oN do restore(p); p = p + 1 end
+  P.sinkBox = P.sinkCount > 0 and { bx0, by0, bx1, by1 } or nil
+  local sinkMs = t0:stopAndReset()
+  if nWrites > 0 then tb:updateGrid(vec3(wx0, wy0, 0), vec3(wx1, wy1, 0)) end
+  local gridMs = t0:stopAndReset()
+  if ph and ph.remapRecords then ph.remapRecords(map, oN) end
+
+  -- tiles and sectors outside the stable box
+  local m = ceil(distCap / 3) + 2
+  local sx0, sy0 = max(ox0, x0) + m, max(oy0, y0) + m
+  local sx1, sy1 = min(ox1, x1) - m, min(oy1, y1) - m
+  local drop = {}
+  for _, t in pairs(tiles) do
+    if t.gx0 < sx0 or t.gy0 < sy0 or t.gx0 + TS > sx1 or t.gy0 + TS > sy1 then drop[#drop + 1] = t end
+  end
+  for _, t in ipairs(drop) do P.dropTile(t) end
+  P.emptyTiles = {}
+  tclear(P.frameVertexCache)
+  P.mudBounds, P.boundsT = nil, 0
+  local fm = P.mod('farMesh')
+  if fm and fm.markDirtyOutside then fm.markDirtyOutside(sx0, sy0, sx1, sy1) end
+  local tileMs = t0:stopAndReset()
+
+  -- roads: soft ground moved with the region
+  local mode = P.roadMode()
+  if mode == 'off' then P.coverRoads(true, true) end
+  local rcp = P.mod('roadCopy')
+  if rcp and mode == 'copy' and rcp.isEnabled and rcp.isEnabled() then rcp.stop(); pcall(rcp.start, M) end
+  local dec = P.mod('decals')
+  if dec and mode == 'overlay' and dec.isEnabled and dec.isEnabled() then dec.stop(true); pcall(dec.start, M) end
+  if mode == 'drape' and not P.reg.drapeWarned then
+    P.reg.drapeWarned = true
+    log('W', logTag, 'region mode: decal roads stay draped as at start (roads.mode drape)')
+  end
+  local roadMs = t0:stop()
+
+  local st = P.stats
+  st.regionShifts = (st.regionShifts or 0) + 1
+  st.sunkVertices = P.sinkCount
+  local total = loadMs + sinkMs + gridMs + tileMs + roadMs
+  st.regionShiftMs = total
+  st.regionShiftMaxMs = max(st.regionShiftMaxMs or 0, total)
+  local bg = P.reg.coMs and sfmt(', loaded before in %d frames, %.0f ms', P.reg.coFrames, P.reg.coMs) or ''
+  P.reg.coMs = nil
+  log('I', logTag, sfmt('region moved to %.0f, %.0f: %d kept, %d new, %d gone, %d height writes, %d tiles dropped; '
+    .. '%.0f ms (layers + distance %.0f, sink %.0f, terrain update %.0f, tiles %.0f, roads %.0f)%s',
+    fx, fy, nKept, nNew, nGone, nWrites, #drop, total, loadMs, sinkMs, gridMs, tileMs, roadMs, bg))
+end
+
+-- twice a second: recentre the region once the player is shiftAt m off its centre (or
+-- outside it, after a teleport)
+-- The new region's layer map and distance field load in a coroutine, region.loadBudgetMs
+-- per frame (nothing of the current region changes meanwhile); the switch itself (sink
+-- records, height writes, tiles) runs in one frame.
+function P.regionFail(err)
+  P.reg.failed, P.reg.co = true, nil
+  P.stats.lastError = 'region shift: ' .. tostring(err)
+  log('E', logTag, 'region shift failed, region stays: ' .. tostring(err))
+end
+function P.updateRegion(dtReal)
+  local r = P.reg
+  if not r or not r.on or r.failed then return end
+  if not r.co then
+    r.t = (r.t or 0) - (dtReal or 0)
+    if r.t > 0 then return end
+    r.t = tonumber(cfg.region.checkEvery) or 0.5
+    if P.drape then return end
+    local fx, fy = P.regionFocus()
+    local gx, gy = (fx - ter.ox) / ter.sq, (fy - ter.oy) / ter.sq
+    local outside = gx < regX0 or gx > regX1 or gy < regY0 or gy > regY1
+    if not outside and max(abs(fx - r.cx), abs(fy - r.cy)) <= (tonumber(cfg.region.shiftAt) or 250) then return end
+    local x0, y0, x1, y1 = P.regionBox(fx, fy)
+    if x0 == regX0 and y0 == regY0 and x1 == regX1 and y1 == regY1 then r.cx, r.cy = fx, fy; return end
+    r.fx, r.fy = fx, fy
+    r.co = coroutine.create(function() return P.loadRegion(x0, y0, x1, y1) end)
+    r.coFrames, r.coMs = 0, 0
+    r.coBudget = tonumber(cfg.region.loadBudgetMs) or 4
+  end
+  r.coT = newTimer()
+  local ok, c = coroutine.resume(r.co)
+  r.coFrames, r.coMs = r.coFrames + 1, r.coMs + r.coT:stop()
+  if not ok then return P.regionFail(c) end
+  if coroutine.status(r.co) ~= 'dead' then return end
+  r.co = nil
+  local okS, err = pcall(P.shiftRegion, r.fx, r.fy, c)
+  if not okS then P.regionFail(err) end
+end
+M.shiftRegionForTests = function(x, y) return P.shiftRegion(x, y) end
 
 -------------------------------------------------------------------------------
 -- materials
@@ -5901,8 +6321,8 @@ function M.memoryEstimate()
   local NW = (N + 1) * (N + 1)
   local perTile = NW * (4 + 4 + 1 + 1 + 1 + 1) + N * N + (TS + 1) * (TS + 1) * 9 + TS * TS * 2 + 600
   local nt = P.activeCount + P.frozenCount
-  local S = ter and ter.size or 0
-  local terrain = (rows and S * S or 0) + (dist and S * S or 0) + P.sinkCapacity * 20
+  local area = ter and regW * (regY1 - regY0 + 1) or 0
+  local terrain = (rows and area or 0) + (dist and area or 0) + P.sinkCapacity * 20
   local verts, corners = 0, 0
   local tm = P.mod('tileMesh')
   if tm and tm.geometry then verts, corners = tm.geometry() end
@@ -5982,6 +6402,7 @@ function P.start()
   P.loadConfig()
   if P.debugChunksOverride ~= nil then cfg.debug.chunks = P.debugChunksOverride end
   P.loadSubModules()
+  P.roadEdgeList, P.roadMaskOn, P.roadQuads = nil, nil, nil
   P.session = P.session + 1
   simTime = 0
   P.levelName = getCurrentLevelIdentifier and getCurrentLevelIdentifier() or 'unknown'
@@ -6165,6 +6586,9 @@ function P.stop(objectsAlive)
   P.mudBounds = nil
   P.started = false
   rows, dist, engineCache = nil, nil, nil
+  regX0, regY0, regX1, regY1, regW = 0, 0, -1, -1, 0
+  P.reg, M.region = nil, nil
+  P.roadEdgeList, P.roadMaskOn, P.roadMask, P.roadQuads, P.roadMaskN = nil, nil, {}, nil, 0
   ter = nil
   M.ter = nil
   log('I', logTag, 'stopped')
@@ -6363,6 +6787,7 @@ function P.onUpdate(dtReal, dtSim, dtRaw)
     P.ringT = 0.05
     P.timed('ring', P.updateRing)
   end
+  if P.reg and P.reg.on then P.timed('region', P.updateRegion, dtReal or dt) end
   P.timed('relax', P.relaxTiles, dt)
   P.updateMudBounds(dtReal)
   P.timed('tiles', P.rebuildTiles)

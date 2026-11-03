@@ -211,6 +211,23 @@ size); now at most one every 2 s while digging (a hitch each time), and the rut 
 later. Vanilla physics mode writes no terrain while driving (no hitches). Covers larger than
 `grass.maxRadius` keep their level cells, so a floor write near them blinks a bigger cell.
 
+## 19. Region mode on big maps (2026-11-03)
+
+Region mode (`region`, REFERENCE) keeps start and memory bounded on maps of any size; tested on
+gridmap_v2 forced to regions of 300 m and 1 km (shift switch frame 4-13 ms, load 8-14 ms over 3-4
+frames, exact terrain restore). Not tested on a real BeamNG.earth map yet. Known limits:
+- Ruts outside the stable overlap are dropped at a shift (they are >= size / 2 - shiftAt from
+  the player); AI vehicles outside the region leave no ruts.
+- `roads.mode` 'drape': roads stay draped as at start (a collision reload per shift is ~370 ms).
+- Lifted grass copies (vanilla physics) lift soft-layer grass outside the region too; GroundCover
+  draws only near the camera, so mostly beyond view.
+- The switch frame walks the whole region (1M vertices per km2 on a 1 m grid); each vertex that
+  enters needs a getHeightGrid. With a terrain update (vanilla mode, or rutted vertices
+  restored) one `updateGrid`, which costs 15-78 ms on 8192 x 8192 terrains (§18).
+- Coarse terrains (BeamNG.earth often uses squares of several metres): tiles are one square wide
+  with `tiles.cellSize` cells, so a 30 m square makes a 150 x 150 cell tile. Not looked at yet.
+- Zones count inside the region only.
+
 ## 17. Review items left open (2026-11-01)
 
 From an outside play test (gridmap_v2): what was done is in CHANGELOG [Unreleased]. Left:
