@@ -3502,7 +3502,66 @@ end
 function P.texField(m, name)
   local v = P.mtlField(m, name)
   if v == '0' then return '' end
+  if v ~= '' and not P.terTexFits(v, name) then
+    P.terTexDropped = P.terTexDropped or {}
+    P.terTexDropped[#P.terTexDropped + 1] = name .. ' ' .. v
+    return ''
+  end
   return v
+end
+
+-- Pixel size of a PNG or DDS from its header (nil when unknown)
+P.texDimCache = {}
+function P.texDims(path)
+  local c = P.texDimCache[path]
+  if c ~= nil then return c[1], c[2] end
+  local w, h = nil, nil
+  local f = io.open(path, 'rb')
+  local head = f and f:read(24)
+  if f then f:close() end
+  if head and #head >= 24 then
+    if head:sub(2, 4) == 'PNG' then
+      w = ((byte(head, 17) * 256 + byte(head, 18)) * 256 + byte(head, 19)) * 256 + byte(head, 20)
+      h = ((byte(head, 21) * 256 + byte(head, 22)) * 256 + byte(head, 23)) * 256 + byte(head, 24)
+    elseif head:sub(1, 4) == 'DDS ' then
+      h = byte(head, 13) + byte(head, 14) * 256 + byte(head, 15) * 65536 + byte(head, 16) * 16777216
+      w = byte(head, 17) + byte(head, 18) * 256 + byte(head, 19) * 65536 + byte(head, 20) * 16777216
+    end
+  end
+  P.texDimCache[path] = { w, h }
+  return w, h
+end
+
+-- The terrain draws a layer texture only when its size is the one its slot (base, macro,
+-- detail) declares in the level's TerrainMaterialTextureSet; others are left out (log:
+-- "dont have required size of ... declared in TerrainMaterialTextureSet"). huge_desert's
+-- t_sand_nm (2048) as normal detail (1024 slot): the terrain drew only the macro normal,
+-- the mud drew the detail one too and looked different. Unknown sizes count as fitting.
+function P.terTexFits(path, field)
+  local set = P.terTexSet
+  if set == nil then
+    set = false
+    local tb = ter and ter.tb
+    local okN, n = pcall(function() return tb and tostring(tb:getField('materialTextureSet', 0) or '') end)
+    local o = okN and n and n ~= '' and scenetree.findObject(n)
+    if o then
+      set = {}
+      for _, k in ipairs({ 'base', 'detail', 'macro' }) do
+        local okF, v = pcall(function() return tostring(o:getField(k .. 'TexSize', 0) or '') end)
+        local a, b = (okF and v or ''):match('^%s*(%d+)%s+(%d+)')
+        if a then set[k] = { tonumber(a), tonumber(b) } end
+      end
+    end
+    P.terTexSet = set
+  end
+  if not set then return true end
+  local slot = field:find('Base', 1, true) and 'base' or (field:find('Macro', 1, true) and 'macro')
+    or (field:find('Detail', 1, true) and 'detail') or nil
+  local want = slot and set[slot]
+  if not want then return true end
+  local w, h = P.texDims(path)
+  if not w then return true end
+  return w == want[1] and h == want[2]
 end
 
 -- Tyre lump material of a soft layer: the layer's own patch textures (so mud on the
@@ -3568,7 +3627,14 @@ end
 function P.terrainLayerMaps(m)
   local function tex(name) return P.texField(m, name) end
   local function num(name) return tonumber(P.mtlField(m, name)) or 0 end
-  local function near(name, def) return P.firstNumber(P.mtlField(m, name)) or def end
+  -- strengths: the terrain shader gets them packed as 0..1 (terrain.h.hlsl unpackFloat4N):
+  -- huge_desert's normalDetailStrength 8 draws as 1 on the terrain, unclamped it made the
+  -- mud's normals 16x and the patch looked rough and dark
+  local function near(name, def)
+    local v = P.firstNumber(P.mtlField(m, name))
+    if v == nil then return def end
+    return clamp(v, 0, 1)
+  end
   local r = {
     base = tex('baseColorBaseTex'), baseSize = num('baseColorBaseTexSize'),
     detail = tex('baseColorDetailTex'), detailSize = num('baseColorDetailTexSize'), detailStr = near('baseColorDetailStrength', nil),
@@ -3585,6 +3651,7 @@ function P.terrainLayerMaps(m)
 end
 
 function P.createLayerMaterials()
+  P.terTexSet, P.terTexDropped = nil, nil
   P.matNames = {}
   P.matUV = {}
   P.clodMatNames = {}
@@ -3604,7 +3671,7 @@ function P.createLayerMaterials()
       local base, bsize = t.base, t.baseSize * sq
       local detail, dsize = t.detail, t.detailSize * sq
       local dstr = t.detailStr or mc.defaultDetailStrength or 0.5
-      local nrmDStr = t.nrmDetailStr or mc.defaultNormalDetailStrength or 0.8
+      local nrmDStr = clamp(t.nrmDetailStr or mc.defaultNormalDetailStrength or 0.8, 0, 1)
       if base == '' then
         -- legacy (v1) terrain material
         base = m.getDiffuseMap and tostring(m:getDiffuseMap() or '') or ''
@@ -3635,6 +3702,19 @@ function P.createLayerMaterials()
       local useDetail = mc.useDetail and detail ~= '' and dsize > 0
       local twoStages = useMacro and useDetail
       local k = twoStages and 2 or 1 -- strength factor: each stage carries half
+      -- Normals: the terrain lerps base -> macro (factor mF) -> detail (dF) (terrain.h.hlsl),
+      -- an object layer adds detail normals onto its base normal (defaultMat.hlsl: normal.xy
+      -- += detail.xy * strength). Weights of the lerp: base (1-mF)(1-dF), macro mF(1-dF),
+      -- detail dF. With a light base weight (huge_desert: dF 1, the detail replaces the rest)
+      -- the base normal is left out and the others carry their weights; else they are scaled
+      -- to the base's. Adding the base, macro and detail normals at full strength drew the
+      -- huge_desert sand far bumpier than the terrain.
+      local mF = (useMacro and t.nrmMacro ~= '') and (t.nrmMacroStr or 0) or 0
+      local dF = (useDetail and t.nrmDetail ~= '') and nrmDStr or 0
+      local wB, wM, wD = (1 - mF) * (1 - dF), mF * (1 - dF), dF
+      local useBaseNrm = t.nrm ~= '' and mc.normalMaps ~= false and wB >= 0.25
+      local sM, sD = wM, wD
+      if useBaseNrm then sM, sD = wM / wB, wD / wB end
       local F = {}
       local function add(field, value, stage) F[#F + 1] = { field, value, stage or 0 } end
       local baseMap = base ~= '' and (uvBase and P.srgbCopy(base) or base) or nil
@@ -3646,7 +3726,7 @@ function P.createLayerMaterials()
         else
           add('baseColorFactor', '0.23 0.17 0.11 1', st)
         end
-        if t.nrm ~= '' and mc.normalMaps ~= false then add('normalMap', t.nrm, st) end
+        if useBaseNrm then add('normalMap', t.nrm, st) end
         local rOver = tonumber(mc.roughness) or -1
         if rOver >= 0 then
           add('roughnessFactor', sfmt('%g', rOver), st)
@@ -3667,7 +3747,7 @@ function P.createLayerMaterials()
           local nd = isMacro and t.nrmMacro or t.nrmDetail
           if nd ~= '' and mc.normalMaps ~= false then
             add('detailNormalMap', nd, st)
-            add('detailNormalMapStrength', sfmt('%g', (isMacro and t.nrmMacroStr or nrmDStr) * k), st)
+            add('detailNormalMapStrength', sfmt('%g', (isMacro and sM or sD) * k), st)
           end
           local rd = isMacro and t.roughMacro or t.roughDetail
           if rd ~= '' and rOver < 0 and t.rough ~= '' then
@@ -3703,6 +3783,10 @@ function P.createLayerMaterials()
     end
   end
   P.baseSize = maxBase > 0 and maxBase or ter.worldSize
+  if P.terTexDropped then
+    log('I', logTag, 'terrain textures the terrain leaves out (size not as in its texture set), left out of the mud too: '
+      .. table.concat(P.terTexDropped, ', '))
+  end
 end
 
 -- Terrain colour under a point, for the tyre coat (wheelMud takes the colour of the ground

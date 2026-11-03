@@ -270,3 +270,10 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   call on it (any box), like hw550.
 - A game frozen by Lua for seconds ends as launcher error `0xCFFFFFFF STATUS_APPLICATION_HANG`
   (Windows kills it); beamng.log may miss the mod's lines when the 15000-line cap cuts the middle.
+- Terrain layer strengths (`baseColor/normal/roughness/ao` `Macro`/`DetailStrength`) reach the
+  shader packed as 0..1 unorm (terrain.h.hlsl `unpackFloat4N`): a strength of 8 draws as 1.
+- The terrain leaves out a layer texture whose pixel size differs from its slot's size in the
+  level's `TerrainMaterialTextureSet` (`baseTexSize` / `detailTexSize` / `macroTexSize`); the
+  log says "dont have required size of ... declared in TerrainMaterialTextureSet".
+- Terrain normals: `lerp(lerp(base, macro, mF), detail, dF)`; object materials (defaultMat.hlsl):
+  `normal.xy += detail.xy * detailNormalMapStrength`.

@@ -234,6 +234,14 @@ frames, exact terrain restore) and on hw550 (8192 x 8192, auto: switch 4-12 ms, 
   writes to ~9 cm on huge_desert (the lowering read back is used, so it can be 0.11-0.29 m).
 - Zones count inside the region only.
 
+## 20. Mud material beyond ~80 m (huge_desert, 2026-11-03)
+
+Near tiles match the terrain. Sector meshes 80-150 m out still read a little lighter: the
+terrain fades its macro/detail maps (and their roughness) by distance (`macroDistances`,
+`detailDistances`, `*DistAtten`), an object material cannot. Roughness is the lever (roughness
+1.0 turned the patch darker than the terrain, the map lighter). Idea: a second, far material
+with the far-distance strengths for sectors.
+
 ## 17. Review items left open (2026-11-01)
 
 From an outside play test (gridmap_v2): what was done is in CHANGELOG [Unreleased]. Left:

@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Fixed
+- Mud material on huge_desert drew a rough, dark patch over the sand. Three causes, all now
+  read the way the terrain shader reads them: (1) layer strengths are clamped to 0..1 (the
+  terrain gets them packed as unorm; huge_desert's normal strengths 8 went 16x into the mud);
+  (2) terrain textures whose size is not the one their slot declares in the level's
+  TerrainMaterialTextureSet are left out, as the terrain leaves them out (huge_desert:
+  t_sand_nm 2048 in a 1024 detail slot, t_sand_r, t_macro_sand_ao); (3) normal maps follow the
+  terrain's lerp base -> macro -> detail: an object layer adds detail normals onto its base
+  normal, so the weights are mapped (base normal left out when its weight is under 0.25).
+  huge_desert near tiles now match the terrain (meshes-hidden A/B); gridmap_v2 rut walls
+  unchanged to the eye (its base normal weight is 0.24, now left out).
 - The game hung (Windows STATUS_APPLICATION_HANG) on huge_desert: its terrain is 8192 x 8192
   squares of 64 m (524 km, ~275k km2). Tiles were one 64 m square with 0.2 m cells, i.e.
   320 x 320 cells and 100k-vertex meshes per tile; the old whole-map sink pass also took 27.8 s
