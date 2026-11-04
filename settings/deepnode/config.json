@@ -2,7 +2,8 @@
   "autoStart": true,
   "softMatch": [
     "mud",
-    "sand"
+    "sand",
+    "snow"
   ],
   "layers": {
     "defaultSinkDepth": 0.3,
@@ -342,7 +343,8 @@
       },
       "floorLift": {
         "mud": 1.0,
-        "sand": 1.0
+        "sand": 1.0,
+        "snow": 1.0
       },
       "floorReach": 0.3,
       "floorMargin": 0.03,

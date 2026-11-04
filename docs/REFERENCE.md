@@ -24,7 +24,20 @@ deepnode_main.gui.toggle()
 ### Soft ground
 
 * A terrain layer is soft when its layer name or its ground model name contains one of the
-  texts in `softMatch` (default `mud`, `sand`).
+  texts in `softMatch` (default `mud`, `sand`, `snow`). The kind (mud, sand, snow) is that text.
+* Run tab "Deformable ground": one tick box per ground model of the level
+  (`deepnode_materials`, test `tests/materials_test.lua`). Hard ground is not listed: a word
+  of the ground model or layer name is asphalt, concrete, rock(s), cliff, ice, cobble(stone),
+  slippery, metal, wood, ... (words are letter runs: DIRT_ROCKY is listed). Every session
+  starts from the `softMatch` defaults; ticks are not saved and apply on Restart. A ground
+  model ticked beyond the defaults gets its kind from its name (SNOW -> snow, SAND -> sand,
+  else mud), the sink depth of that kind, and vanilla physics (heavy mode leaves its ground
+  model and terrain floor alone).
+* Snow (kind `snow`): sink 0.2 m, small berms and steep walls (`stamp.kinds.snow`), white
+  tyre coat that packs into the tread (`clods.kinds.snow`, sand order map), dry print look,
+  no stains carried onto hard ground. Heavy physics uses polish_roads_winter's SNOW_DEEP
+  values for snow ground models. Vanilla levels with snow: automation_test_track only
+  (`snow` layer; its `ice` layer on ground model SNOW stays hard).
 * The layer map is read straight from the level's `.ter` file. The mod checks the file's
   row order against the engine on a few hundred random points. It accepts the file as
   "direct" or "flipped" only when 90 % or more of the points agree. Otherwise it asks the
@@ -438,9 +451,11 @@ mesh casts them and rebuilding meshes makes them flash). The GUI can keep them o
 
 Three tabs:
 
-* **Mud** (everyday): turn on/off, Smooth all ruts, Wash tyres, Mud sticks to tyres,
-  Detail margin round vehicles, Old ruts fade after, and Mud zones (add a round patch
-  where you are, remove all).
+* **Run** (everyday): Start/Stop, Restart, Smooth ruts, Wash tyres, decal road and tread
+  print toggles, physics mode, which vehicles dig, Deformable ground (one tick per ground
+  model, apply on Restart), Tyre mud.
+* **Debug** also holds the Zones section (Zone radius, Zone depth, Add zone here, Clear
+  zones), moved off the Run tab 2026-11-04.
 * **Settings**: vehicles with full mud, chunk rebuilds per second, terrain UV flip,
   screen-space shadows off.
 * **Debug**:
@@ -498,7 +513,7 @@ Lengths are metres, speeds m/s, times seconds.
 | Key | Default | Meaning |
 |---|---|---|
 | `autoStart` | true | Start automatically when a level loads |
-| `softMatch` | ["mud","sand"] | Texts that make a layer soft (layer name or ground model name) |
+| `softMatch` | ["mud","sand","snow"] | Texts that make a layer soft by default (layer name or ground model name); the Run tab ticks more per session |
 
 ### region
 
@@ -522,7 +537,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | Key | Default | Meaning |
 |---|---|---|
 | `defaultSinkDepth` | 0.3 | Sink depth of a soft layer with no specific entry |
-| `sinkDepthByMatch` | mud 0.35, sand 0.2 | Sink depth by text found in the layer name; first match wins |
+| `sinkDepthByMatch` | mud 0.35, sand 0.2, snow 0.2 | Sink depth by text found in the layer name; first match wins; layers ticked by hand use their kind's value |
 | `featherVerts` | 4 | Width of the depth fade in terrain vertices |
 | `edgeDip` | 0.04 | How far the patch dips under the terrain where the depth is 0 |
 
@@ -541,6 +556,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |
 | `overlayOnRuts` | true | Copies also on rut and track cells, clipped to the strip (the pattern drapes over the ruts); false = untouched squares only |
 | `overlayQuiet` | 1.0 | s after a tile's last stamp before its decal copies are built (0 = every build) |
+| `hideKinds` | ["mud","sand"] | `hideOnMud` hides decal roads over these kinds only: snow maps paint ploughed paths and tyre tracks as decals over the snow (polish_roads_winter 3478 roads) |
 | `hideOnMud` | true | Mode `off`: hide every decal road that touches soft ground (false: leave them, heavy mode then shows them on undug mud) |
 | `overlayAlphaRef` | 110 | Alpha clip of the overlay materials (0 = translucent: slow) |
 | `overlayLift` / `overlayLiftStep` | 0.008 / 0.002 | m over the mud; one step per renderPriority level (lower numbers higher; kept under `sectors.drop` without terrain-first) |

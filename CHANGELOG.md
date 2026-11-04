@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+- Run tab "Deformable ground": one tick box per ground model of the level (hard ground such
+  as asphalt, rock and ice is not listed). Every session starts with mud, sand and snow
+  ticked; ticks are not saved and apply on Restart. Ground models ticked beyond the defaults
+  deform with vanilla physics. New pure module `deepnode_materials`, offline test
+  `tests/materials_test.lua` (real layer lists of JV, ATT, polish_roads_winter, Camodo).
+- Snow kind: layers whose name or ground model contains `snow` deform (sink 0.2 m, small
+  berms, steep walls, white tyre coat, dry print look). Heavy physics gives snow ground models
+  the values of polish_roads_winter's SNOW_DEEP. Tested on polish_roads_winter (SNOW_DEEP,
+  3.5 M vertices, ruts 0.12-0.15 m with berms behind an lc300).
+
+### Fixed
+- Snow maps lost every decal track: `roads.hideOnMud` hid all 3478 decal roads of
+  polish_roads_winter (ploughed paths, tyre tracks). It now hides decals only over
+  `roads.hideKinds` (mud, sand).
+
 ### Changed
 - GUI: the mud zone tools (Zone radius, Zone depth, Add zone here, Clear zones) moved from
   the Run tab to a "Zones" section at the bottom of the Debug tab (community feedback: the Run

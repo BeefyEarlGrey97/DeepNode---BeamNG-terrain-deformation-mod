@@ -17,7 +17,7 @@ learned by reading the Dynamic Scratch mod; none of its code, shaders or texture
 
 ## Features
 
-- Mud and sand deformation from the level's own terrain layers
+- Mud, sand and snow deformation from the level's own terrain layers; Run tab tick list picks which ground models deform
 - Tyre ruts at 0.2 m resolution with berms and slumping walls, chassis dents, dual wheels
 - Ruts carved ahead of each wheel, so they appear under the tyre (front latency ~0.1 s)
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
@@ -53,6 +53,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 13. Experimental ground look: GPU cost not measured exactly, night/rain unchecked; pooled water only on print texels: see docs/OPEN_ISSUES.md §14.
 14. Heavy mode: grass within one 10 m groundcover cell of a digging truck can still blink about once a second (every terrain update rebuilds the cells over it): docs/OPEN_ISSUES.md §15.
 15. Crossing ruts merge on the 1 m terrain grid (ridge between a truck's rut lines is 0.8 m); a ~5 cm settle when a vehicle stops: docs/OPEN_ISSUES.md §17.
+17. Snow: first values (berms, coat, prints) tuned on one map only (polish_roads_winter); automation_test_track snow is fragmented (59 % of snow vertices are interior): docs/OPEN_ISSUES.md §21.
 16. Region mode on big maps: ruts outside the overlap are dropped when the region moves, not yet tried on a BeamNG.earth map: docs/OPEN_ISSUES.md §19.
 
 ## Contributing and forking

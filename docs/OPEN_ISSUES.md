@@ -281,3 +281,14 @@ at 40 km/h with >= 48 fps (8 Percherons). Findings:
 Next: find why the exemption multiplies uploads (fresh fronts at tileRebuildHz 40 from the user GUI?
 cap fresh uploads per tile, e.g. 15-20 Hz, and keep the hold for the axles behind), then re-add the
 fast floor for hot clusters only.
+
+## 21. Snow and the material tick list (2026-11-04)
+- Snow kind values are first guesses (stamp.kinds.snow, clods.kinds.snow, overlay uses the
+  sand look): tune on polish_roads_winter with a Percheron at speed; the snow tyre coat has not
+  been looked at close up yet.
+- automation_test_track snow: 0.28 km2 in 6535 patches, only 59 % of snow vertices interior
+  (mud 95 %): about 41 % of its snow gets depth 0 at the layer edges. A minimum patch size or
+  softer edge rule may help; not done.
+- Tick list: a tick toggled back to its default before Restart still shows "changes apply on
+  Restart". Row areas (km2) shown in the design preview are not drawn yet.
+- polish_roads_winter is 3.8 km2 of SNOW_DEEP: region mode; fps with several trucks not measured.

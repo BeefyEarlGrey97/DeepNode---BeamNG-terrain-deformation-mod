@@ -75,13 +75,16 @@ end
 -- merge, arrays replace. Every value is explained in docs/REFERENCE.md.
 local defaults = {
   autoStart = true,
-  softMatch = { 'mud', 'sand' },
+  -- default soft layers: name or ground model contains one of these (deepnode_materials);
+  -- the Run tab list ticks more ground models per session (vanilla physics for those)
+  softMatch = { 'mud', 'sand', 'snow' },
   layers = {
     -- 0.3 m: a car sinks to the rims and can belly out on deep tracks; in-game test
     -- showed 0.45 m trenched a stock SUV, which read as too thick
     defaultSinkDepth = 0.3,
-    -- first matching text wins: mud is wetter and deeper than sand
-    sinkDepthByMatch = { mud = 0.35, sand = 0.2 },
+    -- first matching text wins: mud is wetter and deeper than sand; snow 0.2 = the
+    -- defaultDepth of polish_roads_winter's SNOW_DEEP (fresh snow over a packed base)
+    sinkDepthByMatch = { mud = 0.35, sand = 0.2, snow = 0.2 },
     depthScale = 1,         -- multiplies every sink depth (GUI "Depth x")
     -- 4 vertices of smoothstep feather (4 m on a 1 m grid): the border has no step
     -- and the round chamfer contours hide the square grid
@@ -149,6 +152,10 @@ local defaults = {
     -- s after a tile's last stamp before its decal copies are built (0 = every build)
     overlayQuiet = 1.0,
     hideOnMud = true,       -- mode off: no decal road shows on soft ground (P.coverRoads)
+    -- ... of these kinds only: snow maps paint their ploughed paths and tyre tracks as decal
+    -- roads all over the snow (polish_roads_winter: 3478 hidden, every track gone); heavy
+    -- physics draws undug snow with the terrain, so its decals show there as the map made them
+    hideKinds = { 'mud', 'sand' },
     overlayAlphaRef = 110,  -- overlays are alpha-clipped (opaque pass); 0 = translucent (slow, sorts badly)
     overlayLift = 0.008,    -- m over the mud (4 mm z-fought beyond ~10 m); one overlayLiftStep per renderPriority level
     overlayLiftStep = 0.001,
@@ -349,6 +356,10 @@ local defaults = {
     kinds = {
       mud = { bermFraction = 0.35, maxSlope = 1.6, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8 },
       sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4 },
+      -- snow compacts under the tyre more than it is pushed aside (small berms), the walls
+      -- of a packed rut stand steep; Bekker n for snow ~1.0-1.6 (Wong, Terramechanics);
+      -- first values, to tune on polish_roads_winter
+      snow = { bermFraction = 0.15, maxSlope = 1.4, soilN = 1.3, soften = 0, slipBeta = 0.5, spinDig = 1.0 },
     },
     -- Soil memory (Bekker multi-pass rule, Chrono SCM yield memory): a cell remembers how
     -- many tyre passes it took and how deep the first one went (z1). Pass N may carve down
@@ -505,6 +516,13 @@ local defaults = {
                groundGain = 1.3, groundDesat = 0.3,
                texB = '/art/deepnode/tyre/t_tyresand_b.color.dds', texO = '/art/deepnode/tyre/t_tyresand_o.data.dds',
                texN = '/art/deepnode/tyre/t_tyresand_nm.normal.dds', texMean = 0.4489 },
+      -- snow: packs into the tread like sand (same order map and normals), no caking, white;
+      -- colour from the ground under the wheel (groundColor) with little desaturation
+      snow = { stick = 0.8, coatMax = 1.0, shed = 2.5, wet = 1.0, roughness = 0.75, size = 0.6, looseShare = 0.5,
+               color = { 0.93, 0.95, 1.0 }, thickness = 0.003, coverMax = 0.7, treadInset = 0.010,
+               groundGain = 1.15, groundDesat = 0.6,
+               texO = '/art/deepnode/tyre/t_tyresand_o.data.dds',
+               texN = '/art/deepnode/tyre/t_tyresand_nm.normal.dds', texMean = 0.4767 },
     },
   },
   memory = {
@@ -576,12 +594,16 @@ local defaults = {
         mud = { defaultDepth = 0.2, flowConsistencyIndex = 17000, fluidDensity = 20000,
           staticFrictionCoefficient = 0.35, slidingFrictionCoefficient = 0.32 },
         sand = { defaultDepth = 0.14, flowConsistencyIndex = 7500, fluidDensity = 30000 },
+        -- snow: polish_roads_winter's SNOW_DEEP (that map's own deep-snow ground model)
+        snow = { defaultDepth = 0.2, staticFrictionCoefficient = 0.65, slidingFrictionCoefficient = 0.4,
+          hydrodynamicFriction = 0.01, stribeckVelocity = 3, roughnessCoefficient = 0.3, fluidDensity = 481,
+          flowConsistencyIndex = 300, flowBehaviorIndex = 0.8, dragAnisotropy = 0, shearStrength = 0 },
       },
       -- m the hard floor starts above the vanilla sink (>= the sink depth: terrain-first, the
       -- terrain draws undug ground). Sand too since 2026-10-31: same truck times through the
       -- gridmap_v2 sand pit (5.9 / 9.1 / 11.8 s to 30 / 60 / 90 m), same fps, engine memory
       -- per 4 runs 15.9 -> 4.9 MB (the floor follows the dug ruts, as for mud)
-      floorLift = { mud = 0.3, sand = 0.3 },
+      floorLift = { mud = 0.3, sand = 0.3, snow = 0.2 },
       floorReach = 0.3,    -- squares round a terrain vertex whose ruts lower it
       floorMargin = 0.03,  -- m the terrain stays under the rut surface (hidden by the mesh)
       floorHz = 5,         -- rut floor recomputes per second
@@ -732,10 +754,10 @@ local defaults = {
     -- (up to wet), smoother and darker (darken) over range m
     trench = { start = 0.08, range = 0.12, wet = 0.95, darken = 0.12 },
     minNormalZ = 0.45,      -- ground steeper than this fades out (geometric slope from depth)
-    bermReach = { mud = 2.4, sand = 2.6 }, -- berm band beside the print, x tyre half width
+    bermReach = { mud = 2.4, sand = 2.6, snow = 2.0 }, -- berm band beside the print, x tyre half width
     -- soft layers whose name contains one of these read as dry soil: sand look (no wet mud,
     -- no puddles, no splats from the print colour side)
-    drySoil = { 'dust', 'dry', 'desert', 'sand' },
+    drySoil = { 'dust', 'dry', 'desert', 'sand', 'snow' },
     -- per soft kind: wet darkening, saturation gain, wetness (0..1), crumb density on the berms
     mud = { darken = 0.5, saturate = 0.35, wet = 0.9, bermCrumbs = 0.75, crumbLift = 0.12 },
     sand = { darken = 0.15, saturate = 0.05, wet = 0.35, bermCrumbs = 0.35, relief = 0.45, crumbHeight = 0.3,
@@ -1061,12 +1083,52 @@ function P.firstNumber(s)
 end
 
 function P.matchSoft(name, gm)
-  local a, b = name:lower(), gm:lower()
-  for _, s in ipairs(cfg.softMatch) do
-    local p = tostring(s):lower()
-    if p ~= '' and (a:find(p, 1, true) or b:find(p, 1, true)) then return p end
+  return P.materials().softText(name, gm, cfg.softMatch)
+end
+
+-- deepnode_materials (pure module; loaded with the others, required directly as fallback)
+function P.materials()
+  return P.mod('materials') or require('ge/extensions/deepnode/materials')
+end
+
+-- Run tab ticks: ground model label -> bool, per level, this game session only (never
+-- saved: every session starts from the defaults, community feedback 2026-11-04)
+P.ticks = {}
+function P.materialTicks()
+  local lv = tostring(P.levelName)
+  P.ticks[lv] = P.ticks[lv] or {}
+  return P.ticks[lv]
+end
+function P.ticksCopy()
+  local o = {}
+  for k, v in pairs(P.materialTicks()) do o[k] = v end
+  return o
+end
+
+-- rows for the Run tab: { label, kind, on, default, layers }; on = current tick
+function M.materialRows()
+  local src = {}
+  for e, L in pairs(layers) do src[e] = { name = L.name, gm = L.gm } end
+  local rows = P.materials().rows(src, cfg.softMatch)
+  local t = P.materialTicks()
+  for _, r in ipairs(rows) do
+    if t[r.label] ~= nil then r.on = t[r.label] else r.on = r.default end
   end
-  return nil
+  return rows
+end
+
+-- tick a ground model; true when it differs from what the running mud was built with
+function M.setMaterialTick(label, on)
+  local t = P.materialTicks()
+  t[label] = on
+  return M.materialTicksPending()
+end
+
+function M.materialTicksPending()
+  local a, t = P.appliedTicks or {}, P.materialTicks()
+  for k, v in pairs(t) do if a[k] ~= v then return true end end
+  for k, v in pairs(a) do if t[k] ~= v then return true end end
+  return false
 end
 
 function P.refreshLayerDepths()
@@ -1569,6 +1631,19 @@ function P.softAtWorld(x, y)
     local zd = zoneSample(x, y)
     if zd > 0 then return true end
   end
+  return false
+end
+
+-- a decal road over this point is hidden (roads.hideOnMud): soft ground of a hideKinds kind
+-- (zones are mud)
+function P.roadHideAt(x, y)
+  if not P.softAtWorld(x, y) then return false end
+  local hk = cfg.roads.hideKinds
+  if not hk then return true end
+  local gx, gy = floor((x - ter.ox) * ter.invSq + 0.5), floor((y - ter.oy) * ter.invSq + 0.5)
+  local L = layers[layerAt(gx, gy)]
+  local kind = (L and L.soft and L.kind) or 'mud'
+  for _, k in ipairs(hk) do if k == kind then return true end end
   return false
 end
 
@@ -2154,7 +2229,7 @@ function P.coverRoads(off, quiet)
           local e = r.e
           for i = 1, #e - 3, 4 do
             local lx, ly, rx, ry = e[i], e[i + 1], e[i + 2], e[i + 3]
-            if lx and (P.softAtWorld((lx + rx) * 0.5, (ly + ry) * 0.5) or P.softAtWorld(lx, ly) or P.softAtWorld(rx, ry)) then
+            if lx and (P.roadHideAt((lx + rx) * 0.5, (ly + ry) * 0.5) or P.roadHideAt(lx, ly) or P.roadHideAt(rx, ry)) then
               want[road] = true
               P.roadsHidden[#P.roadsHidden + 1] = road
               break
@@ -2525,19 +2600,24 @@ function P.initTerrain()
   for e = 0, count - 1 do
     local m = mats[e]
     if m then
-      local name, gm = P.mtlName(m), P.mtlGm(m)
-      local hit = P.matchSoft(name, gm)
-      -- kind: the softMatch text that made the layer soft ('mud', 'sand'): tyre mud uses it
-      local L = { idx = e, name = name, gm = gm, soft = hit ~= nil, kind = hit, mtl = m }
-      if L.soft then
-        L.sinkDepth = cfg.layers.defaultSinkDepth
-        for k, v in pairs(cfg.layers.sinkDepthByMatch or {}) do
-          local p = tostring(k):lower()
-          if name:lower():find(p, 1, true) or gm:lower():find(p, 1, true) then L.sinkDepth = tonumber(v) or L.sinkDepth; break end
-        end
-        L.sinkDepth = L.sinkDepth * (tonumber(cfg.layers.depthScale) or 1)
+      layers[e] = { idx = e, name = P.mtlName(m), gm = P.mtlGm(m), mtl = m }
+    end
+  end
+  -- soft / kind / vanilla from the defaults and this session's Run tab ticks
+  -- (kind: 'mud', 'sand', 'snow': tyre mud, prints and heavy physics use it)
+  P.materials().apply(layers, P.materialTicks(), cfg.softMatch)
+  P.appliedTicks = P.ticksCopy()
+  for _, L in pairs(layers) do
+    if L.soft then
+      local name, gm = L.name:lower(), L.gm:lower()
+      L.sinkDepth = nil
+      for k, v in pairs(cfg.layers.sinkDepthByMatch or {}) do
+        local p = tostring(k):lower()
+        if name:find(p, 1, true) or gm:find(p, 1, true) then L.sinkDepth = tonumber(v); break end
       end
-      layers[e] = L
+      -- layers ticked by hand: the depth of their kind
+      L.sinkDepth = L.sinkDepth or tonumber((cfg.layers.sinkDepthByMatch or {})[L.kind]) or cfg.layers.defaultSinkDepth
+      L.sinkDepth = L.sinkDepth * (tonumber(cfg.layers.depthScale) or 1)
     end
   end
 
@@ -3037,10 +3117,11 @@ function P.markFloor(t, mode)
   end
 end
 
--- soft kind of the layer at a vertex ('mud', 'sand'), nil for hard ground
+-- soft kind of the layer at a vertex ('mud', 'sand', 'snow'); second value: the layer was
+-- ticked by hand and runs on vanilla physics
 function M.layerKindAt(gx, gy)
   local L = layers[layerAt(gx, gy)]
-  if L and L.soft then return L.kind end
+  if L and L.soft then return L.kind, L.vanilla end
   L = layers[P.zoneMat]
   return L and L.soft and L.kind or 'mud'
 end
@@ -6755,7 +6836,7 @@ end
 -- lifecycle
 -------------------------------------------------------------------------------
 function P.loadSubModules()
-  for _, n in ipairs({ 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'roadCopy', 'overlay', 'gui' }) do
+  for _, n in ipairs({ 'materials', 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'roadCopy', 'overlay', 'gui' }) do
     local name = 'deepnode_' .. n
     if extensions and not extensions[name] then
       extensions.load(name)

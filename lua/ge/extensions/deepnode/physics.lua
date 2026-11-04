@@ -75,7 +75,8 @@ end
 function M.initialLift(gx, gy, d)
   local h = heavy()
   if not h then return 0 end
-  local kind = ctx.layerKindAt(gx, gy)
+  local kind, vanilla = ctx.layerKindAt(gx, gy)
+  if vanilla then return 0 end   -- ticked by hand in the Run tab: vanilla physics
   local l = tonumber(h.floorLift and h.floorLift[kind]) or 0
   if l <= 0 then return 0 end
   return min(l, d)
@@ -89,7 +90,8 @@ local function applyGroundModels(layers)
   local gms = core_environment and core_environment.groundModels
   if not h or not gms or not be or not be.setGroundModel then return end
   for _, L in pairs(layers or {}) do
-    local name = L.soft and L.gm and tostring(L.gm):upper() or ''
+    -- layers ticked by hand (L.vanilla) keep the level's ground model
+    local name = L.soft and not L.vanilla and L.gm and tostring(L.gm):upper() or ''
     local vals = h.groundModels and h.groundModels[L.kind]
     local e = gms[name]
     -- reapply when the entry was rebuilt (core_environment reload) or a value moved back

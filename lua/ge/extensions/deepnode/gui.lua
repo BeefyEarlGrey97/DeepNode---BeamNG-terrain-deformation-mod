@@ -57,7 +57,7 @@ local SLIDERS = {
 -- other values the GUI owns and saves
 local EXTRA = { 'clods.enabled', 'render.disableSSS', 'debug.tiles', 'debug.sectors', 'debug.boxes', 'debug.drawRadius',
   'clods.kinds' }
-local KIND_COLORS = { { 'mud', 'Mud colour' }, { 'sand', 'Sand colour' } }
+local KIND_COLORS = { { 'mud', 'Mud colour' }, { 'sand', 'Sand colour' }, { 'snow', 'Snow colour' } }
 
 local st = {
   t = -1, lines = {}, histFps = {}, histMod = {}, histN = 0,
@@ -245,6 +245,14 @@ local function refresh(m)
   st.runCol = msCol(modMs, 2, 5)
   st.runLine = sfmt('RUNNING   %.0f fps   mod %.2f ms', pf.fps or 0, modMs)
   st.zoneLabel = sfmt('Clear zones (%d)###clr', m.zoneCount())
+  -- deformable ground rows (deepnode_materials via main); ticks live in main, per session
+  st.matRows = m.materialRows and m.materialRows() or nil
+  for _, r in ipairs(st.matRows or {}) do
+    local k = 'mat_' .. r.label
+    ptr[k] = ptr[k] or im.BoolPtr(false)
+    ptr[k][0] = r.on == true
+  end
+  st.matPending = m.materialTicksPending and m.materialTicksPending() or false
   local dl = s.debugLines
   st.dbgLine = dl and sfmt('%d tiles  %d sectors  %d lines', dl.tiles, dl.sectors, dl.lines) or ''
 
@@ -349,6 +357,21 @@ local function tabRun(m)
       'all vehicles; player only; player + vehicles within ring.physicalRange m of the camera.\n' ..
       'The others leave tread prints only (needs Experimental tread prints). Saves frame time\n' ..
       'with AI traffic: 6 trucks 58.8 -> 69.5 fps with player only (gridmap_v2).')
+  end
+  -- which ground models deform: every session starts from mud / sand / snow; hard ground
+  -- (asphalt, rock, ice ...) is not listed; ticks beyond the defaults use vanilla physics
+  if st.matRows and #st.matRows > 0 then
+    im.SeparatorText('Deformable ground')
+    for _, r in ipairs(st.matRows) do
+      local p = ptr['mat_' .. r.label]
+      if im.Checkbox(r.label, p) then
+        r.on = p[0]
+        st.matPending = m.setMaterialTick(r.label, p[0])
+      end
+      im.SameLine()
+      ctext('dim', r.default and r.kind or (r.kind .. ', vanilla physics'))
+    end
+    if st.matPending then ctext('warn', 'changes apply on Restart') end
   end
   im.Separator()
   if im.Checkbox('Tyre mud', ptr['clods.enabled']) then m.setClodsEnabled(ptr['clods.enabled'][0]); changed() end

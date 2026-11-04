@@ -365,6 +365,8 @@ end
 -- soft layer names that read as dry soil (desert dirt): drawn with the sand look (no wet
 -- darkening, no puddles) although the mud pipeline treats them as mud
 local dryOf = {}
+-- kinds drawn with the dry (sand) look: no wet darkening, no puddles
+local DRY_KIND = { sand = true, snow = true }
 local function drySoil(x, y)
   local name = P.layerNameAt and P.layerNameAt(x, y)
   if not name then return false end
@@ -381,14 +383,15 @@ end
 local function stampSoft(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres)
   local kind = KIND_MUD
   local mx, my = (p0x + p1x) * 0.5, (p0y + p1y) * 0.5
-  if (P.kindAtWorld and P.kindAtWorld(mx, my) == 'sand') or drySoil(mx, my) then kind = KIND_SAND end
+  local k = P.kindAtWorld and P.kindAtWorld(mx, my)
+  if DRY_KIND[k] or drySoil(mx, my) then kind = KIND_SAND end
   local br = oc.bermReach
   -- the undisturbed surface (rut depth for puddles); the tyre bottom where it is unknown
   local rest = P.restAt and P.restAt((p0x + p1x) * 0.5, (p0y + p1y) * 0.5)
   local bottom = (p0z + p1z) * 0.5 - R
   if not rest or rest < bottom then rest = bottom end
   stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, 1,
-    kind == KIND_SAND and (br.sand or 1.8) or (br.mud or 1.6), rest)
+    (k == 'snow' and br.snow) or (kind == KIND_SAND and (br.sand or 1.8)) or (br.mud or 1.6), rest)
 end
 
 -- erase prints over a rut tile that DeepNode reset (idle reset, clear ruts)
@@ -614,7 +617,7 @@ local function poolFrame(dt)
       local x = ctx.ter.ox + (t.tx + 0.5) * ctx.N * ctx.cell
       local y = ctx.ter.oy + (t.ty + 0.5) * ctx.N * ctx.cell
       local inWin = x > win.x0 and y > win.y0 and x < win.x0 + win.span and y < win.y0 + win.span
-      local dry = (P.kindAtWorld and P.kindAtWorld(x, y) == 'sand') or drySoil(x, y)
+      local dry = (P.kindAtWorld and DRY_KIND[P.kindAtWorld(x, y)]) or drySoil(x, y)
       if inWin and not dry then
         local timer = hptimer and hptimer()
         computePools(t)
@@ -716,7 +719,8 @@ local function onWheel(vid, W)
   local cc, tr = oc.carry, oc.tracks
   local hard = wheelNow - (W.mudT or -1e9) > cc.afterSoft
   local coat = W.coat or 0
-  local carry = cc.enabled and coat >= cc.minCoat
+  -- snow leaves no stain on hard ground (it melts off)
+  local carry = cc.enabled and coat >= cc.minCoat and W.kind ~= 'snow'
   local wt = oc.wetTracks
   local wetness = wt.enabled and max(W.wet or 0, W.water or 0) or 0
   local wetTrack = not carry and wetness >= wt.minWet
