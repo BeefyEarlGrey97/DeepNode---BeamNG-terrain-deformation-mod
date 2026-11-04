@@ -366,7 +366,7 @@ end
 -- darkening, no puddles) although the mud pipeline treats them as mud
 local dryOf = {}
 -- kinds drawn with the dry (sand) look: no wet darkening, no puddles
-local DRY_KIND = { sand = true, snow = true }
+local DRY_KIND = { sand = true, snow = true, firm = true }
 local function drySoil(x, y)
   local name = P.layerNameAt and P.layerNameAt(x, y)
   if not name then return false end
@@ -391,7 +391,7 @@ local function stampSoft(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres)
   local bottom = (p0z + p1z) * 0.5 - R
   if not rest or rest < bottom then rest = bottom end
   stamp(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres, kind, 1,
-    (k == 'snow' and br.snow) or (kind == KIND_SAND and (br.sand or 1.8)) or (br.mud or 1.6), rest)
+    (k and br[k]) or (kind == KIND_SAND and (br.sand or 1.8)) or (br.mud or 1.6), rest)
 end
 
 -- erase prints over a rut tile that DeepNode reset (idle reset, clear ruts)
@@ -719,8 +719,8 @@ local function onWheel(vid, W)
   local cc, tr = oc.carry, oc.tracks
   local hard = wheelNow - (W.mudT or -1e9) > cc.afterSoft
   local coat = W.coat or 0
-  -- snow leaves no stain on hard ground (it melts off)
-  local carry = cc.enabled and coat >= cc.minCoat and W.kind ~= 'snow'
+  -- snow leaves no stain on hard ground (it melts off), firm ground builds no coat
+  local carry = cc.enabled and coat >= cc.minCoat and W.kind ~= 'snow' and W.kind ~= 'firm'
   local wt = oc.wetTracks
   local wetness = wt.enabled and max(W.wet or 0, W.water or 0) or 0
   local wetTrack = not carry and wetness >= wt.minWet

@@ -84,7 +84,8 @@ local defaults = {
     defaultSinkDepth = 0.3,
     -- first matching text wins: mud is wetter and deeper than sand; snow 0.2 = the
     -- defaultDepth of polish_roads_winter's SNOW_DEEP (fresh snow over a packed base)
-    sinkDepthByMatch = { mud = 0.35, sand = 0.2, snow = 0.2 },
+    -- firm: grass / dirt ticked by hand in the Run tab, a shallow print only
+    sinkDepthByMatch = { mud = 0.35, sand = 0.2, snow = 0.2, firm = 0.08 },
     depthScale = 1,         -- multiplies every sink depth (GUI "Depth x")
     -- 4 vertices of smoothstep feather (4 m on a 1 m grid): the border has no step
     -- and the round chamfer contours hide the square grid
@@ -360,6 +361,9 @@ local defaults = {
       -- of a packed rut stand steep; Bekker n for snow ~1.0-1.6 (Wong, Terramechanics);
       -- first values, to tune on polish_roads_winter
       snow = { bermFraction = 0.15, maxSlope = 1.4, soilN = 1.3, soften = 0, slipBeta = 0.5, spinDig = 1.0 },
+      -- firm (grass, dirt): turf and packed soil compact, little is pushed aside; spinning
+      -- tears it up slowly
+      firm = { bermFraction = 0.2, maxSlope = 1.6, soilN = 0.8, soften = 0, slipBeta = 0.15, spinDig = 0.4 },
     },
     -- Soil memory (Bekker multi-pass rule, Chrono SCM yield memory): a cell remembers how
     -- many tyre passes it took and how deep the first one went (z1). Pass N may carve down
@@ -523,6 +527,9 @@ local defaults = {
                groundGain = 1.15, groundDesat = 0.6,
                texO = '/art/deepnode/tyre/t_tyresand_o.data.dds',
                texN = '/art/deepnode/tyre/t_tyresand_nm.normal.dds', texMean = 0.4767 },
+      -- firm (grass, dirt ticked by hand): nothing builds up on the tyre
+      firm = { stick = 0, coatMax = 1.0, shed = 3.0, wet = 1.0, roughness = 0.8, size = 0.5,
+               color = { 0.45, 0.4, 0.32 }, texMean = 0.4767 },
     },
   },
   memory = {
@@ -598,12 +605,14 @@ local defaults = {
         snow = { defaultDepth = 0.2, staticFrictionCoefficient = 0.65, slidingFrictionCoefficient = 0.4,
           hydrodynamicFriction = 0.01, stribeckVelocity = 3, roughnessCoefficient = 0.3, fluidDensity = 481,
           flowConsistencyIndex = 300, flowBehaviorIndex = 0.8, dragAnisotropy = 0, shearStrength = 0 },
+        -- firm: a thin soft top over the level's own ground model (its grip and density stay)
+        firm = { defaultDepth = 0.06, flowConsistencyIndex = 3000 },
       },
       -- m the hard floor starts above the vanilla sink (>= the sink depth: terrain-first, the
       -- terrain draws undug ground). Sand too since 2026-10-31: same truck times through the
       -- gridmap_v2 sand pit (5.9 / 9.1 / 11.8 s to 30 / 60 / 90 m), same fps, engine memory
       -- per 4 runs 15.9 -> 4.9 MB (the floor follows the dug ruts, as for mud)
-      floorLift = { mud = 0.3, sand = 0.3, snow = 0.2 },
+      floorLift = { mud = 0.3, sand = 0.3, snow = 0.2, firm = 1.0 },
       floorReach = 0.3,    -- squares round a terrain vertex whose ruts lower it
       floorMargin = 0.03,  -- m the terrain stays under the rut surface (hidden by the mesh)
       floorHz = 5,         -- rut floor recomputes per second
@@ -754,7 +763,7 @@ local defaults = {
     -- (up to wet), smoother and darker (darken) over range m
     trench = { start = 0.08, range = 0.12, wet = 0.95, darken = 0.12 },
     minNormalZ = 0.45,      -- ground steeper than this fades out (geometric slope from depth)
-    bermReach = { mud = 2.4, sand = 2.6, snow = 2.0 }, -- berm band beside the print, x tyre half width
+    bermReach = { mud = 2.4, sand = 2.6, snow = 2.0, firm = 1.8 }, -- berm band beside the print, x tyre half width
     -- soft layers whose name contains one of these read as dry soil: sand look (no wet mud,
     -- no puddles, no splats from the print colour side)
     drySoil = { 'dust', 'dry', 'desert', 'sand', 'snow' },

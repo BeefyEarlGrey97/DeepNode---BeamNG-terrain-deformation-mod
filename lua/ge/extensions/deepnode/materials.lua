@@ -8,7 +8,9 @@
 --    'dirt' + 'rocky', not 'rock'; 'asphalt1' is 'asphalt'.
 --  * Defaults (every session starts from them, ticks are never saved): a layer is soft when
 --    its name or ground model contains one of the soft texts (mud, sand, snow), as before
---    the list existed. Kind = that text; otherwise picked from the ground model.
+--    the list existed. Kind = that text; otherwise picked from the ground model: 'firm' for
+--    ground that is not mud, sand or snow (grass, dirt, forest floor: shallow prints, no
+--    tyre coat; user test on gridmap_v2: GRASS as mud sank too deep and caked the tyres).
 --  * Layers ticked beyond the defaults are marked `byHand`: heavy mode gives them their
 --    kind's soft layer but keeps the level's friction (deepnode_physics).
 
@@ -44,7 +46,8 @@ function M.kindOf(gm)
   local g = tostring(gm or ''):lower()
   if g:find('snow', 1, true) then return 'snow' end
   if g:find('sand', 1, true) then return 'sand' end
-  return 'mud'
+  if g:find('mud', 1, true) then return 'mud' end
+  return 'firm'
 end
 
 function M.label(L)

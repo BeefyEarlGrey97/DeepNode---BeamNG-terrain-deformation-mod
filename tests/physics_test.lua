@@ -20,15 +20,16 @@ local kindAt = { 'mud', false }
 local main = {
   cfg = { physics = { mode = 'heavy', heavy = {
     groundModels = { mud = { defaultDepth = 0.2, flowConsistencyIndex = 17000, fluidDensity = 20000,
-      staticFrictionCoefficient = 0.35, slidingFrictionCoefficient = 0.32 } },
-    floorLift = { mud = 1.0 } } } },
+      staticFrictionCoefficient = 0.35, slidingFrictionCoefficient = 0.32 },
+      firm = { defaultDepth = 0.06, flowConsistencyIndex = 3000 } },
+    floorLift = { mud = 1.0, firm = 1.0 } } } },
   private = {},
   layerKindAt = function() return kindAt[1], kindAt[2] end,
 }
 local ph = dofile('lua/ge/extensions/deepnode/physics.lua')
 local layers = {
   [0] = { name = 'Mud', gm = 'MUD', soft = true, kind = 'mud' },
-  [1] = { name = 'Grass', gm = 'GRASS', soft = true, kind = 'mud', byHand = true },
+  [1] = { name = 'Grass', gm = 'GRASS', soft = true, kind = 'firm', byHand = true },
   -- Camodo-like: DIRT used by a default soft layer and by a hand-ticked one
   [2] = { name = 'Mud2', gm = 'DIRT', soft = true, kind = 'mud' },
   [3] = { name = 'Dirt', gm = 'DIRT', soft = true, kind = 'mud', byHand = true },
@@ -36,7 +37,8 @@ local layers = {
 ph.start(main, layers)
 local G, D = core_environment.groundModels.GRASS.cdata, core_environment.groundModels.DIRT.cdata
 expect(setCalls.GRASS == 1, 'hand-ticked GRASS gets heavy values (setGroundModel called)')
-expect(math.abs(G.defaultDepth - 0.2) < 1e-6 and G.fluidDensity == 20000, 'GRASS soft layer depth and density from the mud kind')
+expect(math.abs(G.defaultDepth - 0.06) < 1e-6 and G.flowConsistencyIndex == 3000 and G.fluidDensity == 8000,
+  'GRASS gets the thin firm soft layer, density stays the level one')
 expect(math.abs(G.staticFrictionCoefficient - 0.61) < 1e-6, 'GRASS keeps the level friction (no slick mud grip)')
 expect(math.abs(D.staticFrictionCoefficient - 0.35) < 1e-6, 'DIRT with a default soft layer gets the full mud values')
 
