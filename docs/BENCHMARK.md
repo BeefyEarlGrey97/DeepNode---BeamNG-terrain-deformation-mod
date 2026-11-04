@@ -280,3 +280,8 @@ bodyMaxWait 3 is rejected although it is the biggest win measured: in a low side
 truck crawling through the mud ride on a flat surface until the pass ends (the rut shows only behind
 it). The user rule: ruts must keep up as before. The body test (P.dirtyHidden) is view-independent;
 a camera-aware occlusion test would be needed to hold uploads only where the deck really hides them.
+
+Camera-aware follow-up (same day): holding a tile up to 3 s only while the camera's line of sight to
+every new rut square crosses the truck deck (a plane at 0.35 of the vehicle's OOBB height over the
+footprint; low side views keep 1.5 s) gave 47.0 vs 47.0 fps for the original: no gain. The 3 s win came
+from holding changes the camera can see (berms and rut edges beside the deck). Code not kept.
