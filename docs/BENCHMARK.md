@@ -315,3 +315,8 @@ pitch 14 / 16 m, `bench2.py label 5 clear`, runs 2-5, two interleaved sets (new,
 Mean fps equal within the noise (55.9 vs 54.9); low1 ~2 lower and the mod's own Lua ~0.7 ms higher with
 the new features. Fresh-front rut lag 0.21-0.26 s (new) vs 0.29-0.37 s (off). Not split per feature yet
 (likely: sectors re-meshing the 541 pinned tiles at full resolution).
+
+Split (same session, one set of 5 runs each, mod ms runs 1-5): only `roads.preRut` off 0.43-0.54;
+pre-rut with `roads.preCellStride` 4 for undug pinned tiles in sectors 0.60-1.21; pre-rut without
+pinned tiles (`roads.prePin` false) 0.56-0.79. The pre-rut pass is the cost (~+0.2-0.5 ms); pinning
+adds part of it. Not resolved.

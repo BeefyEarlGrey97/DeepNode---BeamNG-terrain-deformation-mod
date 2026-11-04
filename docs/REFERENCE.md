@@ -562,6 +562,8 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `preEndFade`, `preEdgeFade` | 1.5, 0.1 | Fade (m) at the road ends, (share of width) at its sides |
 | `preSoftShare` | 0.3 | Share of a road's centre points on soft ground needed to use it |
 | `preReach`, `preMargin` | 0.6, 0.03 | Terrain vertices within `preReach` m of a dip go down by the dip + `preMargin` (mesh shows, physics floor follows) |
+| `prePin` | true | Keep pre-rutted tiles as frozen tile data from the start (false: tiles only near vehicles, sectors draw 1 m quads) |
+| `preCellStride` | 4 | Sector cell stride for undug pinned tiles |
 | `preTileMax` | 4000 | Pre-rutted tiles kept as frozen tile data (sectors draw them at full resolution) |
 | `preSkipMatch` | `["line", "asphalt", "invisible", "skidmark"]` | Road materials never pre-rutted |
 | `mode` | `"copy"` | Decal roads on the mud: `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |

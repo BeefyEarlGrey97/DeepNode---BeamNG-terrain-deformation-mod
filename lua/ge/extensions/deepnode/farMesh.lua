@@ -305,7 +305,11 @@ local function buildBody(j)
         local t = main.tiles[key]
         t_m.recReset()
         if t and (t.state == 'frozen' or t.rutted) then
-          t_m.emitTileCells(b, t, drop, main.borderRule(t, true), main.cfg.sectors.frozenCellStride)
+          -- an undug pre-rutted road tile (main.pinPreTile) on a coarser grid: 541 of them on
+          -- gridmap_v2 at the frozen stride cost the mod +0.7 ms per frame with 8 trucks
+          local stride = main.cfg.sectors.frozenCellStride
+          if t.pre and not t.lastStamp then stride = max(stride or 1, main.cfg.roads.preCellStride or 4) end
+          t_m.emitTileCells(b, t, drop, main.borderRule(t, true), stride)
         else
           t_m.emitTerrainSquares(b, tx, ty, drop)
         end

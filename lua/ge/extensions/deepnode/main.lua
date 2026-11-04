@@ -6993,7 +6993,7 @@ function P.start()
     end
   end
   P.sinkPass()
-  if preOff then
+  if preOff and cfg.roads.prePin ~= false then
     local n = P.pinPreTiles()
     log('I', logTag, sfmt('pre-rutted road tiles pinned: %d', n))
   end

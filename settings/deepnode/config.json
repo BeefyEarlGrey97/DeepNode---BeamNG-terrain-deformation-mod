@@ -68,6 +68,7 @@
     "preClampLow": 1.5,
     "preClampHigh": 0.4,
     "preTileMax": 4000,
+    "preCellStride": 4,
     "preSkipMatch": [
       "line",
       "asphalt",
