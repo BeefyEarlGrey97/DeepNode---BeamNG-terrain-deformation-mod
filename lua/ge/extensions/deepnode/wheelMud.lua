@@ -52,6 +52,8 @@ local builder = nil
 local order = nil           -- { w, h, data } coverage order lookup (0..255), u fastest
 local matFree = {}          -- released tyre materials { name, mat } for reuse
 local filmFree = {}         -- released water film materials
+local rubber = {}           -- tyre rubber materials of the vehicles: name -> state (wet look)
+local rubberT = -huge       -- last rubber wetness pass
 local chunkPools = {}       -- kind -> { free = {objects}, n = created }
 local chunks = {}           -- active chunks
 local chunkFree = {}        -- spare chunk state tables
@@ -811,6 +813,7 @@ local function resetCoat(W)
   W.coat, W.loose = 0, 0
   W.water = 0
   W.wet = 0
+  W.rw = 0
   W.prevE1, W.prevC = nil, nil
   W.omega = 0
   W.chunkAcc = 0
@@ -930,6 +933,151 @@ local function updateCoat(W, c, dt)
 end
 
 -------------------------------------------------------------------------------
+-- wet rubber: the vehicle's own tyre material
+-------------------------------------------------------------------------------
+-- A wet tyre is darker and glossy (satin highlights on the lugs and the sidewall).
+-- The look comes from the vehicle's own tyre Material: roughnessFactor (x the roughness
+-- map) drops by clods.rubberGloss x wetness, the base colour by clods.rubberDarken x
+-- wetness. Edits reach the vehicle only with Material:reload() (~2 ms; flush() changes
+-- nothing on vehicle meshes, measured), so a material is re-applied per rubberStep of
+-- wetness change, one per pass inside the shared upload budget.
+-- Materials are shared: every vehicle with the same tyre material shows the wettest
+-- in-range tyre that uses it (no per-vehicle instance of a vehicle material exists;
+-- swapping in an own copy rendered the tyre chrome, see ENGINE_FINDINGS).
+local NAMED_COLORS = { White = { 1, 1, 1, 1 }, Black = { 0, 0, 0, 1 } }
+local function parseColor(s)
+  if type(s) ~= 'string' or s == '' then return nil end
+  if NAMED_COLORS[s] then local n = NAMED_COLORS[s]; return { n[1], n[2], n[3], n[4] } end
+  local t = {}
+  for v in s:gmatch('[%-%d%.eE]+') do t[#t + 1] = tonumber(v) end
+  if #t < 3 or not t[1] or not t[2] or not t[3] then return nil end
+  return { t[1], t[2], t[3], t[4] or 1 }
+end
+
+local function isRubberName(nm)
+  local l = nm:lower()
+  if l:find('deepnode', 1, true) then return false end
+  return (l:find('tire', 1, true) or l:find('tyre', 1, true)) ~= nil
+end
+
+-- the tyre materials of a vehicle (names), registered with their original values
+local function rubberOf(veh)
+  local list = {}
+  local ok, names = pcall(function() return veh:getMaterialNames() end)
+  if not ok or type(names) ~= 'table' then return list end
+  for _, nm in ipairs(names) do
+    if type(nm) == 'string' and isRubberName(nm) then
+      local R = rubber[nm]
+      if not R then
+        local m = scenetree.findObject(nm)
+        if m and m.getField then
+          local layers = {}
+          local nl = clamp(tonumber(m:getField('activeLayers', 0)) or 1, 1, 4)
+          for l = 0, nl - 1 do
+            layers[#layers + 1] = { rough = tonumber(m:getField('roughnessFactor', l)) or 1,
+              col = parseColor(m:getField('baseColorFactor', l)) }
+          end
+          R = { name = nm, layers = layers, applied = 0, target = 0, t = -huge }
+          rubber[nm] = R
+        end
+      end
+      if R then list[#list + 1] = nm end
+    end
+  end
+  return list
+end
+
+local function applyRubber(R, w)
+  local m = scenetree.findObject(R.name)
+  if not m then rubber[R.name] = nil; return false end
+  local c = ctx.cfg.clods
+  local gloss, dark = c.rubberGloss or 0.7, c.rubberDarken or 0.3
+  for i, L in ipairs(R.layers) do
+    local l = i - 1
+    m:setField('roughnessFactor', l, sfmt('%g', max(0.04, L.rough * (1 - gloss * w))))
+    if L.col then
+      local k = 1 - dark * w
+      m:setField('baseColorFactor', l, sfmt('%g %g %g %g', L.col[1] * k, L.col[2] * k, L.col[3] * k, L.col[4]))
+    end
+  end
+  m:reload()
+  R.applied, R.t = w, now
+  counters.rubberReloads = (counters.rubberReloads or 0) + 1
+  return true
+end
+
+-- original look back on every touched material; keep = leave them registered (toggle)
+local function restoreRubber(keep)
+  for _, R in pairs(rubber) do
+    if R.applied > 0 then pcall(applyRubber, R, 0) end
+  end
+  if not keep then rubber = {} end
+end
+
+-- GUI / tests: wet rubber on or off live
+function M.setRubberWet(on)
+  if not ctx then return end
+  ctx.cfg.clods.rubberWet = on and true or false
+  if not on then restoreRubber(true) end
+  rubberT = -huge
+end
+
+-- wetness of the rubber itself (W.rw): rises to the water share or the wet ground's
+-- kind rubberWet at rubberWetRate per s, dries over rubberDryTime s (faster with speed)
+local function updateRubberWet(W, c, dt)
+  local src = W.water or 0
+  if now - W.mudT < 0.3 then
+    local K = kindCfg(W.groundKind or W.kind)
+    src = max(src, K.rubberWet or 0)
+  end
+  local rw = W.rw or 0
+  if src > rw then
+    rw = min(src, rw + (c.rubberWetRate or 1.5) * dt)
+  elseif rw > 0 then
+    local surf = abs(W.omega or 0) * (W.R or 0.4)
+    rw = max(0, rw - dt / max(1, c.rubberDryTime or 90) * (1 + surf / (c.drySpeedRef or 8)))
+  end
+  W.rw = rw
+end
+
+-- one pass every rubberGap s: target per material = wettest tyre of the vehicles in range
+-- that use it; the biggest change past rubberStep is applied (one reload per pass)
+local function rubberPass(c, t_m)
+  if c.rubberWet == false or now - rubberT < (c.rubberGap or 0.25) then return end
+  rubberT = now
+  for _, R in pairs(rubber) do R.target = 0 end
+  local range = c.drawDist or 150
+  for _, V in pairs(vehs) do
+    if V.rubber and (V.camD or 0) <= range then
+      local w = 0
+      for _, W in pairs(V.wheels) do if (W.rw or 0) > w then w = W.rw end end
+      if w > 0 then
+        for _, nm in ipairs(V.rubber) do
+          local R = rubber[nm]
+          if R and w > R.target then R.target = w end
+        end
+      end
+    end
+  end
+  local best, bestD = nil, 0
+  local step = c.rubberStep or 0.12
+  for _, R in pairs(rubber) do
+    local d = abs(R.target - R.applied)
+    if (d >= step or (R.target < 0.03 and R.applied > 0) or (R.applied == 0 and R.target > 0.03)) and d > bestD then
+      best, bestD = R, d
+    end
+  end
+  if not best then return end
+  local room = not (t_m and t_m.canUpload) or t_m.canUpload('M', 200)
+  if not room and now - best.t < (c.flushWait or 0.5) * 2 then return end
+  local timer = hptimer and hptimer()
+  applyRubber(best, best.target < 0.03 and 0 or best.target)
+  local ms = timer and timer:stop() or 2
+  if t_m and t_m.recordUpload then t_m.recordUpload('M', nil, ms) end
+  counters.rubberMs = (counters.rubberMs or 0) + ms
+end
+
+-------------------------------------------------------------------------------
 -- wheel definitions and reports
 -------------------------------------------------------------------------------
 local function deleteWheel(W)
@@ -946,6 +1094,10 @@ function M.setWheelDefs(vid, defs)
   if not V then
     V = { wheels = {} }
     vehs[vid] = V
+  end
+  if ctx.cfg.clods.rubberWet ~= false then
+    local veh = getObjectByID(vid)
+    if veh then V.rubber = rubberOf(veh) end
   end
   local seen = {}
   for _, d in ipairs(defs) do
@@ -1039,6 +1191,7 @@ function M.setEnabled(on)
   if not enabled then
     M.cleanWheels()
     clearChunks()
+    restoreRubber(true)
   end
 end
 
@@ -1054,7 +1207,7 @@ function M.geometry() return geoVerts, geoCorners end
 -- per frame
 -------------------------------------------------------------------------------
 local function wheelActive(W)
-  return W.visible or W.coat > 0 or now - W.mudT < 1 or (W.wet or 0) > 0 or (W.water or 0) > 0
+  return W.visible or W.coat > 0 or now - W.mudT < 1 or (W.wet or 0) > 0 or (W.water or 0) > 0 or (W.rw or 0) > 0
 end
 
 function M.preRender(dt)
@@ -1230,8 +1383,10 @@ function M.update(dt)
       end
       if not skipV then vdt = V.updAcc; V.updAcc, V.updN = 0, 0 end
       if not skipV then for _, W in pairs(V.wheels) do
-        if W.valid and (W.coat > 0 or (W.dC or 0) > 0 or now - W.mudT < 0.5 or (W.wet or 0) > 0 or (W.water or 0) > 0) then
+        if W.valid and (W.coat > 0 or (W.dC or 0) > 0 or now - W.mudT < 0.5 or (W.wet or 0) > 0 or (W.water or 0) > 0
+          or (W.rw or 0) > 0) then
           local dropped = updateCoat(W, c, vdt)
+          updateRubberWet(W, c, vdt)
           updateLook(W, c)
           -- drawn coverage follows the coat's at most coverUpRate / coverDownRate per s
           -- (a mud/sand switch changes coverMax: the coat no longer jumps)
@@ -1389,6 +1544,7 @@ function M.update(dt)
     end
   end
 
+  rubberPass(c, t_m)
   updateChunks(dt)
 end
 
@@ -1454,6 +1610,8 @@ function M.start(main)
   session = session + 1
   vehs, chunks, chunkFree, chunkPools, matFree = {}, {}, {}, {}, {}
   filmFree = {}
+  restoreRubber()
+  rubberT = -huge
   geoVerts, geoCorners = 0, 0
   objCounter, matCounter = 0, 0
   for k in pairs(counters) do counters[k] = 0 end
@@ -1493,7 +1651,9 @@ function M.stop(objectsAlive)
       for _, o in ipairs(pool.free) do o:delete() end
     end
   end
-  -- tyre and chunk materials are owned by main and deleted with its materials
+  -- tyre and chunk materials are owned by main and deleted with its materials; the
+  -- vehicles' own tyre materials get their original roughness and colour back
+  restoreRubber()
   vehs, chunks, chunkFree, chunkPools, matFree = {}, {}, {}, {}, {}
   filmFree = {}
   builder = nil
@@ -1522,6 +1682,8 @@ function M.stats()
   return { wheels = wheels, avgCoat = wheels > 0 and coatSum / wheels or 0, activeWheels = active, wetWheels = wet,
     dualWheels = dual, visibleWheels = vis, chunks = #chunks, chunkObjects = pooled, flushes = counters.flushes,
     wetVehicles = wetVeh, filmFlushes = counters.filmFlushes or 0,
+    rubberMaterials = (function() local n = 0 for _ in pairs(rubber) do n = n + 1 end return n end)(),
+    rubberReloads = counters.rubberReloads or 0, rubberMs = counters.rubberMs or 0,
     flushMs = counters.flushMs, meshes = counters.meshes, meshMs = counters.meshMs, pendingMeshes = pend,
     chunksSpawned = counters.chunks, washed = counters.washed, materials = matCounter, enabled = enabled,
     -- old names still read by the GUI / tools

@@ -202,7 +202,8 @@
         ],
         "texN": "/art/deepnode/tyre/t_tyremud_nm.normal.dds",
         "texMean": 0.4767,
-        "groundGain": 2.0
+        "groundGain": 2.0,
+        "rubberWet": 0.7
       },
       "sand": {
         "stick": 0.9,
@@ -224,9 +225,10 @@
         "brightness": 1.45,
         "thickness": 0.003,
         "coverMax": 0.62,
-        "treadInset": 0.010,
+        "treadInset": 0.01,
         "groundGain": 1.3,
-        "groundDesat": 0.3
+        "groundDesat": 0.3,
+        "rubberWet": 0.1
       }
     },
     "buildRate": 1,
@@ -259,12 +261,19 @@
     "wetRoughness": 0.22,
     "wetDarken": 0.25,
     "wetStep": 0.1,
-    "wetFilm": true,
+    "wetFilm": false,
     "filmOpacity": 0.4,
     "filmRoughness": 0.05,
     "filmColor": 0.03,
     "filmMud": 0.5,
-    "filmLift": 0.0015
+    "filmLift": 0.0015,
+    "rubberWet": true,
+    "rubberGloss": 0.7,
+    "rubberDarken": 0.3,
+    "rubberStep": 0.12,
+    "rubberGap": 0.25,
+    "rubberWetRate": 1.5,
+    "rubberDryTime": 90
   },
   "camera": {
     "enabled": true,

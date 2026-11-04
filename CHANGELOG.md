@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+- Wet tyres use the vehicle's own tyre material instead of a water film layer: roughness
+  x (1 - `clods.rubberGloss` 0.7 x wetness), colour x (1 - `rubberDarken` 0.3 x wetness).
+  Water wets a tyre at once, wet ground up to the kind's `rubberWet` (mud 0.7, sand 0.1); dries
+  over `rubberDryTime` 90 s. Applied per `rubberStep` 0.12 with `Material:reload()` (~2 ms,
+  one per `rubberGap` 0.25 s, inside the upload budget). Tyre materials are shared, so every
+  vehicle with the same tyre shows the wettest one in range. Film layer off (`wetFilm` false).
+
 ## [0.5.0] — 2026-11-04 — choose what deforms, snow
 
 ### Added

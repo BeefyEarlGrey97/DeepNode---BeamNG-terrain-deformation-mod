@@ -243,6 +243,12 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
 - Material changes need `mat:flush()` (~0.4–0.8 ms); `setField` alone does nothing.
 - Base-colour alpha is ignored by alpha clip: use `opacityMap`.
 - Vehicle tyre material swaps at runtime render chrome.
+- Editing a vehicle's own Material in place works: `setField` + `mat:reload()` (~2 ms per material)
+  reaches the vehicle meshes; `flush()` alone changes nothing on them (2026-11-04, lc300 /
+  Percheron, colour test). Vehicle materials are shared by name (`veh:getMaterialNames()`), so
+  an edit shows on every vehicle that uses the material. Object shader: roughness =
+  `roughnessFactor` x roughness map; per-instance roughness exists only through the colour
+  palette path (`paletteRoughness`, tied to the paint).
 - `GBitmap():loadFile(path)` reads level terrain PNGs in GE Lua (2048² in tens of ms);
   `bmp:getColor(x, y, colorI)` fills an OUT `ColorI` (call without it errors "expect userdata").
 - Object material `baseColorFactor` x2 (0.25 -> 0.5 grey) gave x3.2 in decoded screenshot values:

@@ -773,6 +773,14 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `kinds.mud.texN` / `groundGain` | t_tyremud_nm, 2.0 | Procedural mud normal map; drying mud on a tyre is lighter than the wet ground |
 | `filmMud` | 0.5 | Water film colour = ground colour of the wheel's last soft ground x this (`filmColor` grey where unknown) |
 | `filmOpacity` | 0.4 | Water film opacity at full wetness (x the streak texture `t_tyrefilm_o`) |
+| `wetFilm` | false | Old water film layer on the tyre skin (replaced by `rubberWet`) |
+| `rubberWet` | true | Wet tyres: the vehicle's own tyre materials (name contains tire/tyre) get lower roughness and a darker colour |
+| `rubberGloss` | 0.7 | Roughness x (1 - this x wetness) |
+| `rubberDarken` | 0.3 | Base colour x (1 - this x wetness) |
+| `rubberStep` | 0.12 | Wetness change that re-applies a material (`Material:reload`, ~2 ms) |
+| `rubberGap` | 0.25 | Seconds between rubber passes (one material per pass) |
+| `rubberWetRate`, `rubberDryTime` | 1.5, 90 | Wetting rate per s; drying time in s (faster with speed, `drySpeedRef`) |
+| `kinds.<kind>.rubberWet` | mud 0.7, sand 0.1 | Wetness a tyre reaches on that ground (water: 1) |
 
 ### camera, materials, render, pool, gui
 
