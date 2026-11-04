@@ -550,6 +550,20 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `enabled` | true | Keep terrain under hard decal roads free of mud |
 | `margin` | 0.5 | Extra width (m) kept free of mud on each side of a road |
 | `skipMatch` | `["invisible", "dirt"]` | Roads with a material containing one of these texts (or a `softMatch` text) are not carved |
+| `preRut` | true | Decal roads on soft ground become ruts at start: their normal map is integrated to a height field (deepnode_preRut) and carved into the rest surface |
+| `preDepth` | mud 0.15, sand 0.08, snow 0.1 | Depth (m) of the height field's 5th percentile per ground kind |
+| `preDepthScale` | 1 | Factor on `preDepth` |
+| `preTexWidth` | 64 | Smallest normal-map mip at least this wide is decoded (BC5 / BC4 in Lua) |
+| `preHighPass` | 0.1667 | High-pass box radius as a share of the texture width (removes the integration bowl) |
+| `preSmoothRows`, `preSmoothCols` | 1, 1 | Light box smoothing along / across the road (texels) |
+| `preFlatRelief` | 0.1 | Height fields with less relief are basins instead (water puddles: flat normals) |
+| `preBasin` | 0.6 | Basin depth (x `preDepth`) where the decal is opaque |
+| `preClampLow`, `preClampHigh` | 1.5, 0.4 | Height field clamp (x `preDepth`): deepest dip, highest ridge |
+| `preEndFade`, `preEdgeFade` | 1.5, 0.1 | Fade (m) at the road ends, (share of width) at its sides |
+| `preSoftShare` | 0.3 | Share of a road's centre points on soft ground needed to use it |
+| `preReach`, `preMargin` | 0.6, 0.03 | Terrain vertices within `preReach` m of a dip go down by the dip + `preMargin` (mesh shows, physics floor follows) |
+| `preTileMax` | 4000 | Pre-rutted tiles kept as frozen tile data (sectors draw them at full resolution) |
+| `preSkipMatch` | `["line", "asphalt", "invisible", "skidmark"]` | Road materials never pre-rutted |
 | `mode` | `"copy"` | Decal roads on the mud: `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
 | `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
 | `copyLift` / `copyLiftStep` | 0.008 / 0.002 | Mode `copy`: m over the mud; one step per renderPriority level (lower numbers higher) |

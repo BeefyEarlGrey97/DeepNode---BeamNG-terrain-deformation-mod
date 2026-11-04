@@ -243,6 +243,15 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
 - Material changes need `mat:flush()` (~0.4–0.8 ms); `setField` alone does nothing.
 - Base-colour alpha is ignored by alpha clip: use `opacityMap`.
 - Vehicle tyre material swaps at runtime render chrome.
+- GE VM: `ffi.cast('const uint8_t*', luaString)` returns the string itself (no pointer); read
+  bytes with `string.byte`. `GBitmap:loadFile` does not read DDS (returns false, 1 x 1).
+  `readFile(path)` reads DDS from the mounted zips (5.6 MB in one call).
+- Stock decal road textures (content/assets/materials/decalroad.zip): normal maps BC5U (or DX10
+  dxgi 83), opacity / AO / roughness BC4U (or dxgi 80), colour BC7 (dxgi 99), full mip chains,
+  materials name .png paths and the engine loads the .dds next to them. Normal maps are
+  DirectX style (green flipped): least-squares integration has the lower residual that way on
+  every stock decal; with dh/du = -nx / nz the dips fall on the dark track strips of the base
+  colour (correlation 0.79-0.98).
 - Editing a vehicle's own Material in place works: `setField` + `mat:reload()` (~2 ms per material)
   reaches the vehicle meshes; `flush()` alone changes nothing on them (2026-11-04, lc300 /
   Percheron, colour test). Vehicle materials are shared by name (`veh:getMaterialNames()`), so

@@ -922,6 +922,9 @@ P.sinkCapacity = 0
 P.shortfall = {}
 P.sinkBox = nil
 local sinkApplied = false
+-- decal roads as ruts from the start (deepnode_preRut): per-vertex offset of the rest
+-- surface, per-vertex terrain dip, per-tile cell offsets; nil when off
+local preV, preDip, preOff = nil, nil, nil
 P.loweredSectors = {}
 
 local TS, CPS, N, CELL, TILE = 5, 5, 25, 0.2, 5
@@ -1591,11 +1594,12 @@ local function vertexInfo(gx, gy)
   if P.liftOn and d > 0 then cur = cur - P.liftOf(gx, gy) end
   if not member then return cur, cur, 0, false end
   if d <= 0 then return cur - edgeDip, cur, 0, true end
+  local po = preV and preV[gy * S + gx] or 0
   if sinkApplied then
     local sf = P.shortfall[gy * S + gx]
-    if sf then return cur + d - sf, cur, d, true end
+    if sf then return cur + d - sf + po, cur, d, true end
   end
-  return cur + d, cur, d, true
+  return cur + d + po, cur, d, true
 end
 M.vertexInfo = vertexInfo
 
@@ -3184,6 +3188,9 @@ function P.sinkPass()
         if d > 0 then
           local raw = tb:getHeightGrid(gx, gy)
           local lift = ph and ph.initialLift(gx, gy, d) or 0
+          -- pre-rutted decal road: the terrain goes down under its dips (not flush any more)
+          local dp = preDip and preDip[base + gx]
+          if dp then lift = lift - dp; if lift < 0 then lift = 0 end end
           local nr = raw - d + lift
           if nr < clampRaw then
             P.shortfall[base + gx] = clampRaw - nr
@@ -3230,6 +3237,7 @@ function P.restoreTerrain()
   log('I', logTag, sfmt('terrain restored (%d vertices)', P.sinkCount))
   P.sinkCount = 0
   sinkApplied = false
+  P.pre, preV, preDip, preOff = nil, nil, nil, nil
   P.shortfall = {}
   P.sinkBox = nil
 end
@@ -4183,6 +4191,9 @@ function P.prepareTile(tx, ty)
     passN, z1 = ffi.new('uint8_t[?]', NW * NW), ffi.new('uint8_t[?]', NW * NW)
     passKey, passT = ffi.new('uint16_t[?]', NW * NW), ffi.new('float[?]', NW * NW)
   end
+  -- pre-rutted decal roads: the cell's own offset replaces the bilinear one of the
+  -- vertices (vRest carries the vertex offsets, see vertexInfo)
+  local po = preOff and preOff[key]
   for j = 0, N do
     local s = j / CPS
     local sj = floor(s); if sj > TS - 1 then sj = TS - 1 end
@@ -4196,6 +4207,12 @@ function P.prepareTile(tx, ty)
       local idx = j * NW + i
       rest[idx] = vRest[a] * w00 + vRest[a + 1] * w10 + vRest[a + W] * w01 + vRest[a + W + 1] * w11
       flo[idx] = vFloor[a] * w00 + vFloor[a + 1] * w10 + vFloor[a + W] * w01 + vFloor[a + W + 1] * w11
+      if po and vMem[a] + vMem[a + 1] + vMem[a + W] + vMem[a + W + 1] > 0 then
+        local c00 = sj * CPS * NW + si * CPS
+        local c01 = c00 + CPS * NW
+        local vb = po[c00] * w00 + po[c00 + CPS] * w10 + po[c01] * w01 + po[c01 + CPS] * w11
+        rest[idx] = rest[idx] + po[idx] - vb
+      end
     end
   end
   local matSet, matList = {}, {}
@@ -4225,6 +4242,37 @@ function P.prepareTile(tx, ty)
   return t
 end
 M.prepareTileForTests = P.prepareTile
+
+-- Pre-rutted decal road tiles (deepnode_preRut) are kept as frozen tile data from the
+-- start: their sector draws them at full resolution (one quad per terrain square would
+-- lose the tracks). They are not counted against ring.frozenLimit while undug, and an idle
+-- reset puts a dug one back to its pre-rutted state instead of dropping it.
+function P.pinPreTile(key)
+  if tiles[key] then return false end
+  local tx, ty = key % KEY, floor(key / KEY)
+  local t = P.prepareTile(tx, ty)
+  if not t then return false end
+  t.pre, t.rutted, t.state, t.dirty = true, true, 'frozen', false
+  t.lastUse = simTime
+  tiles[key] = t
+  local sk = P.sectorKeyOfTile(tx, ty)
+  P.frozenCount = P.frozenCount + 1
+  P.frozenPerSector[sk] = (P.frozenPerSector[sk] or 0) + 1
+  local fm = P.mod('farMesh')
+  if fm then fm.markDirty(sk) end
+  return true
+end
+
+function P.pinPreTiles()
+  if not preOff then return 0 end
+  local n, cap = 0, (cfg.roads and cfg.roads.preTileMax) or 4000
+  for key in pairs(preOff) do
+    if n >= cap then break end
+    if P.pinPreTile(key) then n = n + 1 end
+  end
+  P.stats.preTiles = n
+  return n
+end
 
 P.NB = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }, { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }
 
@@ -4513,7 +4561,7 @@ function P.enforceFrozenLimit()
     guard = guard + 1
     local oldest, ot = nil, huge
     for _, t in pairs(tiles) do
-      if t.state == 'frozen' and t.lastUse < ot then oldest, ot = t, t.lastUse end
+      if t.state == 'frozen' and t.lastUse < ot and not (t.pre and not t.lastStamp) then oldest, ot = t, t.lastUse end
     end
     if not oldest then break end
     P.releaseFrozen(oldest)
@@ -6844,7 +6892,7 @@ end
 -- lifecycle
 -------------------------------------------------------------------------------
 function P.loadSubModules()
-  for _, n in ipairs({ 'materials', 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'roadCopy', 'overlay', 'gui' }) do
+  for _, n in ipairs({ 'materials', 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'roadCopy', 'overlay', 'preRut', 'gui' }) do
     local name = 'deepnode_' .. n
     if extensions and not extensions[name] then
       extensions.load(name)
@@ -6927,7 +6975,24 @@ function P.start()
 
   local ph = P.mod('physics')
   if ph then ph.start(M, layers) end
+  -- decal roads on soft ground as ruts from the start, before the sink pass (it lowers
+  -- the terrain under their dips)
+  P.pre, preV, preDip, preOff = nil, nil, nil, nil
+  local pr = P.mod('preRut')
+  if pr and not (P.reg and P.reg.on) then
+    local okPr, res = pcall(pr.build, M, P)
+    if not okPr then
+      log('E', logTag, 'pre-rutted roads failed: ' .. tostring(res))
+    elseif res then
+      P.pre, preV, preDip, preOff = res, res.vOff, res.dip, res.off
+      P.stats.preMs = res.ms
+    end
+  end
   P.sinkPass()
+  if preOff then
+    local n = P.pinPreTiles()
+    log('I', logTag, sfmt('pre-rutted road tiles pinned: %d', n))
+  end
   -- after the sink pass: the lifted copies build their cells on the lowered terrain
   if cfg.grass and cfg.grass.lift ~= false then P.liftGroundCover() end
   P.shrinkCoverCells()
@@ -7091,13 +7156,18 @@ function P.updateIdleReset(dt)
   P.idleCheck = 0
   local old = nil
   for _, t in pairs(tiles) do
-    if t.state == 'frozen' and simTime - max(t.lastUse or 0, t.lastStamp or 0) > limit then
+    if t.state == 'frozen' and simTime - max(t.lastUse or 0, t.lastStamp or 0) > limit
+      and not (t.pre and not t.lastStamp) then
       old = old or {}
       old[#old + 1] = t
     end
   end
   if not old then return end
-  for _, t in ipairs(old) do P.releaseFrozen(t) end
+  for _, t in ipairs(old) do
+    P.releaseFrozen(t)
+    -- a pre-rutted road tile goes back to the road's ruts
+    if t.pre then P.pinPreTile(t.key) end
+  end
   log('D', logTag, sfmt('idle reset: released %d rut tile(s) unused for %g s', #old, limit))
 end
 

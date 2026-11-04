@@ -286,6 +286,19 @@ Next: find why the exemption multiplies uploads (fresh fronts at tileRebuildHz 4
 cap fresh uploads per tile, e.g. 15-20 Hz, and keep the hold for the axles behind), then re-add the
 fast floor for hot clusters only.
 
+## 22. Pre-rutted decal roads (2026-11-04, first version)
+
+`roads.preRut` turns the soft decal roads into ruts at start (see CHANGELOG). Open:
+- gridmap_v2 mud pit: the stacked mud_large / mud_water decals give a lumpy field; the converging
+  furrows of the decals read only faintly. Ideas: per-material depth (furrows deeper), keep the
+  decal copies on top (`roads.mode 'copy'`) for the dark wet colour.
+- One long straight crease along the mud pit and a lighter rectangle beside a driving truck
+  (seen once, not identified: tile / sector border or flush square edge).
+- Cost: ~0.35-0.65 ms per frame in the pit overview (frozen tile data drawn at full resolution
+  in the sectors). Not measured with 8 trucks.
+- Region mode and coarse terrains skip it. Roads hidden after start (mode 'off') keep their
+  ruts; a road with startEndFade is faded by `preEndFade` only.
+
 ## 21. Snow and the material tick list (2026-11-04)
 - Snow kind values are first guesses (stamp.kinds.snow, clods.kinds.snow, overlay uses the
   sand look): tune on polish_roads_winter with a Percheron at speed; the snow tyre coat has not

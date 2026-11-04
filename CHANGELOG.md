@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+- Decal roads on soft ground start as real ruts (`roads.preRut`, new module
+  `deepnode_preRut`). At start each road material's normal map (BC5 mip about 64 texels
+  across) is decoded in Lua, integrated to a height field (least squares by FFT, mirrored
+  across the road, green flipped, high-passed), scaled so its 5th percentile is
+  `roads.preDepth` (mud 0.15 m, sand 0.08 m) and faded by the opacity map and the road ends and
+  sides. Roads are laid over each other in drawing order like the decals. Each 0.2 m cell gets
+  the offset in its rest surface; terrain vertices under dips go down (squares stop being flush),
+  so the heavy physics floor follows the ruts; the tiles are kept as frozen tile data (sectors
+  draw them at full resolution), outside the frozen limit, and an idle reset puts a dug one back
+  to the road's ruts. Puddle decals without relief become basins. gridmap_v2: 186 roads, 355k
+  cells, 541 tiles, 8662 terrain vertices in ~250 ms; pit overview 161-170 fps vs 180 (capped)
+  without.
+
 ### Changed
 - Wet tyres use the vehicle's own tyre material instead of a water film layer: roughness
   x (1 - `clods.rubberGloss` 0.7 x wetness), colour x (1 - `rubberDarken` 0.3 x wetness).

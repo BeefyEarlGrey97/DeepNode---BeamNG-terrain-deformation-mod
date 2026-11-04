@@ -46,7 +46,34 @@
       "__none__"
     ],
     "overlayLiftStep": 0.002,
-    "overlayAlphaRef": 110
+    "overlayAlphaRef": 110,
+    "preRut": true,
+    "preDepth": {
+      "mud": 0.15,
+      "sand": 0.08,
+      "snow": 0.1
+    },
+    "preDepthScale": 1.0,
+    "preTexWidth": 64,
+    "preSmoothRows": 1,
+    "preHighPass": 0.1667,
+    "preFlatRelief": 0.1,
+    "preBasin": 0.6,
+    "preEndFade": 1.5,
+    "preEdgeFade": 0.1,
+    "preSmoothCols": 1,
+    "preSoftShare": 0.3,
+    "preMargin": 0.03,
+    "preReach": 0.6,
+    "preClampLow": 1.5,
+    "preClampHigh": 0.4,
+    "preTileMax": 4000,
+    "preSkipMatch": [
+      "line",
+      "asphalt",
+      "invisible",
+      "skidmark"
+    ]
   },
   "grass": {
     "lift": true
