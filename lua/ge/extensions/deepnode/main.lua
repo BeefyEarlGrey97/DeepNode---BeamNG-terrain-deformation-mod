@@ -4255,6 +4255,7 @@ function P.pinPreTile(key)
   t.pre, t.rutted, t.state, t.dirty = true, true, 'frozen', false
   t.lastUse = simTime
   tiles[key] = t
+  P.prePinned = (P.prePinned or 0) + 1
   local sk = P.sectorKeyOfTile(tx, ty)
   P.frozenCount = P.frozenCount + 1
   P.frozenPerSector[sk] = (P.frozenPerSector[sk] or 0) + 1
@@ -4544,6 +4545,7 @@ function P.releaseFrozen(t)
   P.mod('tileMesh').dropSpare(t)
   tiles[t.key] = nil
   P.frozenCount = P.frozenCount - 1
+  if t.pre then P.prePinned = max(0, (P.prePinned or 1) - 1) end
   P.frozenPerSector[sk] = (P.frozenPerSector[sk] or 1) - 1
   if P.frozenPerSector[sk] <= 0 then P.frozenPerSector[sk] = nil end
   local fm = P.mod('farMesh')
@@ -4555,7 +4557,8 @@ function P.releaseFrozen(t)
 end
 
 function P.enforceFrozenLimit()
-  local limit = cfg.ring.frozenLimit
+  -- pinned pre-rutted road tiles do not count (they are never released while undug)
+  local limit = cfg.ring.frozenLimit + (P.prePinned or 0)
   local guard = 0
   while P.frozenCount > limit and guard < 64 do
     guard = guard + 1
@@ -6084,7 +6087,7 @@ function P.updateRing()
     end
   end
   if toDemote then for _, t in ipairs(toDemote) do P.demote(t) end end
-  if P.frozenCount > cfg.ring.frozenLimit then P.enforceFrozenLimit() end
+  if P.frozenCount > cfg.ring.frozenLimit + (P.prePinned or 0) then P.enforceFrozenLimit() end
 end
 
 P.bigCode = 7
@@ -6978,6 +6981,7 @@ function P.start()
   -- decal roads on soft ground as ruts from the start, before the sink pass (it lowers
   -- the terrain under their dips)
   P.pre, preV, preDip, preOff = nil, nil, nil, nil
+  P.prePinned = 0
   local pr = P.mod('preRut')
   if pr and not (P.reg and P.reg.on) then
     local okPr, res = pcall(pr.build, M, P)

@@ -296,6 +296,9 @@ fast floor for hot clusters only.
   (seen once, not identified: tile / sector border or flush square edge).
 - Cost: ~0.35-0.65 ms per frame in the pit overview (frozen tile data drawn at full resolution
   in the sectors). Not measured with 8 trucks.
+- 8 trucks (BENCHMARK 12): mod Lua +0.7 ms, low1 -2 with the new features; not split per feature.
+  Candidate: sector rebuilds over pinned full-resolution tiles (`sectors.frozenCellStride` for
+  untouched pinned tiles?).
 - Region mode and coarse terrains skip it. Roads hidden after start (mode 'off') keep their
   ruts; a road with startEndFade is faded by `preEndFade` only.
 

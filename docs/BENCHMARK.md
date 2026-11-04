@@ -300,3 +300,18 @@ restart. Default ticks (MUD, SAND) on gridmap_v2.
 
 The order of the sets decides which is faster (drift over the session): v0.5.0 is not slower than
 v0.4.0 within the noise (avg 46.8 vs 48.4, each build ran first once and second once).
+
+## 12. Wet rubber, pre-rutted decal roads, torn berms (2026-11-04, test 24a9a4f)
+
+8 Percherons (`gridmap_setup.lua`), heavy, user GUI settings, vsync and limiter off, orbit cam yaw 160 /
+pitch 14 / 16 m, `bench2.py label 5 clear`, runs 2-5, two interleaved sets (new, off, off, new). "off" =
+`roads.preRut` false, `clods.rubberWet` false, `stamp.bermCrumble` 0 through gui.json + restart.
+
+| variant | set 1 fps (low1) | set 2 fps (low1) | mod ms | GE Lua ms |
+|---|---|---|---|---|
+| new | 59.8 (37.5) | 52.0 (36.0) | 0.8-1.4 | 3.12 / 3.42 |
+| off | 54.5 (37.8) | 55.2 (39.3) | 0.4-0.5 | 2.79 / 2.66 |
+
+Mean fps equal within the noise (55.9 vs 54.9); low1 ~2 lower and the mod's own Lua ~0.7 ms higher with
+the new features. Fresh-front rut lag 0.21-0.26 s (new) vs 0.29-0.37 s (off). Not split per feature yet
+(likely: sectors re-meshing the 541 pinned tiles at full resolution).
