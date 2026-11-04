@@ -40,6 +40,10 @@ largest rut depth 12-20 cm in 83 %, < 5 cm in 6 % (a depth ladder by rut depth s
 with heavy trucks); largest change < 1 cm in 7.6 %, < 3 cm in 14 % (`ring.minVisibleChange`
 now skips the sub-6 mm ones). The remaining fix is engine side: an in-place ProceduralMesh update.
 
+2026-11-04 (8 trucks, user settings, heavy): ~51-55 fps vs 88.8 mod off. Holding uploads under a
+truck body for 3 s gives 64-66 fps but ruts then lag under the wheels in a side view: rejected
+(BENCHMARK.md section 10). Idea: a camera-aware occlusion test for P.dirtyHidden.
+
 ## 2. Deepening lag under load
 
 2026-10-31: deadline-first queue (`ring.inViewTarget` / `outViewTarget`, out-of-view deepening

@@ -259,3 +259,24 @@ frame 4-13 ms; hw550 (auto): start 1.35 s, load 9-15 ms, switch 4-12 ms; huge_de
 64 m, packed, virtual 1 m grid): start 0.8 s, load 14-31 ms over 4-7 frames, switch 17-59 ms,
 lc300 digging at 58-60 fps (mod frame <= 8.5 ms). Terrain after leaving a region: max height
 difference to the original 0 (gridmap_v2 heavy and vanilla, huge_desert).
+
+## 10. gridmap_v2, 8 trucks, upload holds (2026-11-04) - rejected for looks
+
+8 Percherons (`gridmap_setup.lua`), heavy, user GUI settings, vsync and limiter off, orbit cam yaw 160 /
+pitch 14 / 16 m, `bench2.py label 5 clear`, runs 2-5, variants interleaved through gui.json + restart.
+Session noise is large (one baseline set 45.5-62.4 fps). Mod off (trucks drive at 12.2 m/s, no mud):
+88.8 fps, 11.6 ms; mod on adds GE Lua +1.9, LuaPre +0.45, RenderShadows +0.9, RenderReflections +0.7,
+Render +0.5 ms.
+
+| variant | fps runs 2-5 (low1) | RenderShadows | Lua |
+|---|---|---|---|
+| base (bodyMaxWait 1.5), 3 sets | 50.5 (41.0) / 55.2 (40.0) / 51.1 (39.9) | 5.83 / 4.52 / 5.27 | 3.66 / 2.95 / 3.52 |
+| tiles.targetSize 8 | 49.1 (35.1) | 5.46 | 3.75 |
+| bodyMaxWait 3, 3 sets | 64.0 / 66.3 / 65.9 (~50) | 3.45 | 2.75 |
+| bodyMaxWait 5 | 65.0 (49.7) | 3.55 | 2.82 |
+| bodyMaxWait 3 + tileRebuildHz 20 | 65.0 (48.2) | 3.44 | 2.61 |
+
+bodyMaxWait 3 is rejected although it is the biggest win measured: in a low side view the wheels of a
+truck crawling through the mud ride on a flat surface until the pass ends (the rut shows only behind
+it). The user rule: ruts must keep up as before. The body test (P.dirtyHidden) is view-independent;
+a camera-aware occlusion test would be needed to hold uploads only where the deck really hides them.
