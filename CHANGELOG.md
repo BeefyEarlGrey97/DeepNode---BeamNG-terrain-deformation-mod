@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-04 — choose what deforms, snow
+
 ### Added
 - Run tab "Deformable ground": one tick box per ground model of the level (hard ground such
   as asphalt, rock and ice is not listed). Every session starts with mud, sand and snow

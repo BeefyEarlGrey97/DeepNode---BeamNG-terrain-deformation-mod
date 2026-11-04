@@ -285,3 +285,18 @@ Camera-aware follow-up (same day): holding a tile up to 3 s only while the camer
 every new rut square crosses the truck deck (a plane at 0.35 of the vehicle's OOBB height over the
 footprint; low side views keep 1.5 s) gave 47.0 vs 47.0 fps for the original: no gain. The 3 s win came
 from holding changes the camera can see (berms and rut edges beside the deck). Code not kept.
+
+## 11. v0.5.0 release check (2026-11-04)
+
+8 Percherons, gridmap_v2, user GUI settings, vsync and limiter off, orbit cam yaw 160 / pitch 14 /
+16 m, `bench2.py label 5 clear`, runs 2-5, main (v0.4.0) and test checked out in turn after a game
+restart. Default ticks (MUD, SAND) on gridmap_v2.
+
+| variant | physics | fps runs 2-5 (low1) | RenderShadows | Lua |
+|---|---|---|---|---|
+| main v0.4.0, set 1 / set 2 | heavy | 51.5 (37.9) / 45.2 (33.8) | 5.26 / 6.40 | 3.48 / 4.16 |
+| test v0.5.0, set 1 / set 2 | heavy | 45.0 (34.4) / 48.5 (35.1) | 6.08 / 5.59 | 4.00 / 3.58 |
+| test v0.5.0 | vanilla | 51.3 (41.5) | 4.95 | 3.47 |
+
+The order of the sets decides which is faster (drift over the session): v0.5.0 is not slower than
+v0.4.0 within the noise (avg 46.8 vs 48.4, each build ran first once and second once).
