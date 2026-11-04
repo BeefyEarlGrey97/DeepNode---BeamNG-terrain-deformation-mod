@@ -259,19 +259,3 @@ frame 4-13 ms; hw550 (auto): start 1.35 s, load 9-15 ms, switch 4-12 ms; huge_de
 64 m, packed, virtual 1 m grid): start 0.8 s, load 14-31 ms over 4-7 frames, switch 17-59 ms,
 lc300 digging at 58-60 fps (mod frame <= 8.5 ms). Terrain after leaving a region: max height
 difference to the original 0 (gridmap_v2 heavy and vanilla, huge_desert).
-
-## 10. gridmap_v2, 8 trucks, bodyMaxWait (2026-11-04)
-
-8 Percherons (`gridmap_setup.lua`), heavy physics, user GUI settings, vsync and limiter off, orbit
-cam yaw 160 / pitch 14 / 16 m, `bench2.py label 5 clear`, runs 2-5, gui.json override restarted
-between variants (interleaved). Session noise is large: one baseline set ranged 45.5-62.4 fps.
-
-| variant | fps runs 2-5 (low1) | RenderShadows | Render | Lua | MB/min |
-|---|---|---|---|---|---|
-| base (bodyMaxWait 1.5), 3 sets | 50.5 (41.0) / 55.2 (40.0) / 51.1 (39.9) | 5.83 / 4.52 / 5.27 | 5.55 / 5.17 / 4.88 | 3.66 / 2.95 / 3.52 | 82 / 16 / 25 |
-| tiles.targetSize 8 (rejected) | 49.1 (35.1) | 5.46 | 5.94 | 3.75 | 52 |
-| **bodyMaxWait 3**, 2 sets | **64.0 (45.8) / 66.3 (52.3)** | 3.45 / 3.45 | 3.94 / 3.84 | 2.83 / 2.75 | 30 / 30 |
-
-The trucks crawl through the pits at ~3 m/s (end speed 2.4-3.7): an 8x8 covers a 5 m tile ~4 s, so
-1.5 s let ~3 uploads through per pass. Rut lag readouts: near avg 0.16-0.22 s (base 0.17-0.33), front
-0.23-0.26 s; free-cam shot behind the mud lane mid-run: ruts right behind the rear wheels.

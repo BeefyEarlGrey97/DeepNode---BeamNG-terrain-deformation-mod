@@ -20,12 +20,6 @@
   the values of polish_roads_winter's SNOW_DEEP. Tested on polish_roads_winter (SNOW_DEEP,
   3.5 M vertices, ruts 0.12-0.15 m with berms behind an lc300).
 
-### Performance
-- `ring.bodyMaxWait` 1.5 -> 3 s: a tile whose new ruts are all under a truck body waits for the
-  whole pass before its upload. 8 Percherons, gridmap_v2, heavy, interleaved: 50.5 / 55.2 /
-  51.1 -> 64.0 / 66.3 fps (runs 2-5), low1 ~41 -> ~50, RenderShadows 5.3 -> 3.45 ms; ruts still
-  show right behind the rear wheels.
-
 ### Fixed
 - Snow maps lost every decal track: `roads.hideOnMud` hid all 3478 decal roads of
   polish_roads_winter (ploughed paths, tyre tracks). It now hides decals only over
