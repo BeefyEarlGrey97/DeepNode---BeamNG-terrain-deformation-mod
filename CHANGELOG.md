@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+- GUI: the mud zone tools (Zone radius, Zone depth, Add zone here, Clear zones) moved from
+  the Run tab to a "Zones" section at the bottom of the Debug tab (community feedback: the Run
+  tab was confusing). Offline test `tests/gui_tabs_test.lua` checks which tab draws them.
+
 ## [0.4.0] — 2026-11-03 — large maps: streamed 1 km² region, coarse and packed terrains
 
 ### Fixed

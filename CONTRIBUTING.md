@@ -15,7 +15,8 @@ issues, or open an issue first for larger changes.
 2. Branch from `test`, make the change, keep the style of the file (comments explain *why*, with
    the measurement that justified a value).
 3. Offline check: `bash tools/dev/luacheck.sh` (LuaJIT `-b` on every file; the only global write
-   allowed is `castRayStatic`).
+   allowed is `castRayStatic`), then the offline tests: `for t in tests/*_test.lua; do luajit $t || echo FAIL $t; done`
+   (run from the mod root).
 4. In game: reload Lua (Ctrl+L), then `deepnode_main.reloadLevelData()`. Vehicle-side edits need a
    vehicle extension reload (`extensions.reload('deepnode_vehicle')` in each vehicle).
 5. Performance or rut-timing changes: run the gridmap_v2 benchmark

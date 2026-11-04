@@ -35,7 +35,7 @@ deepnode_main.gui.toggle()
   contours, so the mud border does not follow the square steps of the terrain grid.
   A soft vertex that touches another layer has depth 0, so every mud square is pure soft
   ground.
-* You can add your own mud zones (circles) with the GUI button "Add mud zone here". Zones
+* You can add your own mud zones (circles) with the GUI button "Add zone here" (Debug tab, Zones section). Zones
   are saved per level in `settings/deepnode/levels/<level>.json` in your user folder. A zone
   adds depth (the deeper of zone and layer wins). Adding or removing zones rebuilds the mud
   state (ruts are cleared).

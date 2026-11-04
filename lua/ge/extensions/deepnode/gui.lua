@@ -356,14 +356,6 @@ local function tabRun(m)
   if im.Checkbox('SS shadows off', ptr['render.disableSSS']) then
     m.setScreenSpaceShadowsOff(ptr['render.disableSSS'][0]); changed()
   end
-  im.Separator()
-  im.PushItemWidth(150)
-  im.SliderFloat('Zone radius', st.zoneR, 2, 40, '%.0f m')
-  im.SliderFloat('Zone depth', st.zoneD, 0.05, 1, '%.2f m')
-  im.PopItemWidth()
-  if im.Button('Add zone here', im.ImVec2(110, 0)) then flush(m); m.addZoneHere(st.zoneR[0], st.zoneD[0]) end
-  im.SameLine()
-  if im.Button(st.zoneLabel or 'Clear zones###clr', im.ImVec2(110, 0)) then flush(m); m.removeZones() end
 end
 
 local function tabConfig(m)
@@ -443,6 +435,15 @@ local function tabDebug(m)
   legend('own', 'own'); legend('sec', 'sector'); legend('frozen', 'frozen'); legend('near', 'near')
   legend('far', 'far'); legend('build', 'build'); legend('box', 'box', true)
   if ptr.chunks[0] and st.dbgLine then ctext('dim', st.dbgLine) end
+  -- test zones: a mud disc dug at the camera / player (debug tool, moved off the Run tab)
+  im.SeparatorText('Zones')
+  im.PushItemWidth(150)
+  im.SliderFloat('Zone radius', st.zoneR, 2, 40, '%.0f m')
+  im.SliderFloat('Zone depth', st.zoneD, 0.05, 1, '%.2f m')
+  im.PopItemWidth()
+  if im.Button('Add zone here', im.ImVec2(110, 0)) then flush(m); m.addZoneHere(st.zoneR[0], st.zoneD[0]) end
+  im.SameLine()
+  if im.Button(st.zoneLabel or 'Clear zones###clr', im.ImVec2(110, 0)) then flush(m); m.removeZones() end
 end
 
 local TABS = { { 'Run', tabRun }, { 'Config', tabConfig }, { 'Debug', tabDebug } }
