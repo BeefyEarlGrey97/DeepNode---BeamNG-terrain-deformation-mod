@@ -9,8 +9,8 @@
 --  * Defaults (every session starts from them, ticks are never saved): a layer is soft when
 --    its name or ground model contains one of the soft texts (mud, sand, snow), as before
 --    the list existed. Kind = that text; otherwise picked from the ground model.
---  * Layers ticked beyond the defaults run on vanilla physics (`vanilla`): heavy mode
---    leaves their ground model and terrain floor alone.
+--  * Layers ticked beyond the defaults are marked `byHand`: heavy mode gives them their
+--    kind's soft layer but keeps the level's friction (deepnode_physics).
 
 local M = {}
 
@@ -79,7 +79,7 @@ function M.rows(layers, soft)
   return list
 end
 
--- Sets L.soft, L.kind, L.vanilla on every layer. ticks: label -> bool (nil = default).
+-- Sets L.soft, L.kind, L.byHand on every layer. ticks: label -> bool (nil = default).
 function M.apply(layers, ticks, soft)
   for _, L in pairs(layers or {}) do
     local t = M.softText(L.name, L.gm, soft)
@@ -90,7 +90,7 @@ function M.apply(layers, ticks, soft)
     if listed and tick ~= nil then on = tick end
     L.soft = on
     L.kind = on and (t or M.kindOf(L.gm)) or nil
-    L.vanilla = on and t == nil or false
+    L.byHand = on and t == nil or false
   end
 end
 

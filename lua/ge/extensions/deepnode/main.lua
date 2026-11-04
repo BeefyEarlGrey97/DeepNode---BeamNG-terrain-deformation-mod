@@ -76,7 +76,7 @@ end
 local defaults = {
   autoStart = true,
   -- default soft layers: name or ground model contains one of these (deepnode_materials);
-  -- the Run tab list ticks more ground models per session (vanilla physics for those)
+  -- the Run tab list ticks more ground models per session
   softMatch = { 'mud', 'sand', 'snow' },
   layers = {
     -- 0.3 m: a car sinks to the rims and can belly out on deep tracks; in-game test
@@ -2603,7 +2603,7 @@ function P.initTerrain()
       layers[e] = { idx = e, name = P.mtlName(m), gm = P.mtlGm(m), mtl = m }
     end
   end
-  -- soft / kind / vanilla from the defaults and this session's Run tab ticks
+  -- soft / kind / byHand from the defaults and this session's Run tab ticks
   -- (kind: 'mud', 'sand', 'snow': tyre mud, prints and heavy physics use it)
   P.materials().apply(layers, P.materialTicks(), cfg.softMatch)
   P.appliedTicks = P.ticksCopy()
@@ -3117,11 +3117,10 @@ function P.markFloor(t, mode)
   end
 end
 
--- soft kind of the layer at a vertex ('mud', 'sand', 'snow'); second value: the layer was
--- ticked by hand and runs on vanilla physics
+-- soft kind of the layer at a vertex ('mud', 'sand', 'snow'), nil for hard ground
 function M.layerKindAt(gx, gy)
   local L = layers[layerAt(gx, gy)]
-  if L and L.soft then return L.kind, L.vanilla end
+  if L and L.soft then return L.kind end
   L = layers[P.zoneMat]
   return L and L.soft and L.kind or 'mud'
 end

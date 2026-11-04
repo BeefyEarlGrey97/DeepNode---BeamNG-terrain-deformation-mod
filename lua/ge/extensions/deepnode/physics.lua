@@ -75,8 +75,7 @@ end
 function M.initialLift(gx, gy, d)
   local h = heavy()
   if not h then return 0 end
-  local kind, vanilla = ctx.layerKindAt(gx, gy)
-  if vanilla then return 0 end   -- ticked by hand in the Run tab: vanilla physics
+  local kind = ctx.layerKindAt(gx, gy)
   local l = tonumber(h.floorLift and h.floorLift[kind]) or 0
   if l <= 0 then return 0 end
   return min(l, d)
@@ -85,14 +84,27 @@ end
 -------------------------------------------------------------------------------
 -- ground models
 -------------------------------------------------------------------------------
+-- ground models ticked by hand in the Run tab (every soft layer on them L.byHand: grass,
+-- dirt ...) keep the level's friction: they get the kind's soft layer (depth, viscosity),
+-- not slick mud grip. gridmap_v2 GRASS: vanilla defaultDepth 0.05 left 0.35 m ruts on a
+-- terrain the tyres could not sink into ("quite hard").
+local GRIP = { staticFrictionCoefficient = true, slidingFrictionCoefficient = true }
 local function applyGroundModels(layers)
   local h = heavy()
   local gms = core_environment and core_environment.groundModels
   if not h or not gms or not be or not be.setGroundModel then return end
+  local byDefault = {}
   for _, L in pairs(layers or {}) do
-    -- layers ticked by hand (L.vanilla) keep the level's ground model
-    local name = L.soft and not L.vanilla and L.gm and tostring(L.gm):upper() or ''
+    if L.soft and not L.byHand and L.gm then byDefault[tostring(L.gm):upper()] = true end
+  end
+  for _, L in pairs(layers or {}) do
+    local name = L.soft and L.gm and tostring(L.gm):upper() or ''
     local vals = h.groundModels and h.groundModels[L.kind]
+    if vals and name ~= '' and not byDefault[name] then
+      local v2 = {}
+      for k, v in pairs(vals) do if not GRIP[k] then v2[k] = v end end
+      vals = v2
+    end
     local e = gms[name]
     -- reapply when the entry was rebuilt (core_environment reload) or a value moved back
     local a = applied[name]

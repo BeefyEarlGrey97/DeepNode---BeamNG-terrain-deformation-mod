@@ -359,7 +359,7 @@ local function tabRun(m)
       'with AI traffic: 6 trucks 58.8 -> 69.5 fps with player only (gridmap_v2).')
   end
   -- which ground models deform: every session starts from mud / sand / snow; hard ground
-  -- (asphalt, rock, ice ...) is not listed; ticks beyond the defaults use vanilla physics
+  -- (asphalt, rock, ice ...) is not listed; ticks apply on Restart
   if st.matRows and #st.matRows > 0 then
     im.SeparatorText('Deformable ground')
     for _, r in ipairs(st.matRows) do
@@ -369,7 +369,7 @@ local function tabRun(m)
         st.matPending = m.setMaterialTick(r.label, p[0])
       end
       im.SameLine()
-      ctext('dim', r.default and r.kind or (r.kind .. ', vanilla physics'))
+      ctext('dim', r.kind)
     end
     if st.matPending then ctext('warn', 'changes apply on Restart') end
   end

@@ -31,8 +31,9 @@ deepnode_main.gui.toggle()
   slippery, metal, wood, ... (words are letter runs: DIRT_ROCKY is listed). Every session
   starts from the `softMatch` defaults; ticks are not saved and apply on Restart. A ground
   model ticked beyond the defaults gets its kind from its name (SNOW -> snow, SAND -> sand,
-  else mud), the sink depth of that kind, and vanilla physics (heavy mode leaves its ground
-  model and terrain floor alone).
+  else mud), the sink depth of that kind; in heavy mode its kind's soft layer values and
+  terrain floor, but not the friction keys (the level's grip stays; physics test
+  `tests/physics_test.lua`).
 * Snow (kind `snow`): sink 0.2 m, small berms and steep walls (`stamp.kinds.snow`), white
   tyre coat that packs into the tread (`clods.kinds.snow`, sand order map), dry print look,
   no stains carried onto hard ground. Heavy physics uses polish_roads_winter's SNOW_DEEP

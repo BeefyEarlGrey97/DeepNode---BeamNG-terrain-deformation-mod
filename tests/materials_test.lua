@@ -67,14 +67,14 @@ expect(r.Rock == nil and r.ROCK == nil, 'Camodo lower-case Rock ground model hid
 r = rowsByLabel(layers({ { 'BeachSand', 'BEACHSAND' }, { 'Grass', '' } }))
 expect(r.GRASS and not r.GRASS.default, 'empty ground model: row labelled by the layer name')
 
--- ticks: apply(layers, ticks) sets soft, kind and vanilla (ticked beyond the defaults)
+-- ticks: apply(layers, ticks) sets soft, kind and byHand (ticked beyond the defaults)
 local ls = layers({ { 'sand', 'SAND' }, { 'dirt_loose', 'DIRT_LOOSE' }, { 'asphalt', 'ASPHALT' } })
 mat.apply(ls, nil)
-expect(ls[0].soft and ls[0].kind == 'sand' and not ls[0].vanilla, 'no ticks: defaults (sand soft)')
+expect(ls[0].soft and ls[0].kind == 'sand' and not ls[0].byHand, 'no ticks: defaults (sand soft)')
 expect(not ls[1].soft and not ls[2].soft, 'no ticks: dirt_loose and asphalt hard')
 mat.apply(ls, { SAND = false, DIRT_LOOSE = true, ASPHALT = true })
 expect(not ls[0].soft, 'unticked SAND: hard')
-expect(ls[1].soft and ls[1].kind == 'mud' and ls[1].vanilla, 'ticked DIRT_LOOSE: soft mud on vanilla physics')
+expect(ls[1].soft and ls[1].kind == 'mud' and ls[1].byHand, 'ticked DIRT_LOOSE: soft mud, marked byHand')
 expect(not ls[2].soft, 'a tick on a hidden ground model does nothing')
 
 os.exit(fails == 0 and 0 or 1)
