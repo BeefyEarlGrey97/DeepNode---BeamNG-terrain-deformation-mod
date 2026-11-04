@@ -5,12 +5,16 @@
 ### Added
 - Run tab "Deformable ground": one tick box per ground model of the level (hard ground such
   as asphalt, rock and ice is not listed). Every session starts with mud, sand and snow
-  ticked; ticks are not saved and apply on Restart. In heavy mode ground models ticked beyond
-  the defaults get their kind's soft layer (depth, viscosity) and terrain floor but keep the
-  level's friction (gridmap_v2 GRASS: 0.05 -> 0.25 m soft layer, grip 0.61 kept). The first
-  version left them on vanilla values: tyres rode on a terrain lowered 0.35 m that the level
-  grass ground model barely let them sink into, and the grass grew under the mud mesh. New pure module `deepnode_materials`, offline test
-  `tests/materials_test.lua` (real layer lists of JV, ATT, polish_roads_winter, Camodo).
+  ticked; ticks are not saved and apply on Restart. New pure module `deepnode_materials`,
+  offline tests `tests/materials_test.lua` (real layer lists of JV, ATT, polish_roads_winter,
+  Camodo) and `tests/physics_test.lua`.
+- Kind `firm` for ticked ground models that are not mud, sand or snow (grass, dirt, forest
+  floor): sink 0.08 m, heavy terrain floor at the surface and a 0.06 m soft layer
+  (`physics.heavy.groundModels.firm`; the level's grip and density stay), small berms, dry
+  print look, nothing builds up on the tyres (`clods.kinds.firm.stick` 0). gridmap_v2 GRASS:
+  tyre 0.07 m under the surface, coat 0. Two earlier tries in this release: vanilla values
+  (tyres on a terrain lowered 0.35 m, grass grown under the mesh) and the mud kind (sank too
+  deep, caked the tyres).
 - Snow kind: layers whose name or ground model contains `snow` deform (sink 0.2 m, small
   berms, steep walls, white tyre coat, dry print look). Heavy physics gives snow ground models
   the values of polish_roads_winter's SNOW_DEEP. Tested on polish_roads_winter (SNOW_DEEP,
