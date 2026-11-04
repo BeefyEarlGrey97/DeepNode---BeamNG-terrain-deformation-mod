@@ -391,6 +391,9 @@ float4 mainP(PFXVertToPix IN) : SV_Target
             float sunW = clamp(dnLum(scene) / max(dnOpt.y, 0.02) / max(lit0, 0.05), 0.0, 8.0);
             float4 skyS = skyColour();
             float3 sky = skyS.w > 0.0 ? skyS.rgb * 0.85 : sunW * (amb * 1.2) * float3(0.7, 0.82, 1.0);
+            // muddy water: the suspended mud tints and dims what it reflects (brown flood
+            // water stays brown at grazing views; the clear sky sheen read as blue glass)
+            sky = lerp(sky, body * 2.2, 0.55 * murk) * lerp(1.0, 0.6, murk);
             float3 Hw = normalize(L + Vw);
             float glint = pow(saturate(dot(nw, Hw)), 400.0) * 40.0 * sh;
             float3 water = lerp(body, sky, fres) + sunW * glint * float3(1.0, 0.97, 0.9) * 0.05;

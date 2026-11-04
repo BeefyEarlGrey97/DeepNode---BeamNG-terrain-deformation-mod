@@ -17,6 +17,10 @@
   without.
 
 ### Changed
+- Rut look: berm crests are torn (`stamp.bermCrumble` 0.6, at most `bermCrumbleMax` 0.12 m:
+  berm vertices move by their berm height x a skewed clump noise, render only); mud walls
+  steeper and berms taller (`stamp.kinds.mud` maxSlope 1.6 -> 2.2, bermFraction 0.35 -> 0.45);
+  puddle water reflects a mud-tinted, dimmer sky (it read as blue glass at grazing views).
 - Wet tyres use the vehicle's own tyre material instead of a water film layer: roughness
   x (1 - `clods.rubberGloss` 0.7 x wetness), colour x (1 - `rubberDarken` 0.3 x wetness).
   Water wets a tyre at once, wet ground up to the kind's `rubberWet` (mud 0.7, sand 0.1); dries

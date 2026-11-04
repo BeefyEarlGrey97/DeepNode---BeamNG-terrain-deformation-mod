@@ -693,6 +693,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `trackBase` | 0.25 | Roughness of any rut |
 | `trackSpinGain` | 0.08 | Extra roughness per m/s of wheel spin |
 | `trackDepthGain` | 2.0 | Extra roughness per metre of depth |
+| `bermCrumble`, `bermCrumbleMax` | 0.6, 0.12 | Torn berm crests: berm vertices move by berm height x this x a clump noise (render only), capped (m) |
 | `jitterZ` | 0.015 | Height jitter of the roughest ruts |
 | `jitterXY` | 0.03 | Sideways jitter of the roughest ruts |
 | `kinds.<kind>.bermFraction` | mud 0.35, sand 0.5 | Berm share per ground kind (kind of the terrain square under the hub) |

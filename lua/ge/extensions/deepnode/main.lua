@@ -355,7 +355,7 @@ local defaults = {
     --    (s = slip ratio; Reece 1965: strong in sand, weak in clay; values to tune)
     --  spinDig: factor on spinDigRate / spinDigMax
     kinds = {
-      mud = { bermFraction = 0.35, maxSlope = 1.6, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8 },
+      mud = { bermFraction = 0.45, maxSlope = 2.2, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8 },
       sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4 },
       -- snow compacts under the tyre more than it is pushed aside (small berms), the walls
       -- of a packed rut stand steep; Bekker n for snow ~1.0-1.6 (Wong, Terramechanics);

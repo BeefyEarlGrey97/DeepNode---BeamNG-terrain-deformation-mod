@@ -829,12 +829,26 @@ function M.emitTileCells(b, t, zOff, rule, stride)
   local tfLift = main.terrainFirst() and (main.cfg.tiles.terrainFirstLift or 0.006) or 0
   local flush = t.anyFlush and t.sqFlush or nil
 
+  -- torn berm crests (render only, the physics floor follows the rut codes): a berm
+  -- vertex moves by its berm height x stamp.bermCrumble x a skewed clump noise (fine cell
+  -- hash + 2x2-cell clumps; mostly a little down, now and then a clod sticking up), at most
+  -- bermCrumbleMax. Smooth round berms read as soft dunes next to torn mud (reference).
+  local crumble, crumbleMax = st.bermCrumble or 0, st.bermCrumbleMax or 0.12
   for j = 0, N do
     for i = 0, N do
       local idx = j * W + i
       local z = decodeZ(t, idx)
       local tr = track[idx]
       if tr > 0 then z = z + (hash01(gcx0 + i, gcy0 + j, 7) * 2 - 1) * jz * tr / 255 end
+      if crumble > 0 and rut[idx] > 128 then
+        local bh = z - rest[idx]
+        if bh > 0.005 then
+          local gx, gy = gcx0 + i, gcy0 + j
+          local n = hash01(gx, gy, 17) * 0.55 + hash01(floor(gx / 2), floor(gy / 2), 19) * 0.45
+          n = n * n * 2.2 - 0.55
+          z = z + (bh < crumbleMax and bh or crumbleMax) * crumble * n
+        end
+      end
       if borderCode(rule, i, j, N) == 1 then z = z - drop; dadj[idx] = drop else dadj[idx] = 0 end
       zbuf[idx] = z + zOff + tfLift
     end

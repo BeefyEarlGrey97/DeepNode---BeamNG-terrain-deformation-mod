@@ -167,7 +167,9 @@
     "jitterXY": 0.03,
     "leadTime": -1,
     "leadMin": 0.015,
-    "leadMax": 0.06
+    "leadMax": 0.06,
+    "bermCrumble": 0.6,
+    "bermCrumbleMax": 0.12
   },
   "report": {
     "rateHz": 20,
