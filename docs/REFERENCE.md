@@ -240,6 +240,13 @@ BeamNG's own physics:
   than `grassRedrawShare` (0.7) x `floorMargin`: the rut mesh lies `floorMargin` over the floor,
   so a smaller drop or a raise leaves the stale terrain under the mesh; those wait for the camera
   to look away. Without any redraw the stale terrain covers fresh ruts in flat patches (checked).
+  Since 2026-11-05 (`grassLowDraw`, default on): at start the sink pass draws the terrain under
+  interior soft vertices of every cluster near grass at the full sink level, then writes their
+  floor heights back for physics only (dummy box). Those squares are never flush (the mud mesh
+  draws them, with decal road copies) and their floor writes are physics only for good: no
+  redraw, so the grass beside them never blinks. gridmap_v2, one 2-Percheron run: terrain
+  redraws near grass 10 -> 0 (262 physics-only writes), fps in the noise (127.7 / 131.3 off /
+  138.9, BENCHMARK 13). Region mode and coarse terrains skip it.
   Floor heights are written absolute (full sink level from the sink pass + lift): the height grid
   rounds every write to maxHeight / 65536, and the old relative writes drifted (ENGINE_FINDINGS).
   The heavy ground-model values are checked once a second and applied again when the game reloads

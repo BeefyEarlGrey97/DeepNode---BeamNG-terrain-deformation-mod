@@ -633,6 +633,11 @@ local defaults = {
       -- drawn by more than this share of floorMargin (the stale terrain then hides the rut);
       -- smaller changes and raises wait until the grass is out of view
       grassRedrawShare = 0.7,
+      -- the terrain under soft ground in clusters near grass is DRAWN at the full sink level
+      -- from the start (one redraw at load) and its heights go back for physics with a far
+      -- dummy box: the mud mesh draws the surface there and later floor writes are physics
+      -- only, never a redraw, so the grass beside them never blinks
+      grassLowDraw = true,
       raiseClear = 8,      -- m: terrain is raised back (rut reset) only this far from vehicles
       -- terrain updates cost more on big terrains (hw550 8192^2: 15-78 ms each): above
       -- slowUpdateMs (measured) the floor is written at most every slowUpdateGap s
@@ -920,6 +925,7 @@ P.sinkRaw = nil
 P.sinkCount = 0
 P.sinkCapacity = 0
 P.shortfall = {}
+P.lowDrawn = {} -- vertex -> true: terrain drawn at the full sink level (physics.heavy.grassLowDraw)
 P.sinkBox = nil
 local sinkApplied = false
 -- decal roads as ruts from the start (deepnode_preRut): per-vertex offset of the rest
@@ -3060,7 +3066,7 @@ function P.vertexFlush(gx, gy)
   if d <= 0 then return true end
   if ter.K > 1 then return P.coarseLowAt(gx, gy) <= P.FLUSH_TOL end
   local idx = gy * S + gx
-  if P.shortfall[idx] then return false end
+  if P.shortfall[idx] or P.lowDrawn[idx] then return false end
   local k = P.sinkFind(idx)
   if not k then return true end
   return P.sinkLift[k] >= d - P.FLUSH_TOL
@@ -3176,6 +3182,19 @@ function P.sinkPass()
   local ph = P.mod('physics')
   if ph and not ph.floorOn() then ph = nil end
   P.liftOn = ph ~= nil
+  -- grass next to soft ground (physics.heavy.grassLowDraw): interior soft vertices of the
+  -- clusters near grass are drawn at the full sink level and get their floor height back
+  -- for physics only (far dummy box) after the update below; the mesh draws those squares
+  P.lowDrawn = {}
+  local low = (ph and ph.lowDrawCluster and not (P.reg and P.reg.on)) and {} or nil
+  local function interior(gx, gy)
+    for dy = -1, 1 do
+      for dx = -1, 1 do
+        if depthAt(gx + dx, gy + dy) <= 0 then return false end
+      end
+    end
+    return true
+  end
   local zx0, zx1, zy0, zy1 = -1, -2, -1, -2
   if zoneBox then
     zx0 = floor((zoneBox[1] - ter.ox) / ter.sq) - 1; zx1 = ceil((zoneBox[3] - ter.ox) / ter.sq) + 1
@@ -3199,7 +3218,13 @@ function P.sinkPass()
             P.shortfall[base + gx] = clampRaw - nr
             nr = clampRaw
           end
-          tb:setHeightGrid(gx, gy, nr)
+          local lo = nil
+          if low and lift > 0 and ph.lowDrawCluster(gx, gy) and interior(gx, gy) then
+            lo = raw - d
+            if lo < clampRaw then lo = clampRaw end
+            if lo < nr - 1e-4 then low[base + gx] = nr else lo = nil end
+          end
+          tb:setHeightGrid(gx, gy, lo or nr)
           P.recordSink(base + gx, raw, lift, raw - d)
           if gx < bx0 then bx0 = gx end
           if gx > bx1 then bx1 = gx end
@@ -3213,6 +3238,16 @@ function P.sinkPass()
   if P.sinkCount > 0 then
     P.sinkBox = { bx0, by0, bx1, by1 }
     tb:updateGrid(vec3(bx0, by0, 0), vec3(bx1, by1, 0))
+    if low and next(low) then
+      local nLow = 0
+      for idx, hz in pairs(low) do
+        tb:setHeightGrid(idx % S, floor(idx / S), hz)
+        P.lowDrawn[idx] = true
+        nLow = nLow + 1
+      end
+      ph.physicsOnlyUpdate()
+      P.stats.lowDrawn = nLow
+    end
   else
     P.sinkBox = nil
   end

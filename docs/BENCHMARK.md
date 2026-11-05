@@ -336,5 +336,14 @@ heavy, user GUI settings, vsync and limiter off, orbit cam yaw 160 / pitch 14 / 
 | pre-rut on, stride 4 | 137.8 | 120.2 | 0.24-0.33 |
 | pre-rut on, stride 1 (repeat) | 136.8 | 120.0 | 0.25-0.30 |
 
+From now on each variant runs twice (`bench2.py label 2 clear`, user 2026-11-05); compare run 2
+(run 1 after a reload is inflated) and interleave variants.
+
+| `physics.heavy.grassLowDraw` (roads off) | fps runs 2-5 | low1 |
+|---|---|---|
+| on | 127.7 | 108.4 |
+| off | 131.3 | 110.1 |
+| on (repeat) | 138.9 | 116.2 |
+
 The first set ran right after a long session (drift). With 2 trucks the full-resolution pinned
 tiles cost nothing measurable (noise +-3 fps).

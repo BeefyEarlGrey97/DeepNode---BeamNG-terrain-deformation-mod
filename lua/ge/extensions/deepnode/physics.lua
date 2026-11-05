@@ -416,6 +416,23 @@ local function nearGrass(gx0, gy0, gx1, gy1, cs, h)
   return false
 end
 
+-- low-draw zone (physics.heavy.grassLowDraw): clusters near grass whose terrain main's sink
+-- pass drew at the full sink level. Their floor writes are physics only (far dummy box).
+local lowZone = {}     -- cluster key -> true
+function M.lowDrawCluster(gx, gy)
+  local h = heavy()
+  if not h or h.grassLowDraw == false or h.grassSplit == false then return false end
+  local cs = max(2, floor(h.floorCluster or 16))
+  local bx, by = floor(gx / cs), floor(gy / cs)
+  local key = by * CKEY + bx
+  local v = lowZone[key]
+  if v == nil then
+    v = nearGrass(bx * cs, by * cs, bx * cs + cs - 1, by * cs + cs - 1, cs, h)
+    lowZone[key] = v
+  end
+  return v
+end
+
 -- the GroundCover cells over grid box gx0..gx1 x gy0..gy1 may be on screen: inside the
 -- camera's view cone (main's P.view) and within reach of the covers (grassViewRange)
 local vv = { 0, 0, 0, 0, 0 }
@@ -463,6 +480,12 @@ local function dummyBox()
   dummyB = dummyB or vec3(0, 0, 0)
   dummyA.x, dummyA.y, dummyB.x, dummyB.y = gx, gy, gx + 1, gy + 1
   return dummyA, dummyB
+end
+
+-- a terrain update that refreshes physics only (main's sink pass, after drawing low)
+function M.physicsOnlyUpdate()
+  local a, b = dummyBox()
+  ctx.ter.tb:updateGrid(a, b)
 end
 
 -- the oldest render-waiting group that may be redrawn now (hidden, or waited grassHold s):
@@ -547,13 +570,17 @@ local function write(h)
   end
   local any, alone = slow, nil
   if slow then
-    for key in pairs(cl) do take[key] = true; clusterT[key] = clock end
+    for key in pairs(cl) do take[key] = lowZone[key] and 3 or true; clusterT[key] = clock end
   end
   local split = h.grassSplit ~= false
   local grassAny = false
   local ux0, uy0, ux1, uy1 = huge, huge, -huge, -huge
   for key, b in pairs(slow and {} or cl) do
-    if not nearGrass(b[1], b[2], b[3], b[4], cs, h) then
+    if lowZone[key] then
+      -- drawn low since the start: physics only, nothing to redraw
+      take[key] = 3
+      grassAny = true
+    elseif not nearGrass(b[1], b[2], b[3], b[4], cs, h) then
       local x0, y0, x1, y1 = min(ux0, b[1]), min(uy0, b[2]), max(ux1, b[3]), max(uy1, b[4])
       if not any or not nearGrass(x0, y0, x1, y1, cs, h) then
         take[key] = true
@@ -611,7 +638,9 @@ local function write(h)
         tb:setHeightGrid(gx, gy, hz)
         P.sinkLift[k] = lift
         if lift < old then stats.lowered = stats.lowered + 1 else stats.raised = stats.raised + 1 end
-        if tk == 2 then
+        if tk == 3 then
+          stats.lowWrites = (stats.lowWrites or 0) + 1
+        elseif tk == 2 then
           -- the terrain stays drawn at its old height until the group's redraw: that hides
           -- the rut mesh only where it is now lower by more than the mesh's margin over it
           local dl = drawn[k]
@@ -712,6 +741,7 @@ function M.start(main, layers)
   -- grass layers are read on the first write (main lifts the groundcover after the sink pass)
   grassIdx, blockGrass, clusterT = nil, {}, {}
   renderWait, nWait, drawn = {}, 0, {}
+  lowZone = {}
   reapplied = 0
   if heavy() then applyGroundModels(layers) end
 end

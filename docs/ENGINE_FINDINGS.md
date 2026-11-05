@@ -69,6 +69,11 @@ They explain most design decisions; please extend this file when you measure som
   a 4 x 3 m box 13 m away; with 10 m cells (20 / 9) none; 5-7 m cells changed the look (long
   grass evenly spread instead of patches). `tb:setHeightWs` leaves physics stale like
   `setHeightGrid`; no other update call exists (`updateGridMaterials`, `updateAllTextures`).
+- The drawn terrain and the physics terrain can stay different for good (2026-11-05): heights
+  written and drawn with a real-box `updateGrid`, then written again and refreshed with a far
+  1 x 1 dummy box, keep drawing at the first heights while vehicles sink to the second ones,
+  until a later real box covers those vertices. GroundCover there is never dropped. Used by
+  `physics.heavy.grassLowDraw` (no grass blink next to digging).
 - `tb:updateGrid` refreshes physics for the whole terrain whatever its box, but redraws the
   terrain and drops GroundCover cells only inside the box (2026-11-02, gridmap_v2): a vertex
   lowered 0.5 m then `updateGrid` on a 1 x 1 box at the far terrain corner -> `castRayStatic` hit

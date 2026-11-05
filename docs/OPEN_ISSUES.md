@@ -218,6 +218,13 @@ Still open: with a chase camera the grass beside the truck is nearly always in v
 blinks about once per `grassHold` while digging next to it; the redraw is what drops the cells
 (no redraw-only call found). Ideas: exact GroundCover cell bounds instead of the padded box,
 flushing while the camera turns fast, a longer hold now that physics no longer waits.
+2026-11-05: `grassLowDraw` (REFERENCE) removes the redraws near grass: the terrain there is drawn
+at the full sink level from the start and only physics follows the floor. Left: the zone's
+squares are drawn by sectors only within `sectors.loadRadius` of the camera / vehicles (beyond,
+the lowered terrain shows; looked fine from 112 m on gridmap_v2, not checked on johnson_valley
+where the grass layer itself is soft and the zone is large); a foreign full-terrain `updateGrid`
+(editor, other mods) would draw the zone at physics height (the terrain then hides the ruts
+there until Restart); not tested with region mode (skipped there).
 
 ## 18. Big terrains (hw550, 2026-11-01)
 

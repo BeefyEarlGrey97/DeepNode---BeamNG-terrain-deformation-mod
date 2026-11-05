@@ -17,6 +17,11 @@
   without.
 
 ### Changed
+- Grass no longer blinks next to digging in heavy mode (`physics.heavy.grassLowDraw`): soft
+  ground in clusters near grass is drawn at the full sink level once at start and its floor
+  heights go to physics only (far dummy box), so later floor writes there never redraw the
+  terrain and never drop GroundCover cells; the mud mesh draws those squares. One
+  2-Percheron run on gridmap_v2: redraws near grass 10 -> 0.
 - Decal road copies leave out the dug cells (`roads.copyCut` 0.03 m): with "Experimental decal
   road" on, a digging truck's rut was painted over with the road pattern and vanished behind it.
 - Pre-rutted decal roads are an experimental option, off by default: Run tab tick
