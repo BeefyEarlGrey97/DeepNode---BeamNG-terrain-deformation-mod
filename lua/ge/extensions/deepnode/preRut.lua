@@ -340,7 +340,7 @@ local function heightOf(mat, rc)
       end
       -- the integrated furrows are creases 1-2 texels wide (5-10 cm on a 2.5 m road, one
       -- 0.2 m cell): widen them across the road to wheel ruts and scale back to p5 = -1
-      local Ru = floor(W * (rc.preTrackWidth or 0.05))
+      local Ru = floor(W * (rc.preTrackWidth or 0.08))
       if Ru > 0 then
         boxU(sm, tmp, Ru)
         local v2 = {}
@@ -359,7 +359,31 @@ local function heightOf(mat, rc)
       end
     end
   end
-  local res = { w = W, h = H, hgt = sm, op = op, path = nmPath, level = nm.level, basin = basin, track = track }
+  -- grooves of a track decal (across-road minima of the height averaged along the road,
+  -- below preGrooveMin): the wheel lines the overlay paints dark and wet (M.build prints)
+  local grooves = nil
+  if not basin and track and track >= (rc.preTrackMin or 0.3) then
+    local prof = {}
+    for x = 0, W - 1 do
+      local s = 0
+      for y = 0, H - 1 do s = s + sm[y * W + x] end
+      prof[x] = s / H
+    end
+    grooves = {}
+    local gmin = -(rc.preGrooveMin or 0.4)
+    for x = 1, W - 2 do
+      local v = prof[x]
+      if v < gmin and v <= prof[x - 1] and v < prof[x + 1] then
+        -- width: where the profile stays under half the minimum
+        local a, b = x, x
+        while a > 0 and prof[a - 1] < v * 0.5 do a = a - 1 end
+        while b < W - 1 and prof[b + 1] < v * 0.5 do b = b + 1 end
+        grooves[#grooves + 1] = { u = (x + 0.5) / W, w = (b - a + 1) / W }
+      end
+    end
+  end
+  local res = { w = W, h = H, hgt = sm, op = op, path = nmPath, level = nm.level, basin = basin, track = track,
+    grooves = grooves }
   texCache[key] = res
   return res
 end
@@ -399,7 +423,7 @@ function M.build(main, P)
   local S = ter.size
   local ox, oy, invC = ter.ox, ter.oy, 1 / CELL
   local depthAt = main.depthAt
-  local depthByKind = rc.preDepth or { mud = 0.15, sand = 0.08, snow = 0.1 }
+  local depthByKind = rc.preDepth or { mud = 0.3, sand = 0.17, snow = 0.1 }
   local skip = {}
   for _, t in ipairs(rc.preSkipMatch or { 'line', 'asphalt', 'invisible', 'skidmark' }) do skip[#skip + 1] = tostring(t):lower() end
   local softShare = rc.preSoftShare or 0.3
@@ -483,6 +507,7 @@ function M.build(main, P)
   end
 
   local nRoads, failed = 0, {}
+  local prints = {} -- groove segments: x0, y0, x1, y1, width (5 numbers each)
   -- in drawing order: DecalRoads are drawn in descending renderPriority (exe string),
   -- the last drawn lies on top
   local list = {}
@@ -548,6 +573,18 @@ function M.build(main, P)
               -- l0 (0, s0), r0 (1, s0), l1 (0, s1) / r0, r1 (1, s1), l1
               tri(T, len, depth, pl[1], pl[2], 0, s0, pl[3], pl[4], 1, s0, cur[1], cur[2], 0, s1)
               tri(T, len, depth, pl[3], pl[4], 1, s0, cur[3], cur[4], 1, s1, cur[1], cur[2], 0, s1)
+              if T.grooves then
+                local wid = sqrt((cur[3] - cur[1]) ^ 2 + (cur[4] - cur[2]) ^ 2)
+                for _, g in ipairs(T.grooves) do
+                  local u = g.u
+                  local n = #prints
+                  prints[n + 1] = pl[1] + (pl[3] - pl[1]) * u
+                  prints[n + 2] = pl[2] + (pl[4] - pl[2]) * u
+                  prints[n + 3] = cur[1] + (cur[3] - cur[1]) * u
+                  prints[n + 4] = cur[2] + (cur[4] - cur[2]) * u
+                  prints[n + 5] = max(0.25, g.w * wid)
+                end
+              end
               s0 = s1
             end
             pl = cur
@@ -593,9 +630,10 @@ function M.build(main, P)
     end
   end
   local ms = (os.clock() - t0) * 1000
-  log('I', logTag, sfmt('pre-rutted %d road(s): %d cells in %d tiles, %d terrain vertices lowered, %.0f ms',
-    nRoads, nCells, nTiles, nV, ms))
-  return { off = off, vOff = vOff, dip = dip, tiles = nTiles, cells = nCells, roads = nRoads, vertices = nV, ms = ms }
+  log('I', logTag, sfmt('pre-rutted %d road(s): %d cells in %d tiles, %d terrain vertices lowered, %d groove prints, %.0f ms',
+    nRoads, nCells, nTiles, nV, #prints / 5, ms))
+  return { off = off, vOff = vOff, dip = dip, tiles = nTiles, cells = nCells, roads = nRoads, vertices = nV, ms = ms,
+    prints = prints }
 end
 
 -- tests / tools: decode a texture and return its height field

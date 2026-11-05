@@ -307,6 +307,13 @@ fast floor for hot clusters only.
 
 ## 22. Pre-rutted decal roads (2026-11-04, first version)
 
+2026-11-05: deeper (mud 0.3 m), wider grooves, dark wet wheel lines + pools through the overlay.
+Open: ~4.5 fps with 2 trucks (Lua +0.35 ms: print feeding, pools; shadows +0.3 ms: full-res
+pinned tiles); commit growth looked higher (+53 vs +8 MB/min, one 2-run set each); prints only
+on tiles that exist (pinned); lumpy decals (mud_large) get no wheel lines; groove lines follow
+the across-road profile mean, so a groove that wanders across its texture can sit up to ~0.2 m
+beside its print.
+
 `roads.preRut` turns the soft decal roads into ruts at start (see CHANGELOG). Open:
 - gridmap_v2 mud pit: the stacked mud_large / mud_water decals give a lumpy field; the converging
   furrows of the decals read only faintly. Ideas: per-material depth (furrows deeper), keep the

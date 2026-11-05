@@ -49,8 +49,8 @@
     "overlayAlphaRef": 110,
     "preRut": false,
     "preDepth": {
-      "mud": 0.15,
-      "sand": 0.08,
+      "mud": 0.3,
+      "sand": 0.17,
       "snow": 0.1
     },
     "preDepthScale": 1.0,

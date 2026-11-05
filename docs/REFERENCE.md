@@ -558,7 +558,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `margin` | 0.5 | Extra width (m) kept free of mud on each side of a road |
 | `skipMatch` | `["invisible", "dirt"]` | Roads with a material containing one of these texts (or a `softMatch` text) are not carved |
 | `preRut` | false | Decal roads on soft ground become ruts at start: their normal map is integrated to a height field (deepnode_preRut) and carved into the rest surface. GUI "Experimental pre-rutted roads" (applies on Restart) |
-| `preDepth` | mud 0.15, sand 0.08, snow 0.1 | Depth (m) of the height field's 5th percentile per ground kind |
+| `preDepth` | mud 0.3, sand 0.17, snow 0.1 | Depth (m) of the height field's 5th percentile per ground kind |
 | `preDepthScale` | 1 | Factor on `preDepth` |
 | `preTexWidth` | 64 | Smallest normal-map mip at least this wide is decoded (BC5 / BC4 in Lua) |
 | `preHighPass` | 0.1667 | High-pass box radius as a share of the texture width (removes the integration bowl) |
@@ -569,7 +569,8 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `preTrackMin` | 0.3 | Across-road profile std / height std below this: the decal has no tracks (mud_large 0.16, mud_furrows 0.55) and keeps only `preLumpShare` of its relief |
 | `preTrackLen` | 0.06 | Track decals: shape held over this share of the texture length is kept in full |
 | `preLumpShare` | 0.3 | Share of the clod detail kept (track decals: what varies faster along the road; lumpy decals: all of it) |
-| `preTrackWidth` | 0.05 | Track decals: grooves widened across the road by a box of this share of the width (radius), then rescaled to p5 = -1 |
+| `preTrackWidth` | 0.08 | Track decals: grooves widened across the road by a box of this share of the width (radius), then rescaled to p5 = -1 |
+| `preGrooveMin` | 0.4 | Track decals: across-road minima of the height profile deeper than this (x `preDepth`) are wheel lines, painted dark and wet by the overlay |
 | `preOpBlur` | 0.25 | Opacity used to blend stacked roads is blurred by this share of the width (coverage, not detail) |
 | `preEndFade`, `preEdgeFade` | 1.5, 0.1 | Fade (m) at the road ends, (share of width) at its sides |
 | `preSoftShare` | 0.3 | Share of a road's centre points on soft ground needed to use it |
@@ -899,6 +900,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.maxDepth` | 1.2 | Deepest rut floor below the undisturbed ground that is drawn (m) |
 | `overlay.puddles` | 0.7 | Water in the mud ruts, 0 = none; 'fill': share of each closed hollow's spill depth that holds water; 'noise': 1 = every rut deeper than `puddleDepth` |
 | `overlay.puddleMode` | fill | 'fill': water pools in the closed hollows of the ruts (cell heights flood-filled per quiet tile, the level stored in the rut map); 'noise': the old patchy level below `puddleDepth` |
+| `overlay.prePrints` / `prePerFrame` | true / 8 | Pre-rutted roads' wheel lines painted as mud prints (dark wet trench look) and their tiles' pools; segments queued per frame |
 | `overlay.poolMin` | 0.03 | Hollows shallower than this (m, spill depth) hold no water |
 | `overlay.poolQuiet` | 0.8 | Seconds a tile must go unstamped before its pools are worked out |
 | `overlay.poolMaxPerSec` | 6 | Tiles per second whose pools are worked out (0.6-0.8 ms each) |

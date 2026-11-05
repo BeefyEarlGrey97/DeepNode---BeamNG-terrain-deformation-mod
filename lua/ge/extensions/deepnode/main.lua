@@ -4747,6 +4747,19 @@ function P.restAt(x, y)
   local t, idx = vertexRef(floor((x - ter.ox) / CELL + 0.5), floor((y - ter.oy) / CELL + 0.5))
   return t and t.rest and t.rest[idx] or nil
 end
+-- the ground before the pre-rutted road carved it (rest minus the road's offset)
+-- (any tile state: pinned pre-rutted tiles are frozen); nil without a tile
+function P.preGroundAt(x, y)
+  local gcx, gcy = floor((x - ter.ox) / CELL + 0.5), floor((y - ter.oy) / CELL + 0.5)
+  local tx, ty = floor(gcx / N), floor(gcy / N)
+  local t = tiles[ty * KEY + tx]
+  if t and t.rest then
+    local idx = (gcy - ty * N) * (N + 1) + (gcx - tx * N)
+    local po = preOff and preOff[t.key]
+    return t.rest[idx] - (po and po[idx] or 0)
+  end
+  return nil
+end
 
 -- Rut lag: time from the first vertex write into a tile until the tile's new mesh is
 -- shown, split by camera distance (near = within 50 m). At 40 km/h a

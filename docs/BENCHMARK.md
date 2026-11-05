@@ -348,5 +348,8 @@ From now on each variant runs twice (`bench2.py label 2 clear`, user 2026-11-05)
 | off | 131.3 | 110.1 |
 | on (repeat) | 138.9 | 116.2 |
 
+Deeper pre-rut with dark wet wheel lines (2 runs each, run 2): on 118.7, off 123.8, on 119.5 fps
+(low1 96.8 / 108.7 / 99.0; mod Lua 1.57 / 1.10 / 1.43 ms).
+
 The first set ran right after a long session (drift). With 2 trucks the full-resolution pinned
 tiles cost nothing measurable (noise +-3 fps).

@@ -63,6 +63,8 @@ local random = math.random
 local ctx, P, oc = nil, nil, nil
 local active = false
 local win = { x0 = 0, y0 = 0, span = 128, z = 0, set = false }
+-- pre-rutted road groove prints (preWindow below): segment index -> true painted / 'q' queued
+local prePainted, preTodo, preTodoN, preScan = {}, {}, 0, false
 local queue, qHead, qTail = {}, 1, 0
 local clearFrames = 0
 local shift = nil             -- pending window move { texels x, texels y, z base change }
@@ -275,7 +277,9 @@ local function recentre(x, y, z)
     clearFrames = max(clearFrames, 2)
     anyPrint = false
     qHead, qTail = 1, 0
+    prePainted, preTodo, preTodoN = {}, {}, 0
   end
+  preScan = true
   win.x0, win.y0, win.z, win.span = x0, y0, z0, oc.span
   win.set = true
   stats.recentres = stats.recentres + 1
@@ -394,11 +398,76 @@ local function stampSoft(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres)
     (k and br[k]) or (kind == KIND_SAND and (br.sand or 1.8)) or (br.mud or 1.6), rest)
 end
 
+-- Pre-rutted decal roads (deepnode_preRut, main P.pre.prints): their groove lines become mud
+-- prints whose ground z is the surface before the road carved it, so the trench rule draws
+-- the grooves dark, wet and slick; the pinned road tiles get their pools. Painted as the map
+-- window takes them in (a new or moved window, a cleared rect), a few segments per frame.
+local function preWindow()
+  preScan = false
+  local pr = oc.prePrints ~= false and P.pre and P.pre.prints
+  if not (pr and win.set) then return end
+  local x0, y0, x1, y1 = win.x0, win.y0, win.x0 + win.span, win.y0 + win.span
+  for i = 1, #pr - 4, 5 do
+    local ax, ay, bx, by = pr[i], pr[i + 1], pr[i + 2], pr[i + 3]
+    local lx, hx, ly, hy = min(ax, bx), max(ax, bx), min(ay, by), max(ay, by)
+    if not (lx >= x0 and hx <= x1 and ly >= y0 and hy <= y1) and prePainted[i] == true then prePainted[i] = nil end
+    if hx >= x0 and lx <= x1 and hy >= y0 and ly <= y1 and not prePainted[i] then
+      prePainted[i] = 'q'
+      preTodoN = preTodoN + 1
+      preTodo[preTodoN] = i
+    end
+  end
+  local pd = P.poolDirty
+  if pd then
+    local T = ctx.tileSize or (ctx.N * ctx.cell)
+    for _, t in pairs(ctx.tiles) do
+      if t.pre and not t.lastStamp and t.x0 + T > x0 and t.x0 < x1 and t.y0 + T > y0 and t.y0 < y1 then pd[t] = true end
+    end
+  end
+end
+
+local function preFeed()
+  if preScan then preWindow() end
+  local pr = P.pre and P.pre.prints
+  if preTodoN == 0 or not pr then return end
+  local per = oc.prePerFrame or 8
+  local sent = 0
+  while preTodoN > 0 and sent < per and qTail - qHead + 1 < MAX_SEG do
+    local i = preTodo[preTodoN]
+    preTodo[preTodoN] = nil
+    preTodoN = preTodoN - 1
+    local ax, ay, bx, by, w = pr[i], pr[i + 1], pr[i + 2], pr[i + 3], pr[i + 4]
+    local mx, my = (ax + bx) * 0.5, (ay + by) * 0.5
+    local z = P.preGroundAt and P.preGroundAt(mx, my)
+    if z then
+      local dx, dy = bx - ax, by - ay
+      local L = sqrt(dx * dx + dy * dy)
+      local axx, axy = 1, 0
+      if L > 1e-4 then axx, axy = dy / L, -dx / L end
+      local k = P.kindAtWorld and P.kindAtWorld(mx, my)
+      local kind = (DRY_KIND[k] or drySoil(mx, my)) and KIND_SAND or KIND_MUD
+      stamp(ax, ay, z + 0.4, bx, by, z + 0.4, axx, axy, 0.4, { { o = 0, w = w } }, kind, 1, 1, z)
+      sent = sent + 1
+    end
+    prePainted[i] = true
+  end
+end
+
 -- erase prints over a rut tile that DeepNode reset (idle reset, clear ruts)
 local function clearRect(x0, y0, x1, y1)
   if not (win.set and anyPrint) then return end
   if x1 < win.x0 or y1 < win.y0 or x0 > win.x0 + win.span or y0 > win.y0 + win.span then return end
   if clrN >= 256 then return end
+  local pr = P.pre and P.pre.prints
+  if pr then
+    for i = 1, #pr - 4, 5 do
+      if prePainted[i] == true and max(pr[i], pr[i + 2]) >= x0 and min(pr[i], pr[i + 2]) <= x1
+          and max(pr[i + 1], pr[i + 3]) >= y0 and min(pr[i + 1], pr[i + 3]) <= y1 then
+        prePainted[i] = nil
+        preScan = true
+      end
+    end
+  end
   clrN = clrN + 1
   local b = (clrN - 1) * 4
   clr[b + 1], clr[b + 2], clr[b + 3], clr[b + 4] = x0, y0, x1, y1
@@ -1359,6 +1428,7 @@ function M.start(main)
   P.overlayStamp = stampSoft
   P.overlayClear = clearRect
   poolQ, pqHead, pqTail, poolDirty, poolBudget = {}, 1, 0, {}, 0
+  prePainted, preTodo, preTodoN, preScan = {}, {}, 0, true
   for k in pairs(poolStats) do poolStats[k] = 0 end
   P.poolDirty = ((oc.puddleMode or 'fill') == 'fill' and (oc.puddles or 0) > 0) and poolDirty or nil
   active = true
@@ -1442,6 +1512,7 @@ function M.frame()
   end
 
   poolFrame(1 / 60)
+  preFeed()
 
   -- wheels: carried prints (queued before this frame's paint) and tyre pass candidates
   local wm = extensions and extensions.deepnode_wheelMud
