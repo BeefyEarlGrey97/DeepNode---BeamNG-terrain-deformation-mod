@@ -224,7 +224,13 @@ squares are drawn by sectors only within `sectors.loadRadius` of the camera / ve
 the lowered terrain shows; looked fine from 112 m on gridmap_v2, not checked on johnson_valley
 where the grass layer itself is soft and the zone is large); a foreign full-terrain `updateGrid`
 (editor, other mods) would draw the zone at physics height (the terrain then hides the ruts
-there until Restart); not tested with region mode (skipped there).
+there until Restart).
+2026-11-05 (late): region mode draws the zone low too (hw550 still blinked: the zone was skipped
+there and the slow-terrain path redraws every write). hw550 test: 17 -> 0 real redraws near the
+camera in 40 s of digging beside grass. Left: a region shift's own terrain update (restored and
+newly sunk vertices at the region edge, 250+ m away) still drops the cells it touches once;
+hw550's tree GroundCover cells are 300 m wide (r 1500, gridSize 10, over `grass.maxRadius`), so
+a real redraw anywhere near trees drops a big block of trees for a frame.
 
 ## 18. Big terrains (hw550, 2026-11-01)
 

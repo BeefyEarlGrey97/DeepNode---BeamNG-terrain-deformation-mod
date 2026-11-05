@@ -3157,6 +3157,25 @@ function P.markLowered(gx, gy)
   P.loweredSectors[sy2 * KEY + sx2] = true
 end
 
+-- soft vertex whose 8 neighbours are soft too (low-draw zone keeps its border at the floor)
+local function interiorSoft(gx, gy)
+  for dy = -1, 1 do
+    for dx = -1, 1 do
+      if depthAt(gx + dx, gy + dy) <= 0 then return false end
+    end
+  end
+  return true
+end
+-- physics.heavy.grassLowDraw: height to draw vertex (gx, gy) at instead of its floor nr
+-- (the full sink level raw - d), nil when it is drawn at nr
+function P.lowDrawHeight(ph, gx, gy, raw, d, lift, nr)
+  if lift <= 0 or not ph.lowDrawCluster(gx, gy) or not interiorSoft(gx, gy) then return nil end
+  local lo = raw - d
+  if lo < ter.clampRaw then lo = ter.clampRaw end
+  if lo < nr - 1e-4 then return lo end
+  return nil
+end
+
 -- Lower every soft vertex of the region once, in one setHeightGrid + updateGrid pass.
 -- Heights are unsigned above the terrain origin: clamp at 0 and record the
 -- shortfall (pitfall 1). Only at mod start, never while driving.
@@ -3186,15 +3205,7 @@ function P.sinkPass()
   -- clusters near grass are drawn at the full sink level and get their floor height back
   -- for physics only (far dummy box) after the update below; the mesh draws those squares
   P.lowDrawn = {}
-  local low = (ph and ph.lowDrawCluster and not (P.reg and P.reg.on)) and {} or nil
-  local function interior(gx, gy)
-    for dy = -1, 1 do
-      for dx = -1, 1 do
-        if depthAt(gx + dx, gy + dy) <= 0 then return false end
-      end
-    end
-    return true
-  end
+  local low = (ph and ph.lowDrawCluster) and {} or nil
   local zx0, zx1, zy0, zy1 = -1, -2, -1, -2
   if zoneBox then
     zx0 = floor((zoneBox[1] - ter.ox) / ter.sq) - 1; zx1 = ceil((zoneBox[3] - ter.ox) / ter.sq) + 1
@@ -3218,12 +3229,8 @@ function P.sinkPass()
             P.shortfall[base + gx] = clampRaw - nr
             nr = clampRaw
           end
-          local lo = nil
-          if low and lift > 0 and ph.lowDrawCluster(gx, gy) and interior(gx, gy) then
-            lo = raw - d
-            if lo < clampRaw then lo = clampRaw end
-            if lo < nr - 1e-4 then low[base + gx] = nr else lo = nil end
-          end
+          local lo = low and P.lowDrawHeight(ph, gx, gy, raw, d, lift, nr)
+          if lo then low[base + gx] = nr end
           tb:setHeightGrid(gx, gy, lo or nr)
           P.recordSink(base + gx, raw, lift, raw - d)
           if gx < bx0 then bx0 = gx end
@@ -3327,11 +3334,12 @@ function P.shiftRegion(fx, fy, c)
   if ter.K > 1 then return P.shiftCoarse(fx, fy, c, { ox0, oy0, ox1, oy1 }, t0, loadMs) end
 
   local oN, oIdx, oRaw, oLift, oLift0, oBase = P.sinkCount, P.sinkIdx, P.sinkRaw, P.sinkLift, P.sinkLift0, P.sinkBase
-  local oShort = P.shortfall
+  local oShort, oLow = P.shortfall, P.lowDrawn
   P.setRegion(c)
   P.sinkCount, P.sinkCapacity = 0, 0
   P.sinkIdx, P.sinkRaw, P.sinkLift, P.sinkLift0, P.sinkBase = nil, nil, nil, nil, nil
   P.shortfall = {}
+  P.lowDrawn = {}
   P.loweredSectors = {}
   -- old sink record -> new one (-1: gone or redone), for the physics floor queue
   local map = ffi.new('int32_t[?]', max(1, oN))
@@ -3340,6 +3348,7 @@ function P.shiftRegion(fx, fy, c)
   local tb, S = ter.tb, ter.size
   local clampRaw = ter.clampRaw
   local ph = P.liftOn and P.mod('physics') or nil
+  local low = (ph and ph.lowDrawCluster) and {} or nil
   local wx0, wy0, wx1, wy1 = huge, huge, -huge, -huge
   local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
   local nKept, nNew, nGone, nWrites = 0, 0, 0, 0
@@ -3386,6 +3395,7 @@ function P.shiftRegion(fx, fy, c)
           map[old] = P.sinkCount - 1
           local sf = oShort[idx]
           if sf then P.shortfall[idx] = sf end
+          if oLow[idx] then P.lowDrawn[idx] = true end
           nKept = nKept + 1
         else
           local raw = old and oRaw[old] or tb:getHeightGrid(gx, gy)
@@ -3400,8 +3410,10 @@ function P.shiftRegion(fx, fy, c)
             P.shortfall[idx] = clampRaw - nr
             nr = clampRaw
           end
-          if abs(nr - cur) > 1e-4 then
-            tb:setHeightGrid(gx, gy, nr)
+          local lo = low and P.lowDrawHeight(ph, gx, gy, raw, d, lift, nr)
+          if lo then low[idx] = nr end
+          if lo or oLow[idx] or abs(nr - cur) > 1e-4 then
+            tb:setHeightGrid(gx, gy, lo or nr)
             nWrites = nWrites + 1
             if gx < wx0 then wx0 = gx end
             if gx > wx1 then wx1 = gx end
@@ -3428,6 +3440,17 @@ function P.shiftRegion(fx, fy, c)
   P.sinkBox = P.sinkCount > 0 and { bx0, by0, bx1, by1 } or nil
   local sinkMs = t0:stopAndReset()
   if nWrites > 0 then tb:updateGrid(vec3(wx0, wy0, 0), vec3(wx1, wy1, 0)) end
+  -- low-drawn vertices get their floor back for physics only (as in the sink pass)
+  if low and next(low) then
+    for idx, hz in pairs(low) do
+      tb:setHeightGrid(idx % S, floor(idx / S), hz)
+      P.lowDrawn[idx] = true
+    end
+    ph.physicsOnlyUpdate()
+  end
+  local nLow = 0
+  for _ in pairs(P.lowDrawn) do nLow = nLow + 1 end
+  P.stats.lowDrawn = nLow
   local gridMs = t0:stopAndReset()
   if ph and ph.remapRecords then ph.remapRecords(map, oN) end
 

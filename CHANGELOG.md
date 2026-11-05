@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- Grass still blinked next to digging on big maps (hw550): region mode skipped the
+  `physics.heavy.grassLowDraw` zone, and hw550's slow terrain updates (15-78 ms each) take the
+  slow path, which wrote every queued vertex with a real redraw box (grass ignored). The zone is
+  now drawn low in region mode too, at start and for the new vertices of each region shift
+  (kept vertices keep their flag). hw550, SUV circling on soft ground beside grass for 40 s:
+  real terrain redraws near the camera 17 -> 0 (22 physics-only updates, 31k low-drawn vertices).
+
 ## [0.6.0] — 2026-11-05 — pre-rutted decal roads, no grass blink
 
 ### Added
