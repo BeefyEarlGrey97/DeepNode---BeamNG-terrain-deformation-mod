@@ -56,6 +56,7 @@ local MAX_SEG = 16
 local MAX_WHEELS = 16
 -- surface kinds stored in the map (rutStampP.hlsl)
 local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT, KIND_GRASS, KIND_DIRT, KIND_WET = 0, 1, 2, 3, 4, 5, 6, 7
+local KIND_PLAIN = 11 -- pre-rutted road wheel line: wet trench floor + pools, no tyre print
 -- wet tracks: time of the last one, of the last drying pass (wheel time)
 local lastWet, lastDryPass = -1e9, -1e9
 local random = math.random
@@ -398,9 +399,10 @@ local function stampSoft(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, R, tyres)
     (k and br[k]) or (kind == KIND_SAND and (br.sand or 1.8)) or (br.mud or 1.6), rest)
 end
 
--- Pre-rutted decal roads (deepnode_preRut, main P.pre.prints): their groove lines become mud
--- prints whose ground z is the surface before the road carved it, so the trench rule draws
--- the grooves dark, wet and slick; the pinned road tiles get their pools. Painted as the map
+-- Pre-rutted decal roads (deepnode_preRut, main P.pre.prints): their groove lines become plain
+-- mud prints (KIND_PLAIN: no tyre pattern) whose ground z is the surface before the road carved
+-- it, so the trench rule draws the deep grooves wet and slick; the pinned road tiles get their
+-- pools. Painted as the map
 -- window takes them in (a new or moved window, a cleared rect), a few segments per frame.
 local function preWindow()
   preScan = false
@@ -444,10 +446,12 @@ local function preFeed()
       local L = sqrt(dx * dx + dy * dy)
       local axx, axy = 1, 0
       if L > 1e-4 then axx, axy = dy / L, -dx / L end
+      -- dry kinds have no wet floor or pools: only a print pattern there, so nothing to paint
       local k = P.kindAtWorld and P.kindAtWorld(mx, my)
-      local kind = (DRY_KIND[k] or drySoil(mx, my)) and KIND_SAND or KIND_MUD
-      stamp(ax, ay, z + 0.4, bx, by, z + 0.4, axx, axy, 0.4, { { o = 0, w = w } }, kind, 1, 1, z)
-      sent = sent + 1
+      if not (DRY_KIND[k] or drySoil(mx, my)) then
+        stamp(ax, ay, z + 0.4, bx, by, z + 0.4, axx, axy, 0.4, { { o = 0, w = w } }, KIND_PLAIN, 1, 1, z)
+        sent = sent + 1
+      end
     end
     prePainted[i] = true
   end

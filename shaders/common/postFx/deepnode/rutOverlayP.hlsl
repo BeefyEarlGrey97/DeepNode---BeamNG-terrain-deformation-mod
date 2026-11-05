@@ -151,6 +151,9 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     int2 ti = clamp((int2)floor(uv * dnMask.w), 0, (int)dnMask.w - 1);
     float4 rp = rutMapTex.Load(int3(ti, 0));
     float kindF = round(rp.a / 4.0);
+    // kind 11: a pre-rutted road's wheel line (overlay.lua preFeed): mud with the wet trench
+    // floor and pools only, no tyre print (no streaks, lip, crumbs or churned stripe)
+    bool plainP = kindF > 10.5;
     // pooled water stored in the texel (rutStampP.hlsl): level below the undisturbed ground
     bool poolT = rp.g < -0.5;
     float poolLevel = rp.g + 1.0;
@@ -175,8 +178,8 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float fr = 1.0 - smoothstep(0.35, 0.8, length(float2(dax, day)) * 4.0);
     float al = abs(lat);
     float inside = 1.0 - smoothstep(0.8, 1.0, al);
-    float groove = printGroove(along, lat, per, fs, fr) * inside;
-    float lip = smoothstep(0.7, 1.0, al) * (1.0 - smoothstep(1.0, 1.5, al));
+    float groove = plainP ? 0.0 : printGroove(along, lat, per, fs, fr) * inside;
+    float lip = plainP ? 0.0 : smoothstep(0.7, 1.0, al) * (1.0 - smoothstep(1.0, 1.5, al));
     // relief height (m): pressed grooves, raised lip (carried stains: see below)
     float relief = (-groove + lip * dnTread.w) * dnTread.z;
     float drx = ddx(relief);
@@ -202,7 +205,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
 
     if (any(uv < 0.0) || any(uv > 1.0)) discard;
     if (rp.r <= 0.0 && r.r < 0.01) discard;
-    int kind = (int)kindF;
+    int kind = plainP ? 0 : (int)kindF;
     bool berm = abs(lat) > 1.0;
     bool carried = kind == 2 || kind == 3;
     bool splat = kind == 4;
@@ -251,7 +254,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float cs = dnGrain.x * (kind == 1 ? 0.6 : 1.0);
     float crumbK = 0.0;
     float crumbSh = 0.0; // share of the sun a lump next to the pixel blocks (its cast shadow)
-    if (!carried && !pressed && !wetT) {
+    if (!carried && !pressed && !wetT && !plainP) {
         float bermW = berm ? saturate(2.0 - abs(lat)) * saturate((abs(lat) - 1.0) * 6.0) : 0.0;
         float dens = berm ? K.w * bermW : dnGrain.z * (0.4 + 0.6 * smoothstep(0.5, 1.0, abs(lat)));
         if (splat) dens = 0.65 * splatC;
@@ -317,7 +320,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         // wet churned soil: wetter in the print centre and the grooves, patchy; darker and
         // more saturated
         float inPrint = berm ? 0.75 * saturate(2.2 - abs(lat)) : 1.0;
-        wet = K.z * inPrint * (0.55 + 0.45 * churn) * (0.8 + 0.4 * groove);
+        wet = plainP ? 0.0 : K.z * inPrint * (0.55 + 0.45 * churn) * (0.8 + 0.4 * groove);
         // wet trench: deep mud ruts hold water in the soil, the floor is slick wet clay
         // (wetter, smoother, darker, a slow smeared pattern instead of the churn and crumbs)
         float trench = (kind == 0 && !berm) ? saturate((-dz - dnTrench.x) / max(dnTrench.y, 1e-3)) : 0.0;
@@ -359,7 +362,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     // (Schlick, water F0 0.02; sky sampled from the top of the screen as for the puddles)
     // smooth wetness for the sheen: the print's kind wetness and coverage only (the per-groove and
     // churn variation made it streaky)
-    float wetS = (!carried && !splat && !wetT && !pressed) ? K.z * saturate(str) * (berm ? 0.4 : 1.0) : wet;
+    float wetS = (!carried && !splat && !wetT && !pressed && !plainP) ? K.z * saturate(str) * (berm ? 0.4 : 1.0) : wet;
     if (kind == 0 && !berm) wetS = max(wetS, dnTrench.z * saturate((-dz - dnTrench.x) / max(dnTrench.y, 1e-3)));
     if (wetS > 0.05 && dnTime.w > 0.0) {
         // flat-water normal (0,0,1): per-pixel normals (relief, depth-buffer facets) made the

@@ -9,7 +9,8 @@
 //   b = undisturbed ground z (the surface before the rut) - baseZ (m),
 //   a = position across the tyre (-1..1 inside the print, up to +-2 on the berm beside it)
 //       + 4 x surface kind (0 mud, 1 sand, 2 mud carried onto hard ground, 3 sand dust,
-//       4 mud splat thrown by a spinning wheel, 5 grass track, 6 dirt track, 7 wet track;
+//       4 mud splat thrown by a spinning wheel, 5 grass track, 6 dirt track, 7 wet track,
+//       11 pre-rutted road wheel line: wet trench floor and pools, no print pattern;
 //       a wet track keeps its paint time (s, mod 64) in g instead of the phase and is erased
 //       here once older than the drying time)
 // Pooled water (overlay.lua pools, puddleMode 'fill'): a mud print texel under a pool keeps
@@ -117,9 +118,9 @@ float storedLat(float a)
 // kind 8 (water) / 9 (dry): dnA = rect x0, y0, x1, y1; dnB.y = water surface z - baseZ. Water
 // marks the mud print texels in the rect; dry takes the water off the rect's texels.
 #define SEG(i)                                                                         \
-    if (i < n && dnC##i.x > 7.5) {                                                     \
+    if (i < n && dnC##i.x > 7.5 && dnC##i.x < 9.5) {                                   \
         if (all(p >= dnA##i.xy) && all(p <= dnA##i.zw) && res.r > 0.0                  \
-            && round(res.a / 4.0) == 0.0) {                                            \
+            && (round(res.a / 4.0) == 0.0 || round(res.a / 4.0) == 11.0)) {            \
             if (dnC##i.x < 8.5) {                                                      \
                 if (abs(storedLat(res.a)) <= 1.0)                                      \
                     res.g = -1.0 - max(res.b - dnB##i.y, 0.0);                         \
@@ -140,12 +141,12 @@ float storedLat(float a)
             float lat = dot(d, float2(-fw.y, fw.x)) / hw;                              \
             float kind4 = 4.0 * dnC##i.x;                                              \
             bool oldPrint = res.r > 0.0 && abs(storedLat(res.a)) <= 1.0;               \
-            if (dnC##i.x > 6.5) {                                                  \
+            if (dnC##i.x > 6.5 && dnC##i.x < 7.5) {                                \
                 bool wetOk = res.r <= 0.0 || round(res.a / 4.0) == 7.0;            \
                 float cw = (1.0 - smoothstep(max(hw - edge, 0.0), hw, dist)) * dnC##i.y;\
                 if (dist < hw && wetOk && cw >= res.r * 0.5)                       \
                     res = float4(max(cw, 0.02), dnTime.x, dnB##i.y, clamp(lat, -1.0, 1.0) + kind4);\
-            } else if (dnC##i.x > 3.5) {                                           \
+            } else if (dnC##i.x > 3.5 && dnC##i.x < 6.5) {                         \
                 float sc = dist < hw ? splatCover(p, lat, dnC##i.y) : 0.0;         \
                 if (sc > 0.1) res = res.r > 0.0 ? float4(sc, res.g, res.b, storedLat(res.a) + kind4) : float4(sc, 0.0, dnB##i.y, clamp(lat, -1.0, 1.0) + kind4);\
             } else if (dist < hw) {                                                \

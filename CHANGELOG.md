@@ -24,6 +24,10 @@
   2-Percheron run on gridmap_v2: redraws near grass 10 -> 0.
 - Decal road copies leave out the dug cells (`roads.copyCut` 0.03 m): with "Experimental decal
   road" on, a digging truck's rut was painted over with the road pattern and vanished behind it.
+- Pre-rutted decal roads on by default again (`roads.preRut` true; Run tab tick "Experimental
+  pre-rutted roads" turns them off, applies on Restart). Their wheel lines carry no tyre print
+  any more (user): plain prints (map kind 11) draw only the wet slick floor where a groove is
+  deeper than the trench start, and the pools; none on sand.
 - Pre-rutted roads deeper and wet: `preDepth` mud 0.15 -> 0.3, sand 0.08 -> 0.17 (deepest dips
   stay 3 cm over the sink depth), grooves wider (`preTrackWidth` 0.05 -> 0.08, ~0.5 m). With the
   ground look on, each track decal's wheel lines (`preGrooveMin`) are painted as mud prints
@@ -31,8 +35,8 @@
   and slick, and the pinned road tiles get their pools (water in closed hollows). Painted as
   the overlay map window takes them in (`overlay.prePrints`, `prePerFrame` 8). gridmap_v2, 2
   Percherons, run 2: pre-rut on 118.7 / 119.5 fps, off 123.8 (mod Lua +0.35 ms, shadows +0.3).
-- Pre-rutted decal roads are an experimental option, off by default: Run tab tick
-  "Experimental pre-rutted roads" (saved, applies on Restart; `roads.preRut` false).
+- Pre-rutted decal roads have a Run tab tick "Experimental pre-rutted roads" (saved, applies
+  on Restart).
 - Pre-rut shape (gridmap_v2 mud pit read as a field of blobs): `mud_large` decals (clods, no
   track) were scaled to the full 15 cm like track decals; now a decal whose across-road
   profile carries little of its relief keeps only `preLumpShare` 0.3. Track decals keep the
