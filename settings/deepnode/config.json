@@ -47,7 +47,7 @@
     ],
     "overlayLiftStep": 0.002,
     "overlayAlphaRef": 110,
-    "preRut": true,
+    "preRut": false,
     "preDepth": {
       "mud": 0.15,
       "sand": 0.08,
@@ -68,7 +68,7 @@
     "preClampLow": 1.5,
     "preClampHigh": 0.4,
     "preTileMax": 4000,
-    "preCellStride": 4,
+    "preCellStride": 1,
     "preSkipMatch": [
       "line",
       "asphalt",

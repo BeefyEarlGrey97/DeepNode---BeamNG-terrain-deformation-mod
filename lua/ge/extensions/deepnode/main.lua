@@ -2305,6 +2305,9 @@ function M.setRutOverlay(on)
   return ov.isActive()
 end
 
+-- pre-rutted decal roads (GUI "Experimental pre-rutted roads", applies on Restart)
+function M.preRutActive() return P.pre ~= nil end
+
 function M.rutOverlayOn()
   local ov = P.mod('overlay')
   return ov and ov.isActive() or false

@@ -17,6 +17,18 @@
   without.
 
 ### Changed
+- Pre-rutted decal roads are an experimental option, off by default: Run tab tick
+  "Experimental pre-rutted roads" (saved, applies on Restart; `roads.preRut` false).
+- Pre-rut shape (gridmap_v2 mud pit read as a field of blobs): `mud_large` decals (clods, no
+  track) were scaled to the full 15 cm like track decals; now a decal whose across-road
+  profile carries little of its relief keeps only `preLumpShare` 0.3. Track decals keep the
+  shape that holds along the road (`preTrackLen`), 0.3 of the clod detail, and their 1-2 texel
+  creases are widened to wheel ruts (`preTrackWidth`). Stacked roads blend by blurred opacity
+  (`preOpBlur`): mud_furrows' grooves lie where its opacity is low, so the roads below had
+  overwritten them, and mud_large's clod holes made +-8 cm steps between 0.2 m cells. Undug
+  pinned tiles draw at full resolution again (`preCellStride` 4 -> 1: the 0.8 m grid turned the
+  grooves into waves). 2 Percherons gridmap_v2: off 136.1 fps, stride 1 132.8 / 136.8, stride 4
+  137.8 (runs 2-5, noise +-3).
 - Rut look: berm crests are torn (`stamp.bermCrumble` 0.6, at most `bermCrumbleMax` 0.12 m:
   berm vertices move by their berm height x a skewed clump noise, render only); mud walls
   steeper and berms taller (`stamp.kinds.mud` maxSlope 1.6 -> 2.2, bermFraction 0.35 -> 0.45);

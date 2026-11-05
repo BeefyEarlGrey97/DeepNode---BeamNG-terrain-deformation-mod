@@ -279,6 +279,12 @@ local function heightOf(mat, rc)
       op[y * W + x] = v
     end
   end
+  -- the opacity blends stacked roads: by its detail mud_furrows' grooves (low opacity
+  -- there) were overwritten by the roads below, and mud_large's clod holes flipped
+  -- neighbouring 0.2 m cells between two roads' heights (+-8 cm). Blend by coverage: the
+  -- opacity blurred over preOpBlur of the width
+  local Ro = max(0, floor(W * (rc.preOpBlur or 0.25)))
+  if Ro > 0 then boxV(op, tmp, Ro); boxU(tmp, op, Ro) end
   -- level: median of the visible part -> 0; scale: its 5th percentile -> -1
   local vals = {}
   for i = 0, W * H - 1, 3 do
@@ -291,7 +297,7 @@ local function heightOf(mat, rc)
   table.sort(vals)
   local med = vals[max(1, floor(#vals * 0.5))]
   local p5 = vals[max(1, floor(#vals * 0.05))] - med
-  local basin = false
+  local basin, track = false, nil
   if p5 > -(rc.preFlatRelief or 0.1) then
     -- next to no relief (water puddles: flat normals): the decal is a basin, deepest
     -- where it is most opaque
@@ -305,8 +311,55 @@ local function heightOf(mat, rc)
       if v < lo then v = lo elseif v > hi then v = hi end
       sm[i] = v
     end
+    -- tracks run along the road: keep the shape that holds over preTrackLen of the texture
+    -- (furrows, wheel strips) and only preLumpShare of the clod detail. A decal whose
+    -- across-road profile carries little of its relief (mud_large: clods, no track; profile
+    -- std / std 0.16, mud_furrows 0.55) keeps only the lump share: at full depth it made a
+    -- field of 15 cm blobs over the gridmap_v2 mud pit
+    local ls = rc.preLumpShare or 0.3
+    local sAll, sAll2 = 0, 0
+    for i = 0, W * H - 1 do sAll = sAll + sm[i]; sAll2 = sAll2 + sm[i] * sm[i] end
+    local mAll = sAll / (W * H)
+    local sP, sP2 = 0, 0
+    for x = 0, W - 1 do
+      local s = 0
+      for y = 0, H - 1 do s = s + sm[y * W + x] end
+      s = s / H - mAll
+      sP, sP2 = sP + s, sP2 + s * s
+    end
+    local stdAll = sqrt(max(0, sAll2 / (W * H) - mAll * mAll))
+    local stdP = sqrt(max(0, sP2 / W - (sP / W) ^ 2))
+    track = stdAll > 0 and stdP / stdAll or 0
+    if track < (rc.preTrackMin or 0.3) then
+      for i = 0, W * H - 1 do sm[i] = sm[i] * ls end
+    else
+      local Rt = floor(H * (rc.preTrackLen or 0.06))
+      if Rt > 0 then
+        boxV(sm, tmp, Rt)
+        for i = 0, W * H - 1 do sm[i] = tmp[i] + (sm[i] - tmp[i]) * ls end
+      end
+      -- the integrated furrows are creases 1-2 texels wide (5-10 cm on a 2.5 m road, one
+      -- 0.2 m cell): widen them across the road to wheel ruts and scale back to p5 = -1
+      local Ru = floor(W * (rc.preTrackWidth or 0.05))
+      if Ru > 0 then
+        boxU(sm, tmp, Ru)
+        local v2 = {}
+        for i = 0, W * H - 1, 3 do
+          if op[i] > 0.5 then v2[#v2 + 1] = tmp[i] end
+        end
+        table.sort(v2)
+        local med2 = v2[max(1, floor(#v2 * 0.5))] or 0
+        local p52 = (v2[max(1, floor(#v2 * 0.05))] or -1) - med2
+        local k2 = p52 < -1e-3 and -1 / p52 or 1
+        for i = 0, W * H - 1 do
+          local v = (tmp[i] - med2) * k2
+          if v < lo then v = lo elseif v > hi then v = hi end
+          sm[i] = v
+        end
+      end
+    end
   end
-  local res = { w = W, h = H, hgt = sm, op = op, path = nmPath, level = nm.level, basin = basin }
+  local res = { w = W, h = H, hgt = sm, op = op, path = nmPath, level = nm.level, basin = basin, track = track }
   texCache[key] = res
   return res
 end
@@ -336,7 +389,7 @@ end
 function M.build(main, P)
   local cfg = main.cfg
   local rc = cfg.roads or {}
-  if rc.preRut == false then return nil end
+  if rc.preRut ~= true then return nil end
   local ter = main.ter
   if not ter or (ter.K or 1) > 1 then return nil end
   local t0 = os.clock()

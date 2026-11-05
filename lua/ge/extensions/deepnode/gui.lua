@@ -145,6 +145,7 @@ local function save(m)
   end
   put('physics.mode')
   put('roads.mode')
+  put('roads.preRut')
   put('overlay.enabled')
   put('ring.physicalVehicles')
   m.saveGuiConfig(out)
@@ -300,7 +301,7 @@ local function tabRun(m)
   im.Separator()
   if im.Button(running and 'Stop' or 'Start', im.ImVec2(90, 0)) then flush(m); m.toggle(); st.t = -1 end
   im.SameLine()
-  if im.Button('Restart', im.ImVec2(90, 0)) then flush(m); m.reloadLevelData(); st.t = -1 end
+  if im.Button('Restart', im.ImVec2(90, 0)) then flush(m); m.reloadLevelData(); st.t = -1; st.preRutPending = nil end
   if im.Button('Smooth ruts', im.ImVec2(90, 0)) then m.clearRuts() end
   im.SameLine()
   if im.Button('Wash tyres', im.ImVec2(90, 0)) then m.cleanWheels() end
@@ -315,6 +316,25 @@ local function tabRun(m)
   if im.IsItemHovered() then
     im.SetTooltip('On: decal roads (mud furrows, dirt tracks) show on the mud and sand.\n' ..
       'Off (default): no decal road on the mud or sand, only the terrain material.')
+  end
+  -- experimental: decal roads on soft ground carved in as ruts at start (deepnode_preRut);
+  -- off by default, applies on Restart (the terrain under the roads changes)
+  ptr.preRut = ptr.preRut or im.BoolPtr(false)
+  local rcfg = m.cfg and m.cfg.roads or {}
+  ptr.preRut[0] = rcfg.preRut == true
+  if im.Checkbox('Experimental pre-rutted roads', ptr.preRut) then
+    rcfg.preRut = ptr.preRut[0]
+    st.preRutPending = ptr.preRut[0] ~= (m.preRutActive and m.preRutActive() or false)
+    changed()
+  end
+  if im.IsItemHovered() then
+    im.SetTooltip('On: mud and sand decal roads (furrows, tyre tracks, puddles) start as real ruts.\n' ..
+      'Off (default): the ground under decal roads starts flat.\n' ..
+      'Applies on Restart: switch with no vehicle sunk in the mud.')
+  end
+  if st.preRutPending then
+    im.SameLine()
+    ctext('warn', 'Restart to apply')
   end
   -- experimental: tread prints + wet darkening drawn on the GPU over the ruts (deepnode_overlay)
   ptr.rutOverlay = ptr.rutOverlay or im.BoolPtr(true)

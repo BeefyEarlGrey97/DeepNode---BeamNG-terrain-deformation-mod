@@ -320,3 +320,21 @@ Split (same session, one set of 5 runs each, mod ms runs 1-5): only `roads.preRu
 pre-rut with `roads.preCellStride` 4 for undug pinned tiles in sectors 0.60-1.21; pre-rut without
 pinned tiles (`roads.prePin` false) 0.56-0.79. The pre-rut pass is the cost (~+0.2-0.5 ms); pinning
 adds part of it. Not resolved.
+
+## 13. Stripped bench: 2 Percherons, pre-rut shape fix (2026-11-05)
+
+Stripped gridmap_v2 bench for quick A/B: 2 Percherons (`tools/benchmark/gridmap_spawn2.lua`: truck 2 in
+the mud pit, 6 in the sand pit; rerun `gridmap_setup.lua` first to get the 8-truck spawn list back),
+heavy, user GUI settings, vsync and limiter off, orbit cam yaw 160 / pitch 14 / 16 m,
+`bench2.py label 5 clear`, runs 2-5. Variant switched through gui.json + `reloadLevelData`.
+
+| variant | fps runs 2-5 | low1 | mod ms |
+|---|---|---|---|
+| first set (pre-rut on, old shape, stride 4) | 116.8 | 97.9 | 0.32-0.48 |
+| pre-rut on, new shape, `preCellStride` 1 | 132.8 | 117.4 | 0.21-0.30 |
+| pre-rut off | 136.1 | 120.4 | 0.21-0.29 |
+| pre-rut on, stride 4 | 137.8 | 120.2 | 0.24-0.33 |
+| pre-rut on, stride 1 (repeat) | 136.8 | 120.0 | 0.25-0.30 |
+
+The first set ran right after a long session (drift). With 2 trucks the full-resolution pinned
+tiles cost nothing measurable (noise +-3 fps).
