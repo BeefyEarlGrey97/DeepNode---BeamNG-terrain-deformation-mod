@@ -377,7 +377,12 @@ local defaults = {
     -- into the drawn surface (as vanilla BeamNG mud looks). The hard floor caps it all.
     -- A pass = one wheel crossing the cell; the same wheel again after passGap s counts as
     -- a new pass. Spin digging is not limited (it is the same pass).
-    soil = { enabled = true, passGap = 0.6 },
+    -- Following wheels of the same vehicle (tandem axles) within trainGap s of the last
+    -- touch count trainWeight of a pass: the soil under a multi-axle truck stays loaded, so
+    -- its rear axles ride the rut the front ones dug. As full passes the 4th axle of an 8x8
+    -- could dig 5.2x the first one's depth in mud (N^1 x softening): the rear axles buried
+    -- themselves and the trucks bogged (gridmap_v2 runs ending at 1 m/s); now ~1.9x
+    soil = { enabled = true, passGap = 0.6, trainGap = 10, trainWeight = 0.25 },
   },
   report = {
     -- wheel/body reports per second; swept stamps keep ruts continuous. 30 Hz cost 38 ms
@@ -4924,19 +4929,26 @@ local function carve(gcx, gcy, t, idx, bottom, tr, dig, digFloor, fb)
   if soil and t.passN then
     local want = rest - bottom
     if want > 0 then
+      -- passN counts quarter passes (4 = one full pass)
       local n = t.passN[idx]
-      if n == 0 or t.passKey[idx] ~= soil.key or simTime - t.passT[idx] > soil.gap then
-        if n < 255 then n = n + 1; t.passN[idx] = n end
+      local pk, age = t.passKey[idx], simTime - t.passT[idx]
+      if n == 0 or pk ~= soil.key or age > soil.gap then
+        local w = 4
+        if n > 0 and floor(pk / 32) == floor(soil.key / 32) and age < soil.trainGap then w = soil.trainW end
+        n = n + w
+        if n > 255 then n = 255 end
+        t.passN[idx] = n
         t.passKey[idx] = soil.key
       end
       t.passT[idx] = simTime
       -- first pass: z1 follows the deepest point of the tyre's own passage
-      if n == 1 then
+      if n <= 4 then
         local q = ceil(want / 0.0025)
         if q > 255 then q = 255 end
         if q > t.z1[idx] then t.z1[idx] = q end
       else
-        local allowed = t.z1[idx] * 0.0025 * n ^ soil.e * (1 + soil.soften * (n - 1))
+        local np = n * 0.25
+        local allowed = t.z1[idx] * 0.0025 * np ^ soil.e * (1 + soil.soften * (np - 1))
         if want > allowed then bottom = rest - allowed end
       end
     end
@@ -5239,6 +5251,8 @@ function P.setStampKind(kind, depth, key)
   if key and so and so.enabled and K and K.soilN then
     local S = P.soilState
     S.key, S.gap = key, so.passGap or 0.6
+    S.trainGap = so.trainGap or 10
+    S.trainW = max(1, floor((so.trainWeight or 0.25) * 4 + 0.5))
     S.e, S.soften = 2 / (2 * K.soilN + 1), K.soften or 0
     P.soil = S
   else

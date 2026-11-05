@@ -14,7 +14,8 @@ for _, t in pairs(deepnode_main.tiles) do
       local i, j = idx % NW, math.floor(idx / NW)
       local x, y = t.x0 + i * t.cell, t.y0 + j * t.cell
       local kind = P.kindAtWorld and P.kindAtWorld(x, y) or '?'
-      local n = t.passN and t.passN[idx] or 0
+      local n = t.passN and t.passN[idx] or 0 -- quarter passes (4 = one full pass)
+      n = math.floor(n / 4 * 4 + 0.5) / 4
       if n > 6 then n = 6 end
       local k = kind .. n
       local a = acc[k] or { n = 0, d = 0, mx = 0 }

@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Fixed
+- Long multi-axle trucks bogged in their own ruts: every following wheel of the same vehicle
+  counted as a full soil pass, so the 4th axle of an 8x8 could dig 5.2x the first one's depth
+  in mud. Following wheels of the same vehicle within `stamp.soil.trainGap` (10 s) now count
+  `trainWeight` (0.25) of a pass (tandem axles ride the rut the front ones dug). gridmap_v2,
+  8 Percherons: mud rut under 4 axles 0.226 -> 0.187 m mean, run 2 end speed 1.9 -> 3.5 m/s.
 - Decal road copies drew pale stair-stepped patches in the mud band and hid nothing of the
   ruts or everything of them. Cause: the copies inherited the decals' `translucentZWrite`; with
   the layers millimetres apart the depth test picked a layer per pixel at a slant (probe: 2 mm

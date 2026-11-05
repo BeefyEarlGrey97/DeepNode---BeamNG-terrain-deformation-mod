@@ -722,6 +722,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `kinds.<kind>.spinDig` | mud 0.8, sand 1.4 | Factor on `spinDigRate` / `spinDigMax` |
 | `soil.enabled` | true | Soil memory: pass N carves at most z1 x N^(2/(2n+1)) deep (z1 = first pass depth) |
 | `soil.passGap` | 0.6 | The same wheel over a cell again after this many seconds is a new pass |
+| `soil.trainGap` / `soil.trainWeight` | 10 / 0.25 | A following wheel of the same vehicle within trainGap s of the last touch adds trainWeight of a pass (tandem axles; quarter steps) |
 
 ### report
 
