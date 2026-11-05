@@ -354,6 +354,22 @@ Deeper pre-rut with dark wet wheel lines (2 runs each, run 2): on 118.7, off 123
 The first set ran right after a long session (drift). With 2 trucks the full-resolution pinned
 tiles cost nothing measurable (noise +-3 fps).
 
+## 15. 8 trucks, decal copies draped with fade levels (2026-11-06, test a4e358f)
+
+8 Percherons (`gridmap_setup.lua`), heavy, user GUI settings (roads.mode copy), vsync and limiter
+off, orbit cam yaw 160 / pitch 14 / 16 m, `bench2.py label 4 clear`, interleaved in one session
+(fade, no fade, fade). "no fade" = `roads.copyFade` {} set live + `setDecalRoads(true)`.
+
+| variant | fps runs 2-4 | low1 runs 2-4 | RenderShadows | RenderReflections | Lua | commit |
+|---|---|---|---|---|---|---|
+| fade (5 levels), set 1 | 33.0-35.6 | 17.0-23.7 | 10.61 | 3.23 | 6.04 | +504 MB/min (fresh start) |
+| no fade | 42.7-45.4 | 25.5-33.0 | 6.81 | 1.72 | 4.99 | +69 MB/min |
+| fade (5 levels), set 2 | 31.9-34.9 | 17.2-18.9 | 11.25 | 3.14 | 6.02 | +91 MB/min |
+
+The fade clones multiply copy submeshes (up to 6 per road material per mesh): -10 fps, shadow
+pass +4.5 ms and reflections +1.4 ms although the clones cast no shadows (cost per submesh, like
+the known per-object shadow cost). Not acceptable as is (OPEN_ISSUES 23).
+
 ## 14. v0.6.0 release check (2026-11-05)
 
 Stripped bench (section 13), 2 runs each, run 2: heavy 117.2 fps (low1 102.0), vanilla physics
