@@ -245,6 +245,7 @@ local pmap = {}      -- clip vertex position key -> copy vertex
 local subId = {}     -- submesh table -> small id (per build)
 local cU, cD, cI = {}, {}, {}
 local polyIdx = {}
+local dugQ = {}    -- recorded quad -> dug deeper than roads.copyCut (per emit)
 
 -- triangle (corner slots p, q, r of quad k) of road e into `out`
 local function emitTri(out, e, il, rec, k, p, q, r, sid)
@@ -323,6 +324,23 @@ function M.emit(b, key, N)
   local nq = rec.n
   if nq == 0 then return end
   local t0 = hptimer and hptimer()
+  -- dug cells are left out (roads.copyCut): a copy draped into the rut painted it with the
+  -- road pattern and the rut vanished behind a digging truck; the mud and the ground look
+  -- (wet churned ruts) show there instead, berms keep the road
+  local cut = ctx.cfg.roads.copyCut or 0.03
+  local t = cut > 0 and ctx.tiles[key] or nil
+  if t then
+    local rest, dz = t.rest, ctx.decodeZ
+    for k = 1, nq do
+      local base = 4 * k - 4
+      local dug = false
+      for c = 1, 4 do
+        local g = rec.g[base + c]
+        if rest[g] - dz(t, g) > cut then dug = true; break end
+      end
+      dugQ[k] = dug
+    end
+  end
   for k in pairs(subId) do subId[k] = nil end
   local nsid = 0
   local v0 = b:vertexCount()
@@ -339,8 +357,8 @@ function M.emit(b, key, N)
       local g1, g2, g3, g4 = rec.g[base + 1], rec.g[base + 2], rec.g[base + 3], rec.g[base + 4]
       local u1, u2, u3, u4 = us[g1], us[g2], us[g3], us[g4]
       local d1, d2, d3, d4 = ds[g1], ds[g2], ds[g3], ds[g4]
-      -- quick reject: the whole quad beside the strip or beyond an end
-      if not ((u1 < 0 and u2 < 0 and u3 < 0 and u4 < 0) or (u1 > 1 and u2 > 1 and u3 > 1 and u4 > 1)
+      -- quick reject: dug, or the whole quad beside the strip or beyond an end
+      if not (t and dugQ[k]) and not ((u1 < 0 and u2 < 0 and u3 < 0 and u4 < 0) or (u1 > 1 and u2 > 1 and u3 > 1 and u4 > 1)
           or (d1 < 0 and d2 < 0 and d3 < 0 and d4 < 0)
           or (d1 > e.len and d2 > e.len and d3 > e.len and d4 > e.len)) then
         if not out then out = b:sub(e.mat, 64) end

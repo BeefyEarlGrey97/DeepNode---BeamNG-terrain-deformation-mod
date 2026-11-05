@@ -188,6 +188,18 @@ Not done yet:
   in the gridmap_v2 mud pit showed the water layer but few furrow clumps: not checked whether
   the furrow strips cover those cells or copies are missing there. Faint lines along some tile
   edges were seen before the border-drop fix; not re-checked after it.
+  2026-11-05: copies drawn into the ruts painted them with the road pattern, so a digging truck
+  left no visible trail (user: "still lays over the ruts"); `roads.copyCut` 0.03 leaves copy
+  quads out where the mud is dug deeper than 3 cm (the rut shows mud + ground look, berms keep
+  the road). Still open, seen top-down behind one Percheron (x -325..-320, y -345): the flat,
+  undug squares of the meshed band beside the ruts show plain mud, no copy, even with
+  `copyLift` 0.06 (copies emitted for the tile: 512 vertices; the copies that do show in the
+  band look paler than the engine decals beside them). Hiding the tile mesh shows the engine
+  decal there. Not found yet whether those quads are rejected (u / d map) or hidden. Draw
+  order (`copyHighOnTop` test: low or high renderPriority on top) changed nothing visible.
+  Custom-shader routes for the road look on the mud: a CustomMaterial on a ProceduralMesh gets
+  no cbuffers / textures (crash, ENGINE_FINDINGS "Custom shaders"), a post effect has no albedo
+  buffer (screen-space redraw tried 2026-10-31, rejected): the copies stay the route.
 
 ## 15. Grass blinks next to digging (heavy mode)
 

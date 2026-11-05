@@ -573,6 +573,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `preSkipMatch` | `["line", "asphalt", "invisible", "skidmark"]` | Road materials never pre-rutted |
 | `mode` | `"copy"` | Decal roads on the mud: `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
 | `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
+| `copyCut` | 0.03 | Mode `copy`: m; copy quads with a corner dug deeper than this below the rest surface are left out (the rut shows instead of the road pattern) |
 | `copyLift` / `copyLiftStep` | 0.008 / 0.002 | Mode `copy`: m over the mud; one step per renderPriority level (lower numbers higher) |
 | `copyMerge` | true | Mode `copy`: the drawn cells of a dug square go into the copies as greedy planar rectangles instead of one quad per cell |
 | `copyMergeFlat` | 0.004 | Mode `copy`: m; largest mud deviation from a merged copy quad (keep it under `copyLift`) |

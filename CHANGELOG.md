@@ -17,6 +17,8 @@
   without.
 
 ### Changed
+- Decal road copies leave out the dug cells (`roads.copyCut` 0.03 m): with "Experimental decal
+  road" on, a digging truck's rut was painted over with the road pattern and vanished behind it.
 - Pre-rutted decal roads are an experimental option, off by default: Run tab tick
   "Experimental pre-rutted roads" (saved, applies on Restart; `roads.preRut` false).
 - Pre-rut shape (gridmap_v2 mud pit read as a field of blobs): `mud_large` decals (clods, no
