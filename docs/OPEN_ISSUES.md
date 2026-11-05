@@ -319,6 +319,12 @@ edge still follows the 1 m terrain squares; the mud mesh base is ~2 % darker tha
 in the gridmap_v2 pit (measured 159.7 vs 163.4 mean level); fade levels multiply copy
 submeshes (up to 6 per road material per mesh): 8-truck bench -10 fps, shadows +4.5 ms (BENCHMARK 15); the
 fullsuv circle harness (dntestCircles R 9) loses the car after a place().
+2026-11-06 8-truck findings (BENCHMARK 16): every extra copy submesh costs shadow and reflection
+pass time even with castShadows 0 (fade levels -4.5 / -10 fps); `hideInRenderView(63)` does not
+help. After the 8-truck runs the fully meshed pit looks washed out pale (copy stack water, water,
+mud_large drawn as if water were on top). Suspect: `mud_large` has `alphaTest` 1, so its copy may
+render in an earlier bin than the other translucent copies; alphaTest 1 on every clone fixed the
+centre but not all stripes (unfinished). Fade default must change (cost) once the stack is right.
 
 ## 22. Pre-rutted decal roads (2026-11-04, first version)
 
