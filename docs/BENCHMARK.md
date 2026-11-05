@@ -4,6 +4,9 @@ Both benchmarks use **8 Percheron** trucks, config `vehicles/percheron/s450_8x8_
 Report fps mean and low 1 %, rut latency and memory growth, and compare against the mod switched
 off in the same session (absolute fps drifts by several fps over a long session).
 
+**Runs per test (2026-11-05):** every variant runs twice (`bench2.py <label> 2 clear`); compare
+run 2 and interleave variants (A, B, A). Quick A/B: the stripped 2-Percheron bench (section 13).
+
 ## Common setup
 
 1. Copy `tools/benchmark/ge_extensions/*.lua` to `<user folder>/lua/ge/extensions/`
