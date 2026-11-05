@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-05 — pre-rutted decal roads, no grass blink
+
 ### Added
 - Decal roads on soft ground start as real ruts (`roads.preRut`, new module
   `deepnode_preRut`). At start each road material's normal map (BC5 mip about 64 texels

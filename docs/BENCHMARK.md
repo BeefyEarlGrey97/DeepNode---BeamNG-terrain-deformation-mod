@@ -353,3 +353,9 @@ Deeper pre-rut with dark wet wheel lines (2 runs each, run 2): on 118.7, off 123
 
 The first set ran right after a long session (drift). With 2 trucks the full-resolution pinned
 tiles cost nothing measurable (noise +-3 fps).
+
+## 14. v0.6.0 release check (2026-11-05)
+
+Stripped bench (section 13), 2 runs each, run 2: heavy 117.2 fps (low1 102.0), vanilla physics
+122.1 (107.4), mod off 107.6 (97.2). Mod off draws the level's 238 stacked decal roads over the
+pits again (the mod hides them on soft ground with `roads.mode` 'off'), hence slower.

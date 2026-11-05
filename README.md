@@ -2,7 +2,7 @@
 
 Terrain deformation for BeamNG.drive 0.40: deep mud and sand that sink, rut and remember every tyre.
 
-**Install:** download `DeepNode-v0.5.0.zip` from [Releases](../../releases) and drop it, unextracted, into
+**Install:** download `DeepNode-v0.6.0.zip` from [Releases](../../releases) and drop it, unextracted, into
 `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\mods\`. *Physics* **HEAVY** is the default (DeepNode
 window, Run tab); decal roads on the mud and sand are under **Experimental decal road** (off by default:
 no decal road on soft ground). To set the mod UI keybinds: Search for DeepNode under Controls
@@ -20,6 +20,7 @@ learned by reading the Dynamic Scratch mod; none of its code, shaders or texture
 - Mud, sand and snow deformation from the level's own terrain layers; Run tab tick list picks which ground models deform
 - Tyre ruts at 0.2 m resolution with berms and slumping walls, chassis dents, dual wheels
 - Ruts carved ahead of each wheel, so they appear under the tyre (front latency ~0.1 s)
+- Pre-rutted decal roads: the level's mud / sand tyre-track decals start as real ruts (up to 0.3 m in mud) with a wet floor and pooled water, on by default (GUI **Experimental pre-rutted roads**)
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
 - Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
 - Experimental screen-space ground look (after MudRunner): universal tyre prints, wet churned mud, crumbs on the berms, water pooled in the rut hollows, wet trenches, mud splats from spinning wheels, mud carried onto hard ground, grass / dirt tracks, wet tracks that dry, wet glossy tyres, all drawn by GPU post effects (no mesh uploads), on by default (GUI **Experimental tread prints**)
@@ -51,7 +52,8 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 12. Research follow-ups still open (layer-map rut material, engine tread decals, ground-model speed calibration, rut persistence): see docs/OPEN_ISSUES.md §13.
 11. Tyre coat colour from the ground: tuned on puresands (sand) and gridmap_v2 (mud, wet); johnson_valley and other tyre models not checked yet.
 13. Experimental ground look: GPU cost not measured exactly, night/rain unchecked; pooled water only on print texels: see docs/OPEN_ISSUES.md §14.
-14. Heavy mode: grass within one 10 m groundcover cell of a digging truck can still blink about once a second (every terrain update rebuilds the cells over it): docs/OPEN_ISSUES.md §15.
+14. Heavy mode grass blink fixed in v0.6.0 (`grassLowDraw`); not checked on maps whose grass layer is itself soft (johnson_valley): docs/OPEN_ISSUES.md §15.
+18. Pre-rutted roads cost ~4-5 fps with 2 trucks; with "Experimental decal road" on, flat squares beside a rut can show plain mud: docs/OPEN_ISSUES.md §14, §22.
 15. Crossing ruts merge on the 1 m terrain grid (ridge between a truck's rut lines is 0.8 m); a ~5 cm settle when a vehicle stops: docs/OPEN_ISSUES.md §17.
 17. Snow: first values (berms, coat, prints) tuned on one map only (polish_roads_winter); automation_test_track snow is fragmented (59 % of snow vertices are interior): docs/OPEN_ISSUES.md §21.
 16. Region mode on big maps: ruts outside the overlap are dropped when the region moves, not yet tried on a BeamNG.earth map: docs/OPEN_ISSUES.md §19.
