@@ -370,6 +370,28 @@ The fade clones multiply copy submeshes (up to 6 per road material per mesh): -1
 pass +4.5 ms and reflections +1.4 ms although the clones cast no shadows (cost per submesh, like
 the known per-object shadow cost). Not acceptable as is (OPEN_ISSUES 23).
 
+## 16. Optimization pass toward 55-60 fps, 8 trucks (2026-11-06, test 010be0d)
+
+Same bench as 15 (2 runs per variant, run 2 shown unless noted), one long session.
+
+| variant | run 2 fps | note |
+|---|---|---|
+| mod off | 88.6-90.9 (runs 2-4) | trucks run through at 12 m/s (not the same scene) |
+| copies, fade off | 42.6-45.4 | reference |
+| fade 5 levels / 2 levels | 32-35 / 38.1 | cost is per copy submesh (copy vertices equal) |
+| no road copies | 48.5 | copies cost ~3.4 fps |
+| every mod mesh hidden while digging | 52.1 | ceiling with today's mesh approach |
+| finer padding classes (decal 1.25x, 12 tile classes) | 44.0 | padding -40 %, no fps change: reverted |
+| tiles.targetSize 10 | 42.7 | uploads -40 %, vertices x2, Lua 7.9 ms: worse |
+| hideInRenderView(63) on mod meshes | 42.8 | no change |
+| frozen tiles handed to sectors | static Render 3.1 -> 10.6 ms | sector meshes draw far heavier: rejected |
+| tandem axles 1/4 pass (kept) | 44.6 vs 40.0 | trucks no longer bog (end speed 3.5 vs 1.9 m/s) |
+
+Mod Lua while digging ~2.8 ms (tiles 1.6 incl. createMesh, reports 0.38, tyre mud 0.63,
+overlay 0.29, sectors 0.23, floor 0.10). Report string compile ~0.04 ms/frame. Static frame
+with the pit dug: 14.6 ms; hiding all mod meshes there saves ~0.7 ms (overview) / 1.6 ms (6 m
+close-up). 55-60 fps not reached; see OPEN_ISSUES 23.
+
 ## 14. v0.6.0 release check (2026-11-05)
 
 Stripped bench (section 13), 2 runs each, run 2: heavy 117.2 fps (low1 102.0), vanilla physics
