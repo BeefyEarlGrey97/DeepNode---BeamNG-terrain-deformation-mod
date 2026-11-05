@@ -91,6 +91,29 @@ They explain most design decisions; please extend this file when you measure som
 
 - `DecalRoad.overObjects` drapes by a physics raycast onto collision meshes, not render meshes.
 - `zBias` is a depth bias, not a vertical lift.
+- `decalBias` is the hover height over the terrain (exe field description).
+- How the engine builds them (exe strings + shipped HLSL, 2026-11-05): a DecalRoad clips its
+  strip against the TerrainBlock only ("A strip shaped decal ... which clips against Terrain
+  objects"); `overObjects` adds a downward raycast onto static meshes. `SceneStaticDecalRoadManager`
+  builds the geometry on the thread pool (`_captureTerrainVerticesThread`,
+  `_rebuildNodeBatchesThread`) into static batches per spatial leaf. Vertex format
+  `GFXVERTEXFORMAT_DECALROAD` (`shaders/common/material/shadergen/vertexIA.h.hlsl`): position
+  packed 21/21/21 bits relative to the leaf origin (2048 m range), UV as half2, normal RGBA8 whose
+  alpha is the vertex visibility (`startEndFade` / `distanceFade`), tangent RGBA8. Shading is the
+  ordinary object shader (`defaultMat.hlsl`) with that vertex format.
+- Why a decal road looks like part of the ground: its translucent material also runs the
+  prepass permutation (`MFT_PrePassConditioner` with `MFT_IsTranslucent`,
+  `permutations.h.hlsl`), which blends the road's normal and roughness into the G-buffer with the
+  opacity as source alpha (RT0.a and RT1.a = opacity); the colour pass then draws the lit road
+  over it. A ProceduralMesh with the same material goes to the translucent bin and gets only the
+  colour pass (hence the copy's ~3 % difference and missing normals in `AL_NormalsVisualize`).
+  Render bins named in the exe: MeshFast, MeshDecalFast, TranslucentFast, Terrain,
+  ObjectTranslucent, DecalFast; no Lua route found that puts a ProceduralMesh in a decal bin.
+- `DeferredDecal` is a box-projected colour-only decal (`deferred_decalP.hlsl`, test texture
+  name in the exe), projecting onto whatever is in the depth buffer: not a road route.
+- hw550 (8192 x 8192): `tb:updateGrid` of a 3 x 3 box costs 16-23 ms (best of 5) on a decal
+  road, far from roads and at the terrain corner alike: the cost is the terrain size, not decal
+  road rebuilds.
 - With the terrain left at the mud surface (terrain-first) the engine draws decal roads exactly as vanilla.
 - UV mapping (measured 2026-10-31 with a UV test texture on a DecalRoad and on a ProceduralMesh
   copy): u = 0 at the left edge, 1 at the right; v = -distance / textureLength, the distance
