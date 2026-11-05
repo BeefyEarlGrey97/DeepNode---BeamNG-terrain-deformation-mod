@@ -2,17 +2,20 @@
 
 ## [Unreleased]
 
-### Changed
-- Decal road copies (`roads.mode` 'copy') moved out of the tile mesh into their own pooled
-  object per tile, like the engine keeps its decal road batches apart: a rut rebuild no longer
-  re-uploads them. A tile being dug refreshes its copies at most every `roads.copyEvery` s
-  (0.5; its fresh ruts lie under the truck meanwhile) and once more when it falls quiet.
-  Berms (mud pushed above the rest surface) get no copy any more, like ruts, so copies
-  change only when a cell is first disturbed. gridmap_v2, 2 Percherons, 2 runs: vertices
-  uploaded 513k -> 341k, createMesh calls 817 -> 1328 (smaller), estimated upload time -29 %;
-  fps run 2 66.9 -> 67.8 (noise level with 2 trucks).
-
 ### Fixed
+- Decal road copies drew pale stair-stepped patches in the mud band and hid nothing of the
+  ruts or everything of them. Cause: the copies inherited the decals' `translucentZWrite`; with
+  the layers millimetres apart the depth test picked a layer per pixel at a slant (probe: 2 mm
+  apart at ~14 m the lower layer won, 0.5 mm the upper one), so the wide `mud_water` sheet at
+  the bottom of the gridmap_v2 stack showed through. Copy clones now have depth writes off
+  (applied with `Material:reload()`, `flush()` does not) and every mesh draws its copy
+  submeshes bottom layer first; layers no longer need lift steps (`copyLiftStep` 0).
+- Road copies now drape over ruts and berms (`copyCut` 0) and fade with the disturbance
+  (`roads.copyFade`: 5 fainter material clones, chosen per quad by the mean |surface - rest|
+  from 3 cm), so the road pattern continues into a fresh rut while the rut still reads. The
+  copies update with every rut rebuild (back inside the tile mesh; the separate copy object
+  of the day before was reverted: draped copies change on every build, so it saved nothing).
+
 - Grass still blinked next to digging on big maps (hw550): region mode skipped the
   `physics.heavy.grassLowDraw` zone, and hw550's slow terrain updates (15-78 ms each) take the
   slow path, which wrote every queued vertex with a real redraw box (grass ignored). The zone is

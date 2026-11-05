@@ -92,6 +92,17 @@ They explain most design decisions; please extend this file when you measure som
 - `DecalRoad.overObjects` drapes by a physics raycast onto collision meshes, not render meshes.
 - `zBias` is a depth bias, not a vertical lift.
 - `decalBias` is the hover height over the terrain (exe field description).
+- Translucent ProceduralMesh layers (probe 2026-11-06, two overlapping quads, gridmap_v2): with
+  `translucentZWrite` on, the depth test decides which layer shows, and at a few mm apart it
+  z-fights (at ~14 m slant: 2 mm -> the lower layer won, 0.5 mm -> the upper one; 2 cm ->
+  always the upper one). With it off, submeshes of one object draw in submesh order (later =
+  on top) and of two objects the nearer object draws last. Decal road materials have
+  `translucentZWrite` on.
+- Material field changes on an existing Material reach meshes only after `Material:reload()`;
+  `flush()` left `opacityFactor` / `baseColorFactor` edits invisible on ProceduralMesh copies.
+- A full decal copy draped over ruts hides them (the road pattern wins over the mud's rut
+  look); a copy cut out of dug cells leaves plain stair-stepped holes. Fainter clones per
+  disturbance level are the soft fade a ProceduralMesh can do (no vertex alpha).
 - How the engine builds them (exe strings + shipped HLSL, 2026-11-05): a DecalRoad clips its
   strip against the TerrainBlock only ("A strip shaped decal ... which clips against Terrain
   objects"); `overObjects` adds a downward raycast onto static meshes. `SceneStaticDecalRoadManager`

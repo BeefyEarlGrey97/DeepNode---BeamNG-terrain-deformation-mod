@@ -311,6 +311,15 @@ Next: find why the exemption multiplies uploads (fresh fronts at tileRebuildHz 4
 cap fresh uploads per tile, e.g. 15-20 Hz, and keep the hold for the axles behind), then re-add the
 fast floor for hot clusters only.
 
+## 23. Decal road copies over ruts (2026-11-06)
+
+Copies drape over ruts and berms and fade by disturbance (`roads.copyFade`); depth writes off,
+bottom layer first. Left: where a faded rut quad borders plain terrain (engine decal), the band
+edge still follows the 1 m terrain squares; the mud mesh base is ~2 % darker than the terrain
+in the gridmap_v2 pit (measured 159.7 vs 163.4 mean level); fade levels multiply copy
+submeshes (up to 6 per road material per mesh, upload / draw cost not benched yet); the
+fullsuv circle harness (dntestCircles R 9) loses the car after a place().
+
 ## 22. Pre-rutted decal roads (2026-11-04, first version)
 
 2026-11-05: deeper (mud 0.3 m), wider grooves, dark wet wheel lines + pools through the overlay.

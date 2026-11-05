@@ -354,21 +354,6 @@ Deeper pre-rut with dark wet wheel lines (2 runs each, run 2): on 118.7, off 123
 The first set ran right after a long session (drift). With 2 trucks the full-resolution pinned
 tiles cost nothing measurable (noise +-3 fps).
 
-## 14b. Road copies in their own object (2026-11-06, test)
-
-gridmap_v2, 2 Percherons (spawn2), orbit cam, vsync + fps limit off, `bench2.py <label> 2 clear`,
-upload probe wrapping `tileMesh.present` (2 runs each):
-
-| variant | run 2 fps (low1) | tile uploads / verts | copy uploads / verts |
-|---|---|---|---|
-| copies in tile mesh (v0.6.0) | 66.9 (51.8) | 817 / 513k | - |
-| own object, every build | 66.3 (50.5) | 810 / 250k | 758 / 141k |
-| own object, `copyEvery` 0.5 | 67.8 (48.6) | 853 / 272k | 475 / 69k |
-
-Copy geometry differed in 82 % of builds while a truck crossed a tile (new disturbed cells each
-stamp), so the separate object alone saved nothing; the refresh limit did. Not yet run with 8
-trucks.
-
 ## 14. v0.6.0 release check (2026-11-05)
 
 Stripped bench (section 13), 2 runs each, run 2: heavy 117.2 fps (low1 102.0), vanilla physics

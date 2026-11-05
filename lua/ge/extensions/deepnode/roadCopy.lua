@@ -36,6 +36,8 @@ local roads = {}        -- road records
 local byTile = {}       -- tile key -> { road, ... } in draw order
 local cache = {}        -- tile key -> { [road.idx] = { u = float[], d = float[] } }
 local matOf = {}        -- road material -> clone name (false: none)
+local subRank = {}      -- clone name -> draw rank (0 = bottom layer, drawn first)
+local fadeLevels = {}   -- roads.copyFade: { { disturbance m, opacity mult }, ... } ascending
 local stats = { roads = 0, tiles = 0, builds = 0, ms = 0, verts = 0, clipped = 0, cacheTiles = 0 }
 
 local function isFinite(v) return type(v) == 'number' and v == v and v > -1e7 and v < 1e7 end
@@ -48,30 +50,42 @@ end
 -------------------------------------------------------------------------------
 -- materials: exact clones without shadow casting
 -------------------------------------------------------------------------------
-local function copyMaterial(name)
-  local have = matOf[name]
+-- level > 0: a fainter clone (opacity x mult) for disturbed mud (M.emit, roads.copyFade)
+local function copyMaterial(name, level, mult)
+  local mk = name .. '#' .. level
+  local have = matOf[mk]
   if have ~= nil then return have or nil end
   local src = scenetree.findObject(name)
-  if not src then matOf[name] = false; return nil end
-  local dst = 'deepnode_dec_' .. name
+  if not src then matOf[mk] = false; return nil end
+  local dst = 'deepnode_dec_' .. name .. (level > 0 and ('_f' .. level) or '')
   local m = scenetree.findObject(dst)
   local fresh = m == nil
   if fresh then m = createObject('Material') end
   local ok = pcall(function() m:assignFieldsFromObject(src) end)
   if not ok then
     if fresh then pcall(function() m:delete() end) end
-    -- fall back to the road's own material (draws the same, casts shadows)
-    matOf[name] = name
+    -- fall back to the road's own material (draws the same, casts shadows, no fading)
+    matOf[mk] = name
     return name
   end
   pcall(function() m:setField('castShadows', 0, '0') end)
+  if level > 0 then
+    local op = tonumber(src:getField('opacityFactor', 0)) or 1
+    pcall(function() m:setField('opacityFactor', 0, tostring(op * mult)) end)
+  end
+  -- no depth writes: copy layers lie millimetres apart, and with the decal's own
+  -- translucentZWrite the depth test picked the layer per pixel at a slant from ~14 m (2 mm:
+  -- the lower one won, 0.5 mm: the upper one), so the bottom water sheet showed through in
+  -- stair-stepped patches. Without it the draw order decides: copy submeshes are drawn
+  -- bottom layer first (M.subRank, tileMesh Builder:finish)
+  pcall(function() m:setField('translucentZWrite', 0, '0') end)
   if fresh then
     m.canSave = false
     m:registerObject(dst)
   else
-    pcall(function() m:flush() end)
+    pcall(function() m:reload() end) -- flush() does not apply changed fields
   end
-  matOf[name] = dst
+  matOf[mk] = dst
   return dst
 end
 
@@ -115,14 +129,16 @@ local function addRoad(road, P)
     end
   end
   if n < 2 or soft == 0 then return end
-  local cm = copyMaterial(mat)
+  local cm = copyMaterial(mat, 0, 1)
   if not cm then return end
+  local mats = { [0] = cm }
+  for lv, f in ipairs(fadeLevels) do mats[lv] = copyMaterial(mat, lv, f[2]) or cm end
   local texLen = tonumber(field(road, 'textureLength')) or 5
   if texLen <= 0.01 then texLen = 5 end
   local fadeS, fadeE = 0, 0
   local a, b = tostring(field(road, 'startEndFade') or ''):match('([%d%.%-]+)%s+([%d%.%-]+)')
   if a then fadeS, fadeE = max(0, tonumber(a) or 0), max(0, tonumber(b) or 0) end
-  local e = { obj = road, mat = cm, texLen = texLen, L = L, R = R, Mx = Mx, My = My, D = D, n = n, len = dist,
+  local e = { obj = road, mat = cm, mats = mats, texLen = texLen, L = L, R = R, Mx = Mx, My = My, D = D, n = n, len = dist,
     fadeS = fadeS, fadeE = fadeE, prio = tonumber(field(road, 'renderPriority')) or 10, id = road:getId() }
   roads[#roads + 1] = e
   e.idx = #roads
@@ -245,10 +261,12 @@ local pmap = {}      -- clip vertex position key -> copy vertex
 local subId = {}     -- submesh table -> small id (per build)
 local cU, cD, cI = {}, {}, {}
 local polyIdx = {}
-local dugQ = {}    -- recorded quad -> dug deeper than roads.copyCut (per emit)
+local lvQ = {}     -- recorded quad -> fade level (-1: left out, roads.copyCut) (per emit)
+local outs = {}    -- fade level -> submesh of the current road
 
--- triangle (corner slots p, q, r of quad k) of road e into `out`
-local function emitTri(out, e, il, rec, k, p, q, r, sid)
+-- triangle (corner slots p, q, r of quad k) of road e into `out`; lv = fade level (each
+-- level is its own submesh: vertices are not shared across levels)
+local function emitTri(out, e, il, rec, k, p, q, r, sid, lv)
   local u1, u2, u3 = cU[p], cU[q], cU[r]
   local d1, d2, d3 = cD[p], cD[q], cD[r]
   if (u1 < 0 and u2 < 0 and u3 < 0) or (u1 > 1 and u2 > 1 and u3 > 1)
@@ -265,7 +283,7 @@ local function emitTri(out, e, il, rec, k, p, q, r, sid)
     for c = 1, 3 do
       local slot = c == 1 and p or (c == 2 and q or r)
       local vi = rec.v[base + slot]
-      local key = sid * 65536 + vi
+      local key = (lv * 4096 + sid) * 65536 + vi
       local o = vmap[key]
       if not o then
         local V, Nn = verts[vi + 1], normals[vi + 1]
@@ -295,7 +313,7 @@ local function emitTri(out, e, il, rec, k, p, q, r, sid)
   local ox, oy = ctx.ter.ox, ctx.ter.oy
   for c = 0, n - 1 do
     local o = c * 8
-    local key = floor((PA[o + 1] - ox) * 512 + 0.5) * 16777216 + floor((PA[o + 2] - oy) * 512 + 0.5)
+    local key = lv * 1e14 + floor((PA[o + 1] - ox) * 512 + 0.5) * 16777216 + floor((PA[o + 2] - oy) * 512 + 0.5)
     local id = pmap[key]
     if not id then
       local nx, ny, nz = PA[o + 4], PA[o + 5], PA[o + 6]
@@ -324,25 +342,37 @@ function M.emit(b, key, N)
   local nq = rec.n
   if nq == 0 then return end
   local t0 = hptimer and hptimer()
-  -- disturbed cells are left out (roads.copyCut): a copy draped into the rut painted it with
-  -- the road pattern and the rut vanished behind a digging truck; the mud and the ground
-  -- look (wet churned ruts) show there instead. Berms (pushed-up mud) too: the copies then
-  -- only change when a cell is first disturbed, so most rut rebuilds leave the tile's copy
-  -- object as it is (tileMesh.presentCopies uploads nothing)
-  local cut = ctx.cfg.roads.copyCut or 0.03
-  local t = cut > 0 and ctx.tiles[key] or nil
-  if t then
+  -- The copy drapes over ruts and berms like an engine decal over deformed terrain, fading
+  -- with the disturbance (mean |surface - rest| of the quad's corners, roads.copyFade; the
+  -- largest one and 3 coarse levels drew hard stair-stepped edges along the berms):
+  -- a full copy hid the ruts, a cut (roads.copyCut > 0 leaves dug cells out) left plain
+  -- stair-stepped holes in the road pattern around every rut (user, 2026-11-06)
+  local cut = ctx.cfg.roads.copyCut or 0
+  local t = ctx.tiles[key]
+  local nf = #fadeLevels
+  if t and (cut > 0 or nf > 0) then
     local rest, dz = t.rest, ctx.decodeZ
     for k = 1, nq do
       local base = 4 * k - 4
-      local dug = false
+      local dsum, dug = 0, 0
       for c = 1, 4 do
         local g = rec.g[base + c]
-        local dd = rest[g] - dz(t, g)
-        if dd > cut or dd < -cut then dug = true; break end
+        local d = rest[g] - dz(t, g)
+        if d > dug then dug = d end
+        dsum = dsum + (d < 0 and -d or d)
       end
-      dugQ[k] = dug
+      local dmax = dsum * 0.25
+      local lv = 0
+      if cut > 0 and dug > cut then lv = -1
+      else
+        for i = nf, 1, -1 do
+          if dmax > fadeLevels[i][1] then lv = i; break end
+        end
+      end
+      lvQ[k] = lv
     end
+  else
+    t = nil
   end
   for k in pairs(subId) do subId[k] = nil end
   local nsid = 0
@@ -352,7 +382,7 @@ function M.emit(b, key, N)
     local mp = tileMap(key, e, N)
     local us, ds = mp.u, mp.d
     local il = 1 / e.texLen
-    local out = nil
+    for kk in pairs(outs) do outs[kk] = nil end
     for kk in pairs(vmap) do vmap[kk] = nil end
     for kk in pairs(pmap) do pmap[kk] = nil end
     for k = 1, nq do
@@ -360,19 +390,21 @@ function M.emit(b, key, N)
       local g1, g2, g3, g4 = rec.g[base + 1], rec.g[base + 2], rec.g[base + 3], rec.g[base + 4]
       local u1, u2, u3, u4 = us[g1], us[g2], us[g3], us[g4]
       local d1, d2, d3, d4 = ds[g1], ds[g2], ds[g3], ds[g4]
-      -- quick reject: dug, or the whole quad beside the strip or beyond an end
-      if not (t and dugQ[k]) and not ((u1 < 0 and u2 < 0 and u3 < 0 and u4 < 0) or (u1 > 1 and u2 > 1 and u3 > 1 and u4 > 1)
+      -- quick reject: cut, or the whole quad beside the strip or beyond an end
+      local lv = t and lvQ[k] or 0
+      if lv >= 0 and not ((u1 < 0 and u2 < 0 and u3 < 0 and u4 < 0) or (u1 > 1 and u2 > 1 and u3 > 1 and u4 > 1)
           or (d1 < 0 and d2 < 0 and d3 < 0 and d4 < 0)
           or (d1 > e.len and d2 > e.len and d3 > e.len and d4 > e.len)) then
-        if not out then out = b:sub(e.mat, 64) end
+        local out = outs[lv]
+        if not out then out = b:sub(e.mats[lv], 64); outs[lv] = out end
         local s = rec.s[k]
         local sid = subId[s]
         if not sid then nsid = nsid + 1; sid = nsid; subId[s] = sid end
         cU[1], cU[2], cU[3], cU[4] = u1, u2, u3, u4
         cD[1], cD[2], cD[3], cD[4] = d1, d2, d3, d4
         -- corners a=1 b=2 c=3 d=4; triangles (a, c, d) and (a, d, b) as the mud mesh
-        emitTri(out, e, il, rec, k, 1, 3, 4, sid)
-        emitTri(out, e, il, rec, k, 1, 4, 2, sid)
+        emitTri(out, e, il, rec, k, 1, 3, 4, sid, lv)
+        emitTri(out, e, il, rec, k, 1, 4, 2, sid, lv)
       end
     end
   end
@@ -391,6 +423,11 @@ function M.start(main)
   roads, byTile, cache = {}, {}, {}
   for k in pairs(stats) do stats[k] = 0 end
   enabled = true
+  fadeLevels = {}
+  for _, f in ipairs(main.cfg.roads.copyFade or {}) do
+    if type(f) == 'table' and tonumber(f[1]) and tonumber(f[2]) then fadeLevels[#fadeLevels + 1] = { tonumber(f[1]), tonumber(f[2]) } end
+  end
+  table.sort(fadeLevels, function(a, b) return a[1] < b[1] end)
   local P = main.private
   local t0 = hptimer and hptimer()
   for _, name in ipairs(scenetree.findClassObjects and scenetree.findClassObjects('DecalRoad') or {}) do
@@ -411,8 +448,16 @@ function M.start(main)
   table.sort(prios, function(a, b) return a > b end)
   local rankOf = {}
   for i, p in ipairs(prios) do rankOf[p] = i - 1 end
-  local base, step = R.copyLift or 0.008, R.copyLiftStep or 0.002
-  for _, e in ipairs(roads) do e.lift = base + rankOf[e.prio] * step + (e.idx % 3) * 0.0003 end
+  local base, step = R.copyLift or 0.008, R.copyLiftStep or 0
+  subRank = {}
+  for _, e in ipairs(roads) do
+    e.lift = base + rankOf[e.prio] * step
+    -- a material used at several priorities draws at its bottom-most one
+    local r = rankOf[e.prio]
+    for _, m in pairs(e.mats) do
+      if not subRank[m] or r < subRank[m] then subRank[m] = r end
+    end
+  end
   for _, list in pairs(byTile) do
     table.sort(list, function(a, b) if a.prio ~= b.prio then return a.prio > b.prio end return a.idx < b.idx end)
     stats.tiles = stats.tiles + 1
@@ -429,6 +474,8 @@ function M.stop()
 end
 
 function M.isEnabled() return enabled end
+-- draw rank of a copy submesh's material (nil: not a copy)
+function M.subRank(material) return enabled and subRank[material] or nil end
 function M.stats() return stats end
 function M.isMat(name)
   for _, n in pairs(matOf) do if n == name then return true end end
