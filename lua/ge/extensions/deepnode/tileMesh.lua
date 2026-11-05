@@ -1205,6 +1205,57 @@ function M.emitTerrainSquares(b, tx, ty, zOff)
   return count
 end
 
+-- Road copies of a tile live in their own pooled object (t.copy, a chunk like a tile), not
+-- in the tile mesh: present() skips an upload whose geometry did not change, and the
+-- copies (only on undisturbed cells, see roadCopy.emit) change far less often than the rut
+-- mesh under them. In the tile mesh they doubled every rut upload (gridmap_v2, 2 trucks:
+-- 282k copy vertices next to 288k mud vertices, copies changed in 82 % of builds). The
+-- engine likewise builds its decal road batches once and keeps them.
+-- While a truck digs a tile the copy still changes with nearly every build (each stamp
+-- disturbs new cells: 82 % of copy builds differed), but the fresh cells lie under the
+-- vehicle's own body for a while (8x8 Percheron at 12.5 m/s: ~0.6 s from the front axle to
+-- the tail). So a dug tile refreshes its copies at most every roads.copyEvery s and once
+-- more when it falls quiet (t.decalWait -> main's forced rebuild).
+local copyBuilder, copyOut, copyForce = nil, nil, false
+
+-- Show the copies of the tile just built (call right after present(t, meshes) succeeded)
+function M.presentCopies(t)
+  local out = copyOut
+  copyOut = nil
+  if out == nil then return end
+  local c = t.copy
+  if not c then
+    if #out == 0 then return end
+    c = { key = t.key, N = t.N }
+    t.copy = c
+  end
+  local every = ctx.cfg.roads.copyEvery or 0.5
+  local now = ctx.simTime()
+  if not copyForce and c.obj and every > 0 and c.shownT and now - c.shownT < every then
+    t.decalWait = c.shownT + every
+    return
+  end
+  c.shownT = now
+  M.present(c, out)
+end
+
+-- The tile gives up its copies. fm + sk: its sector takes them over like the tile mesh
+-- (shown until the sector's rebuild, which draws its own copies); otherwise released.
+function M.dropCopies(t, fm, sk)
+  local c = t.copy
+  if not c then return end
+  t.copy = nil
+  if c.obj then
+    if fm then fm.handover(sk, c.obj, -1 - t.key) else deferRelease(c.obj) end
+    c.obj = nil
+  end
+  M.dropSpare(c)
+end
+
+function M.hideCopies(t, hidden)
+  if t.copy and t.copy.obj then t.copy.obj:setHidden(hidden) end
+end
+
 -- Build the mesh of an active tile: pixels when untouched, full cells when rutted.
 local tileBuilder = nil
 function M.buildTile(t, rule, forceDecal)
@@ -1224,7 +1275,15 @@ function M.buildTile(t, rule, forceDecal)
   -- road copies (deepnode_roadCopy, roads.mode 'copy'): on every build, from the quads
   -- recorded above
   local rc = extensions and extensions.deepnode_roadCopy
-  if rc and rc.isEnabled() then rc.emit(tileBuilder, t.key, t.N) end
+  copyForce = forceDecal == true
+  if rc and rc.isEnabled() then
+    copyBuilder = copyBuilder or M.newBuilder()
+    copyBuilder:reset()
+    rc.emit(copyBuilder, t.key, t.N)
+    copyOut = copyBuilder:finish()
+  else
+    copyOut = {}
+  end
   local dec = extensions and extensions.deepnode_decals
   if dec then
     local quiet = ctx.cfg.roads.overlayQuiet or 1

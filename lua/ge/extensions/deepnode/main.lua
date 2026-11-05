@@ -139,6 +139,9 @@ local defaults = {
     -- 'copy': the engine's decals stay; the mud meshes around ruts carry copies of the roads
     -- over them (deepnode_roadCopy). 'overlay' = the older copies (deepnode_decals).
     mode = 'off',
+    -- s: a tile being dug refreshes its road copies at most this often (its fresh ruts lie
+    -- under the vehicle meanwhile) and once more when it falls quiet; 0 = every build
+    copyEvery = 0.5,
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; one copyLiftStep per renderPriority level
     copyLiftStep = 0.002,
@@ -2290,7 +2293,8 @@ function M.setDecalRoads(on)
     end
   end
   for _, t in pairs(tiles) do
-    if t.obj then t.dirty = true end
+    -- decalForce: a rebuild without visible mud change must still run (copies on / off)
+    if t.obj then t.dirty = true; t.decalForce = true end
   end
   local fm = P.mod('farMesh')
   if fm and fm.markAllDirty then fm.markAllDirty() end
@@ -3301,6 +3305,7 @@ function P.dropTile(t)
   local tm = P.mod('tileMesh')
   if t.obj then tm.deferRelease(t.obj); t.obj = nil end
   tm.dropSpare(t)
+  tm.dropCopies(t)
   tiles[t.key] = nil
   local ovc = P.overlayClear
   if ovc then ovc(t.x0, t.y0, t.x0 + TILE, t.y0 + TILE) end
@@ -4418,6 +4423,8 @@ function P.reactivate(t)
     if o then
       t.obj = o
       t.geoN = nil -- not the mesh tileMesh.present last saw for this tile: upload again
+      local co = fm.reclaim(sk, -1 - t.key)
+      if co then t.copy = { key = t.key, N = t.N, obj = co } end
       fm.markDirty(sk, true)
       -- neighbours' border rules follow whether this tile has its own mesh
       P.markNeighboursDirty(t)
@@ -4462,7 +4469,7 @@ function P.demote(t)
       t.decalWait = nil
       local tm = P.mod('tileMesh')
       local meshes = tm.buildTile(t, P.borderRule(t, false), true)
-      if meshes then tm.present(t, meshes) end
+      if meshes and tm.present(t, meshes) then tm.presentCopies(t) end
       o = t.obj
     end
     t.state = 'frozen'
@@ -4471,7 +4478,7 @@ function P.demote(t)
     P.frozenPerSector[sk] = (P.frozenPerSector[sk] or 0) + 1
     P.frozenOwnCount = P.frozenOwnCount + 1
     P.own[t.key] = t
-    if fm and fm.sectorState and fm.sectorState(sk) == 'hidden' then o:setHidden(true) end
+    if fm and fm.sectorState and fm.sectorState(sk) == 'hidden' then o:setHidden(true); P.mod('tileMesh').hideCopies(t, true) end
     if not t.dirty then P.mod('tileMesh').dropSpare(t) end
     P.changedTiles[t.key] = true
     return
@@ -4502,6 +4509,7 @@ function P.demote(t)
       P.mod('tileMesh').deferRelease(o)
     end
   end
+  P.mod('tileMesh').dropCopies(t, o and fm and not sectorHasIt and fm or nil, sk)
   -- an untouched tile without its own mesh was drawn by the sector all along
   if fm and (o or t.rutted) and not sectorHasIt then fm.markDirty(sk) end
   P.markNeighboursDirty(t)
@@ -4524,6 +4532,7 @@ function P.handoverFrozen(t)
   else
     P.mod('tileMesh').deferRelease(o)
   end
+  P.mod('tileMesh').dropCopies(t, fm, sk)
   P.markNeighboursDirty(t)
 end
 
@@ -4538,6 +4547,7 @@ function P.dropFrozenMesh(t)
   local tm = P.mod('tileMesh')
   tm.dropSpare(t)
   tm.deferRelease(o)
+  tm.dropCopies(t)
   P.markNeighboursDirty(t)
 end
 
@@ -4588,7 +4598,7 @@ function M.onSectorShown(sk, shown)
   for ty = sy * SEC, sy * SEC + SEC - 1 do
     for tx = sx * SEC, sx * SEC + SEC - 1 do
       local t = tiles[ty * KEY + tx]
-      if t and t.obj then t.obj:setHidden(not shown) end
+      if t and t.obj then t.obj:setHidden(not shown); P.mod('tileMesh').hideCopies(t, not shown) end
     end
   end
 end
@@ -4604,6 +4614,7 @@ function P.releaseFrozen(t)
     P.frozenOwnCount = P.frozenOwnCount - 1
   end
   P.mod('tileMesh').dropSpare(t)
+  P.mod('tileMesh').dropCopies(t)
   tiles[t.key] = nil
   P.frozenCount = P.frozenCount - 1
   if t.pre then P.prePinned = max(0, (P.prePinned or 1) - 1) end
@@ -6271,11 +6282,13 @@ P.rebuildList = {}
 function P.decalQuiet()
   P.decalCheckT = (P.decalCheckT or 0) + 1
   if P.decalCheckT % 6 ~= 0 then return end
+  -- road copies (mode 'copy', tileMesh.presentCopies) wait copyEvery s, overlays overlayQuiet s
+  local quiet = P.roadMode() == 'copy' and (cfg.roads.copyEvery or 0.5) or (cfg.roads.overlayQuiet or 1)
   for _, t in pairs(tiles) do
     local w = t.decalWait
     if w and simTime >= w and not t.dirty then
-      if t.lastStamp and t.lastStamp + (cfg.roads.overlayQuiet or 1) > simTime then
-        t.decalWait = t.lastStamp + (cfg.roads.overlayQuiet or 1)
+      if t.lastStamp and t.lastStamp + quiet > simTime then
+        t.decalWait = t.lastStamp + quiet
       else
         t.decalWait = nil
         t.decalForce = true -- not a visible rut change: must not be skipped as too small
@@ -6439,6 +6452,7 @@ function P.rebuildTiles()
         t.decalForce = nil
       end
       if meshes and tm.present(t, meshes) then
+        tm.presentCopies(t)
         if minVis > 0 and t.obj then P.snapshotShown(t) end
         -- rut lag readout: visible changes only, from when they were made (or came out
         -- from under the vehicle)
@@ -7163,7 +7177,7 @@ function P.stop(objectsAlive)
   if objectsAlive ~= false then P.coverRoads(false) else P.roadsHidden = {} end
   P.liftOn = false
   P.floorTiles = {}
-  for _, t in pairs(tiles) do t.obj = nil end
+  for _, t in pairs(tiles) do t.obj, t.copy = nil, nil end
   -- the preload mesh lives in the object group: delete it before the group goes
   if objectsAlive and P.preloadObj then P.preloadObj:delete() end
   P.preloadObj = nil

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- Decal road copies (`roads.mode` 'copy') moved out of the tile mesh into their own pooled
+  object per tile, like the engine keeps its decal road batches apart: a rut rebuild no longer
+  re-uploads them. A tile being dug refreshes its copies at most every `roads.copyEvery` s
+  (0.5; its fresh ruts lie under the truck meanwhile) and once more when it falls quiet.
+  Berms (mud pushed above the rest surface) get no copy any more, like ruts, so copies
+  change only when a cell is first disturbed. gridmap_v2, 2 Percherons, 2 runs: vertices
+  uploaded 513k -> 341k, createMesh calls 817 -> 1328 (smaller), estimated upload time -29 %;
+  fps run 2 66.9 -> 67.8 (noise level with 2 trucks).
+
 ### Fixed
 - Grass still blinked next to digging on big maps (hw550): region mode skipped the
   `physics.heavy.grassLowDraw` zone, and hw550's slow terrain updates (15-78 ms each) take the

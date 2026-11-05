@@ -324,9 +324,11 @@ function M.emit(b, key, N)
   local nq = rec.n
   if nq == 0 then return end
   local t0 = hptimer and hptimer()
-  -- dug cells are left out (roads.copyCut): a copy draped into the rut painted it with the
-  -- road pattern and the rut vanished behind a digging truck; the mud and the ground look
-  -- (wet churned ruts) show there instead, berms keep the road
+  -- disturbed cells are left out (roads.copyCut): a copy draped into the rut painted it with
+  -- the road pattern and the rut vanished behind a digging truck; the mud and the ground
+  -- look (wet churned ruts) show there instead. Berms (pushed-up mud) too: the copies then
+  -- only change when a cell is first disturbed, so most rut rebuilds leave the tile's copy
+  -- object as it is (tileMesh.presentCopies uploads nothing)
   local cut = ctx.cfg.roads.copyCut or 0.03
   local t = cut > 0 and ctx.tiles[key] or nil
   if t then
@@ -336,7 +338,8 @@ function M.emit(b, key, N)
       local dug = false
       for c = 1, 4 do
         local g = rec.g[base + c]
-        if rest[g] - dz(t, g) > cut then dug = true; break end
+        local dd = rest[g] - dz(t, g)
+        if dd > cut or dd < -cut then dug = true; break end
       end
       dugQ[k] = dug
     end
