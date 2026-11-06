@@ -15,9 +15,22 @@ They explain most design decisions; please extend this file when you measure som
 - No effect on that cost: `collisionType 'None'` (only a dynamic field), `hideInRenderView(63)`
   (reflection view), `ClusterShading.shadowMaxCasters = 0` (local-light shadows).
 - Engine memory grows per upload with the variety of submesh sizes: pad submeshes to a few size classes.
+- That memory is the physics collision (2026-11-07, 0.40.5, D3D12, decompiled + measured with
+  `user/lua/ge/extensions/dntestPM.lua`). The Lua `createMesh` (exe 0x1401a60b0) makes a new static
+  vertex buffer per submesh (44 B: position, normal, tangent, uv) and a 16-bit index buffer, keeps
+  a CPU copy, then calls the virtual `updatePhysicsCollision` (vtable +0x1b8): old PhysicsRep
+  deleted, a triangle mesh per submesh (ground model from the material, "asphalt" if none), a new
+  PhysicsRep, plus a 12 B position / 32-bit index copy for ray casts. Lua has only `createMesh`,
+  `updateMaterial`, `setMaterial`; no way to skip the collision. The static collision store keeps
+  every mesh it was handed (old sizes of an object, deleted objects; hidden objects too) until
+  `be:reloadCollision()`, which freed 97-100 % of it (380-510 ms). Same object, same size: ~0 kept;
+  one object x 40 sizes: 10-28 MB; deleted meshed object: 110-330 KB; created and deleted without
+  createMesh: 0. Engine flags seen in the exe (not tested): `-nogfxgpudriven`, `-nogfxgpuupload`,
+  `-nogfxbindless`, `-nogfxbindlesscbv`, `-nogfxindirectconstants`.
 - Malformed face tables (corners without `n`/`u`) crash the game in C++. Never test that live.
 - A submesh with more than 65535 face corners hangs the game (16-bit counter).
 - Collision of a ProceduralMesh only enters physics on `be:reloadCollision()` (~370 ms on gridmap_v2).
+  Hidden objects stay out of it.
 - A mesh uploaded into a hidden object and shown at once is not always drawn in the next frame:
   hiding the replaced object one frame later left some chunks undrawn for a frame (johnson_valley,
   forced sector rebuilds, 11 of ~200 rebuilds); two frames or more: none seen.

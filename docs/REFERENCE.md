@@ -406,42 +406,43 @@ createMesh plus shadow/reflection time, and engine memory per distinct mesh size
 
 ### Engine memory and mesh rebuilds
 
-Measured in game (0.39.4): every time a ProceduralMesh that has been drawn gets new geometry,
-the engine keeps some memory that is only given back when the game closes (not by a mod
-restart, a level reload or deleting the objects). Re-measured with four trucks digging
-(30 s A/B runs, process commit): ~50-80 KB per upload when each upload goes to a fresh
-object from the shared pool (`pool.mode = 'swap'`), ~13 KB or less when each chunk
-alternates between its own two objects (`'pair'`, default; same no-flicker swap). So the
-mod keeps mesh replaces low:
+Every `createMesh` also builds a physics triangle mesh for the object (engine
+`ProceduralMesh::updatePhysicsCollision`, decompiled from 0.40.5). The physics static
+collision store keeps every one it was handed, including the old sizes of an object and
+objects that were deleted, until the next `be:reloadCollision()`. Hidden objects keep it
+too: it is not GPU memory. Measured 2026-11-07 (gridmap_v2, D3D12): one object cycling 40
+mesh sizes keeps 10-28 MB, a deleted meshed object 110-330 KB; the same object re-uploaded
+at the same size keeps ~0.
 
-* a tile is only rebuilt when a vertex really changes; a wheel that stands still and does
-  not spin does not stamp;
-* untouched mud farther than `ring.ownMeshRadius` (3 m) from a vehicle's footprint or its
-  look-ahead boxes has no tile mesh of its own: the sector draws it. Closer tiles get their
-  mesh before the wheels arrive, so fresh ruts are never hidden under the sector;
-* fresh ruts are written at their settled depth (`stamp.instantSettle`); with it off they
-  settle for at most `stamp.relaxWindow` (0.3 s) after the last tyre contact, then snap;
-* tiles rebuild at most `ring.tileRebuildHz` (12) times per second, one sector at most once
-  per `sectors.minRebuildGap` (1 s), and left-behind ruts are drawn on a 40 cm grid
-  (`sectors.frozenCellStride`);
-* `ring.maxMeshBuildsPerSec` (40, "Chunk rebuilds per second" in the GUI) caps all tile
-  and sector replaces per second; the nearest tiles go first, the rest wait;
-* rut tiles nobody dug or drove near for `reset.idleSeconds` (60 s) are released.
+**Collision compaction** gives it back: the mod hides its meshes, calls
+`be:reloadCollision()` and shows them again in the same frame (so the mud stays out of the
+physics world). One compaction freed 97-100 % of the kept memory (52 MB after two 8-truck
+bench runs, 3 GB after a long session) and costs one 380-510 ms hitch on gridmap_v2 (it
+rebuilds the whole level's collision). It runs where the hitch does not show or is
+expected:
 
-Four trucks digging non-stop at 40 replaces per second: well under 1 MB per second of
-process memory with 'pair' (2-2.5 MB/s with 'swap'). Idling costs nothing. The Debug tab
-shows the growth since the mod started and per upload.
+* while the game is paused (menus), once the process grew `memory.compactMinMB` (50 MB)
+  since the last one;
+* after a vehicle reset, same minimum;
+* when the player vehicle is below `memory.compactStopSpeed` (1 m/s) and the process grew
+  `memory.compactMB` (1000 MB). `memory.compactMB = 0` turns all three off.
 
-**This memory cannot be freed while the game runs.** Measured in game: a full Lua GC freed
-24 MB of Lua heap and deleting 93 hidden pooled mesh objects freed their meshes, and the
-process commit did not change at all; the engine and the Lua allocator keep freed memory
-for their own reuse until the game closes. BeamNG sandboxes the FFI (`ffi.load` denied, no
-new `ffi.cdef`), so a mod cannot call the Windows working-set functions either. The only
-lever is to upload less (the limits above, 'pair' mode). "Lua cleanup" in the Debug tab
-(console `deepnode_main.flushMemory()`) runs a full Lua GC in the game engine and every
-vehicle VM and drops the mod's caches (hidden tyre meshes, landed lumps, debug outlines);
-it keeps the Lua heap from swelling but does not shrink the process. `memory.gcStepKB`
-adds a small Lua GC step every frame.
+Console: `deepnode_main.compactCollision()`, `deepnode_main.lastCompaction()` (reason, ms,
+MB freed; the log has the same line).
+
+Uploads still cost frame time, so the mod keeps them to real changes: a tile only rebuilds
+when a vertex really changes, tiles rebuild at most `ring.tileRebuildHz` times per second
+(`ring.farRebuildHz` far from the camera), and `ring.maxMeshBuildsPerSec` caps all tile and
+sector replaces per second (nearest first). The upload governor (`perf.*`) keeps createMesh
+inside the frame budget.
+
+The Lua heap is separate: LuaJIT keeps freed heap pages committed, so the process does not
+shrink after a Lua GC. "Lua cleanup" in the Debug tab (console `deepnode_main.flushMemory()`)
+runs a full Lua GC in the game engine and every vehicle VM and drops the mod's caches
+(hidden tyre meshes, landed lumps, debug outlines); it keeps the Lua heap from swelling.
+`memory.gcStepKB` adds a small Lua GC step every frame. When measuring engine memory, keep
+test tables alive: process commit minus `collectgarbage('count')` rises when Lua frees tables
+and fakes an engine leak.
 * A submesh never holds more than 60 000 triangle corners: the engine counts corners with a
   16-bit number and hangs forever above 65 535.
 
@@ -645,9 +646,10 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `borderRebuildGap` | 5 | A tile whose only change is a neighbour's mesh waits this long |
 | `minVisibleChange` | 0.006 | A tile re-upload whose largest height change against the mesh on screen is below this (m) is skipped (data keeps the change) |
 | `inViewTarget` / `outViewTarget` | 0.3 / 1.5 | Target latency (s) of a waiting rebuild in / out of the camera view: the queue serves the earliest deadline first after fresh rut fronts |
-| `outViewMaxDefer` | 4 | Deepening of a meshed tile out of view waits until it comes into view, at most this long (s) |
+| `outViewMaxDefer` | 4 | Deepening of a meshed tile out of view waits until it comes into view, at most this long (s; config.json 1) |
+| `deepenFast` | true | Ruts deepened in view by the axles behind (within `digNearDist`) take the fresh-front fast path instead of the shared budget |
 | `ownMeshRadius` | 3 | Untouched tiles this close to a footprint box get their own mesh ahead of the wheels |
-| `maxMeshBuildsPerSec` | 40 | Tile + sector mesh replaces per second at most (caps engine memory growth) |
+| `maxMeshBuildsPerSec` | 40 | Tile + sector mesh replaces per second at most (config.json 400; the kept collision memory is returned by collision compaction) |
 | `farLod` | 3 | Vehicles without an active ring report at 1/farLod rate |
 | `meshBuildBurst` | 24 | Replaces that may happen at once after a quiet moment |
 | `maxTileBuildsPerFrame` | 2 | Tile mesh rebuilds per frame at most (one costs up to ~3 ms in game) |
@@ -850,6 +852,9 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `pool.decalMinCorners` | 96 | Smallest size class of decal overlay submeshes (doubling classes from here) |
 | `pool.mode` | pair | 'pair': each chunk alternates between two objects of its own (no flicker, least engine memory); 'swap': a fresh pooled object per upload |
 | `memory.gcStepKB` | 0 | >0: a Lua GC step of this size every frame (GUI: Steady GC) |
+| `memory.compactMB` | 1000 | Collision compaction when the player vehicle is nearly stopped and the process grew this many MB since the last one; 0 = compaction off |
+| `memory.compactMinMB` | 50 | Growth that triggers a compaction while paused or after a vehicle reset |
+| `memory.compactStopSpeed` | 1 | m/s: "nearly stopped" for `compactMB` |
 | `gui.openOnStart` | true | Open the window when the mod starts |
 | `gui.indicator` | true | Status light while the window is closed or folded (green on, red off, amber spinner while region mode loads) |
 | `debug.chunks` | false | Chunk border overlay (GUI checkbox; kept over mod restarts) |

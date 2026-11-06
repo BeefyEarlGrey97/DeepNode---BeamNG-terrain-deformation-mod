@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- Collision compaction (`memory.compactMB` 1000, `compactMinMB` 50, `compactStopSpeed` 1): every
+  createMesh also builds a physics collision mesh, and the engine keeps every one until
+  `be:reloadCollision()` (decompiled 0.40.5 + measured: the "never freed" engine memory). The mod
+  hides its meshes, reloads collision and shows them in one frame while the game is paused, after
+  a vehicle reset (once the process grew 50 MB), or when the player vehicle is nearly stopped
+  after 1000 MB. One compaction freed 226-251 MB of test meshes, 52 MB after two 8-truck runs, in
+  375-511 ms. Console `deepnode_main.compactCollision()` / `lastCompaction()`.
+- `ring.deepenFast` (default on): ruts deepened in view by the axles behind take the fresh-front
+  fast path; in-view deepening lag 0.60 -> 0.003 s per upload, near rut lag 0.205 -> 0.16 s, same
+  fps (8 trucks, gridmap_v2).
 - Status light (`gui.indicator`, default on): while the DeepNode window is closed or folded a
   small box stays on screen, green dot when the mod runs, red when stopped, an amber spinner
   with "Loading terrain" while region mode loads the next area on a big map. Drag to move,
@@ -16,6 +26,13 @@
   the 2.5 cm press depth. GPU cost not measured.
 
 ### Changed
+- Faster rut updates (config.json): `ring.tileRebuildHz` 40 -> 60, `maxMeshBuildsPerSec` 120 ->
+  400 (no longer a memory cap), `farRebuildHz` 10 -> 20, `deepenRebuildHz` 8 -> 20,
+  `smallChangeWait` 0.1 -> 0.05, `digEvery` 2 -> 1, `freshWindow` 0.25 -> 0.5, `digNearDist`
+  40 -> 70, `outViewMaxDefer` 4 -> 1, `perf.uploadEvery` 2 -> 1, `uploadMsMin` 2 -> 4,
+  `report.rateHz` 20 -> 40, `physics.heavy.floorHz` 5 -> 20. 8 trucks: 54-55 fps (old 55-60 in
+  the same session), worst near rut lag 4.0 -> 1.5-2.4 s. GUI ranges raised (tile rate 90 Hz, far
+  30 Hz, uploads 600/s).
 - Window in BeamNG's own UI look (options menu, toasts): dark translucent panels, rows a tone
   lighter, orange selected tab, orange Start/Stop button, orange ticked boxes with a white tick
   (drawn over: the game's ImGui fills ticked boxes blue whatever the style), plain

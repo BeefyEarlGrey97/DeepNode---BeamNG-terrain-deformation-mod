@@ -93,9 +93,9 @@
     "prepBudgetMs": 2,
     "maxPreparePerUpdate": 8,
     "meshBudgetMs": 2,
-    "tileRebuildHz": 40,
+    "tileRebuildHz": 60,
     "maxTileBuildsPerFrame": 2,
-    "maxMeshBuildsPerSec": 120,
+    "maxMeshBuildsPerSec": 400,
     "ownMeshRadius": -1,
     "meshBuildBurst": 24,
     "maxVehicles": 8,
@@ -108,17 +108,18 @@
     "farLod": 3,
     "camNearDist": 50,
     "camFarDist": 90,
-    "farRebuildHz": 10,
+    "farRebuildHz": 20,
     "frozenOwnMeshRadius": 70,
     "frozenOwnMeshMax": 200,
     "lodNearDist": 40,
     "bodyMaxWait": 1.5,
-    "smallChangeWait": 0.1,
-    "digNearDist": 40,
+    "smallChangeWait": 0.05,
+    "digNearDist": 70,
     "digMaxPerFrame": 16,
-    "digEvery": 2,
-    "deepenRebuildHz": 8,
-    "freshWindow": 0.25,
+    "digEvery": 1,
+    "deepenRebuildHz": 20,
+"outViewMaxDefer": 1,
+    "freshWindow": 0.5,
     "meshRange": 70
   },
   "sectors": {
@@ -173,7 +174,7 @@
     "bermCrumbleMax": 0.12
   },
   "report": {
-    "rateHz": 20,
+    "rateHz": 40,
     "maxBodyNodes": 48,
     "waterHz": 5,
     "boxHz": 10,
@@ -334,9 +335,9 @@
   "perf": {
     "targetFps": 70,
     "uploadMsStart": 3,
-    "uploadMsMin": 2,
+    "uploadMsMin": 4,
     "uploadMsMax": 6,
-    "uploadEvery": 2
+    "uploadEvery": 1
   },
   "render": {
     "disableSSS": true
@@ -388,7 +389,7 @@
       },
       "floorReach": 0.3,
       "floorMargin": 0.03,
-      "floorHz": 5,
+      "floorHz": 20,
       "floorMaxVerts": 600,
       "raiseClear": 8,
       "rutGuide": {

@@ -477,7 +477,7 @@ M.tierOfForTests = function(sec, d, near) return tierOf(sec, d, near) end
 local function pickNext()
   local best, bestScore, bestTier = nil, huge, nil
   -- A built sector waits minRebuildGap before its next rebuild, so changes batch into
-  -- one build (every mesh replace costs engine memory that is never given back; the
+  -- one build (every mesh replace costs frame time and collision memory; the
   -- tile meshes stay visible until the sector catches up).
   local now = os.clock()
   local gap = ctx.cfg.sectors.minRebuildGap or 0

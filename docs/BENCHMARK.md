@@ -397,3 +397,25 @@ close-up). 55-60 fps not reached; see OPEN_ISSUES 23.
 Stripped bench (section 13), 2 runs each, run 2: heavy 117.2 fps (low1 102.0), vanilla physics
 122.1 (107.4), mod off 107.6 (97.2). Mod off draws the level's 238 stacked decal roads over the
 pits again (the mod hides them on soft ground with `roads.mode` 'off'), hence slower.
+
+## 17. Collision compaction and fast rut updates, 8 trucks (2026-11-07, test)
+
+gridmap_v2, 8 Percherons, heavy physics, `bench2.py <label> 2 clear`, run 2 shown, variants
+interleaved, rates set live. Lag = rut lag near (avg / max s), front = fresh front from the carve
+(mostly under the truck body).
+
+| variant | fps | low1 | lag | front |
+|---|---|---|---|---|
+| A: old rates (tile 40 Hz, cap 120, far 10, deepen 8, uploadEvery 2), x3 | 55.5 / 59.9 / 56.4 | 42.7 / 49.0 / 46.0 | 0.29-0.34 / 2.8-4.0 | 0.26-0.32 |
+| B: tile 60 Hz, cap 400, far 20, deepen 20, smallWait 0.05, uploadEvery 1, x2 | 55.4 / 57.7 | 41.5 / 39.1 | 0.19-0.37 / 3.3-4.0 | 0.28-0.31 |
+| C: B + uploadMsMin 4, x3 | 53.3 / 54.6 / 54.4 | 41.5 / 42.8 / 42.7 | 0.20-0.28 / 3.2-3.8 | 0.23-0.29 |
+| D: C + digEvery 1, freshWindow 0.5, digNearDist 70, outViewMaxDefer 1, report 40 Hz, x3 | 52.8 / 51.2 / 53.4 | 38.0 / 33.4 / 37.7 | 0.21-0.25 / 2.5-3.3 | 0.22-0.27 |
+| E: D + deepenFast, x2 | 55.0 / 54.3 | 37.6 / 36.5 | 0.16-0.17 / 1.5-2.1 | 0.25-0.26 |
+| E from the saved config (after reload) | 54.2 | 36.4 | 0.20 / 2.3 | 0.29 |
+| E + floorHz 20 (terrain updates 390-501 vs 163 per bench), x2 | 46.6 / 58.2 | 31.9 / 44.1 | 0.14-0.24 / 1.5-2.4 | 0.20-0.36 |
+
+Lag by class (one run, E): in-view fresh fronts 0.000 s, in-view deepening 0.003 s (D: 0.163 /
+0.602 s); the rest is out of view or under the body. The 4.0 s maximum of A-C was
+`outViewMaxDefer`. fps drifts ~4 between repeats of one variant in this session. No collision
+compaction ran during these benches (growth per reset < 50 MB).
+

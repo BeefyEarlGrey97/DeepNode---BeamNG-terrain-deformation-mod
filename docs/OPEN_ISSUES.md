@@ -50,10 +50,16 @@ truck body for 3 s gives 64-66 fps but ruts then lag under the wheels in a side 
 deferred up to `outViewMaxDefer`): worst near rut lag 1.5-3.9 s -> 0.8-1.0 s with 4 trucks. Not
 re-measured with 8 trucks.
 
-Fresh rut fronts in view rebuild at 30–40 Hz outside the governor; ruts deepened by the axles
-behind rebuild at `ring.deepenRebuildHz` (8) inside the upload budget and can wait up to ~4 s with
-8 trucks. Letting in-view deepening bypass the budget dropped fps to 40–45 (reverted). Knobs:
-`perf.uploadMsMin`, `ring.deepenRebuildHz`, `ring.digEvery`.
+2026-11-07 (8 trucks, gridmap_v2): in-view deepening (axles behind) waited 0.60 s on average
+behind the fresh fronts in the shared budget. `ring.deepenFast` (default on) gives it the fresh-front
+fast path: in-view lag fresh 0.000 s / deepening 0.003 s per upload, near lag 0.157-0.174 s (was
+0.205), same fps (54-55 vs 53.4, interleaved). The earlier attempt that cost 40-45 fps ran without
+'pair' mode and the body wait. What is left in the near-lag figure is out-of-view tiles
+(`outViewMaxDefer` 1 s) and tiles still under a slow truck body (`bodyMaxWait`). Not measured: the
+time from a carve to its terrain floor write on screen (`physics.heavy.floorHz`, now 20).
+
+Idle: 8 parked Percherons on the pits still made ~27 tile uploads per second (2026-11-07), not
+looked at.
 
 ## 3. ≥ 40 Hz rut updates for every visible wheel
 

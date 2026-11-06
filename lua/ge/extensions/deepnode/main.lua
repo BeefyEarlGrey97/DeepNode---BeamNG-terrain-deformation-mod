@@ -219,11 +219,9 @@ local defaults = {
     meshBudgetMs = 2.0,     -- per frame, tile mesh rebuilds
     tileRebuildHz = 5,      -- one tile rebuilds at most this often (7-truck test: 6 Hz cost 4 fps, same rut lag)
     maxTileBuildsPerFrame = 2, -- in game one rebuild costs up to ~3 ms (mesh upload); 3 per frame peaked at 9.7 ms
-    -- Hard cap on mesh replaces per second (tiles + sectors). The engine keeps ~25-150 KB
-    -- per replace of a drawn ProceduralMesh until the game closes (measured; not freed by
-    -- mod restart or level reload), so this caps the leak rate. Nearest tiles go first;
-    -- the rest wait. Measured need while digging hard: about 14 per second; 35 leaves
-    -- room for several vehicles digging at once.
+    -- Hard cap on mesh replaces per second (tiles + sectors). Nearest tiles go first; the
+    -- rest wait. The physics collision the engine keeps per upload is returned by the
+    -- collision compaction (memory.compactMB), so the frame budget is the real limit.
     maxMeshBuildsPerSec = 33,
     -- m from a vehicle's footprint box or its first look-ahead box: untouched tiles this
     -- close get their own mesh ahead of the wheels. Further look-ahead boxes only prepare
@@ -548,6 +546,14 @@ local defaults = {
   },
   memory = {
     gcStepKB = 0,           -- >0: one incremental Lua GC step of this size per frame (steadier heap)
+    -- Collision compaction (P.compactCollision): the engine keeps the physics collision of
+    -- every mesh upload until be:reloadCollision(). One reload (380-510 ms hitch on
+    -- gridmap_v2) runs while the game is paused, after a vehicle reset, or when the player
+    -- vehicle is below compactStopSpeed m/s, once the process grew this many MB since the
+    -- last one (pause / reset: compactMinMB). 0 = off.
+    compactMB = 1000,
+    compactMinMB = 50,
+    compactStopSpeed = 1,
   },
   debug = {
     chunks = false,         -- draw chunk borders (GUI checkbox)
@@ -4855,9 +4861,8 @@ local function writeOne(tx, ty, i, j, z, tr)
   end
   local idx = j * (N + 1) + i
   local c = encodeZ(t, idx, z)
-  -- nothing changed: no rebuild. Every mesh replace costs engine memory that is never
-  -- given back (measured ~25 KB per replace of a drawn ProceduralMesh), so rebuilds are
-  -- kept to real changes only.
+  -- nothing changed: no rebuild (every upload costs frame time and collision memory kept
+  -- until the next collision compaction).
   local old = t.rut[idx]
   local settle = cfg.stamp.instantSettle
   if settle then
@@ -6431,9 +6436,13 @@ function P.rebuildTiles()
   -- together (2 at 60-80 fps = 30-40 Hz).
   local digEvery = max(1, floor(cfg.ring.digEvery or 1))
   if digEvery > 1 and (tm.frame() % digEvery) ~= 0 then digMax = 0 end
+  -- ruts deepened in view by the axles behind take the fast path too (ring.deepenFast):
+  -- through the shared budget they waited 0.6 s on average behind the fresh fronts
+  -- (8 trucks, gridmap_v2, 2026-11-07), which read as ruts lagging the truck
+  local deepenFast = cfg.ring.deepenFast ~= false
   for k = 1, n do
     local t = P.rebuildList[k]
-    local dig = t.digNow and t.prio <= digR2
+    local dig = t.digNow and t.prio <= digR2 or deepenFast and t.seenDeepen
     if dig then
       if digDone >= digMax then break end
     elseif done >= cfg.ring.maxTileBuildsPerFrame or (done > 0 and timer:stop() > cfg.ring.meshBudgetMs) then
@@ -6896,12 +6905,8 @@ end
 --  * hidden tyre meshes, landed lumps, cached ground sources and the mod's per-level
 --    caches (debug outlines, surface samples) are dropped.
 -- Ruts, mud coats and everything visible stay. One hitch of ~0.1 s.
--- What this does NOT do: shrink the game process. Measured in game: neither a full GC
--- (24 MB of Lua heap freed) nor deleting 93 hidden pooled mesh objects changed the
--- process commit at all; the engine and the Lua allocator keep freed memory for reuse
--- until the game restarts, and the FFI sandbox blocks the Windows trim calls. The way to
--- keep the process small is to upload less: pool.mode 'pair' (~13 KB kept per upload
--- against ~80 KB with 'swap').
+-- What this does NOT do: shrink the game process. LuaJIT keeps freed heap pages, and the
+-- engine keeps mesh collision until be:reloadCollision() (P.compactCollision does that).
 function M.flushMemory(why)
   local t0 = newTimer()
   local luaBefore = collectgarbage('count')
@@ -6933,6 +6938,53 @@ function M.flushMemory(why)
   return r
 end
 function M.lastFlush() return P.lastFlush end
+
+-- Collision compaction. Every createMesh also builds a physics triangle mesh (engine
+-- ProceduralMesh::updatePhysicsCollision, decompiled 0.40.5), and the physics static
+-- collision store keeps every one it was handed (old sizes of an object, deleted objects)
+-- until the next be:reloadCollision(). Measured 2026-11-07, gridmap_v2: hidden objects
+-- keep it too (not GPU memory); one reload with the mud hidden freed 97-100 % of it (52 MB
+-- after two 8-truck bench runs, 3 GB after a long session) in 380-510 ms. The mud is
+-- hidden for the reload so it stays out of the physics world (same as P.finishDrape).
+function P.compactCollision(why)
+  local t0 = newTimer()
+  local mud = P.mudObjects()
+  for _, o in ipairs(mud) do o:setHidden(true) end
+  pcall(function() be:reloadCollision() end)
+  for _, o in ipairs(mud) do o:setHidden(false) end
+  local C = P.compact
+  C.n = (C.n or 0) + 1
+  C.before, C.check, C.why, C.ms = P.perf.commitMB, 3, why, t0:stop()
+end
+
+function P.updateCompaction(dtReal)
+  local mc, C, c = cfg.memory, P.compact, P.perf.commitMB
+  if not C or not c or (mc.compactMB or 0) <= 0 or P.drape then return end
+  if C.check then
+    -- the store is freed over the next frames: log and re-arm once it settled
+    C.check = C.check - dtReal
+    if C.check > 0 then return end
+    C.check, C.base, C.last = nil, c, { why = C.why, ms = C.ms, freedMB = C.before - c }
+    log('I', logTag, sfmt('collision compaction (%s): %.0f ms, process %.0f MB freed', C.why, C.ms, C.before - c))
+    return
+  end
+  C.base = C.base or c
+  local grown = c - C.base
+  local paused = simTimeAuthority and simTimeAuthority.getPause and simTimeAuthority.getPause()
+  local why = nil
+  if C.reset then
+    C.reset = nil
+    if grown >= (mc.compactMinMB or 50) then why = 'reset' end
+  elseif paused then
+    if grown >= (mc.compactMinMB or 50) then why = 'pause' end
+  elseif grown >= mc.compactMB then
+    local v = getPlayerVehicle(0)
+    if v and v:getVelocity():length() < (mc.compactStopSpeed or 1) then why = 'stopped' end
+  end
+  if why then P.compactCollision(why) end
+end
+function M.compactCollision() P.compactCollision('manual') end
+function M.lastCompaction() return P.compact and P.compact.last end
 
 -- Optional steady GC help (memory.gcStepKB > 0): one small incremental GC step per frame
 -- keeps the GE Lua heap from swelling between full collections.
@@ -6979,7 +7031,7 @@ function M.vehicleStats()
 end
 
 function M.setMeshBuildsPerSec(n)
-  if isFinite(n) then cfg.ring.maxMeshBuildsPerSec = clamp(floor(n + 0.5), 5, 120) end
+  if isFinite(n) then cfg.ring.maxMeshBuildsPerSec = clamp(floor(n + 0.5), 5, 600) end
   return cfg.ring.maxMeshBuildsPerSec
 end
 
@@ -7071,6 +7123,7 @@ function P.start()
   P.frozenCount, P.activeCount, P.frozenOwnCount = 0, 0, 0
   P.dbgCache = {}
   P.startCommitMB = nil -- process growth is measured from here (debug tab)
+  P.compact = {}
   P.loadZones()
   -- sector size from the map's meshed soft ground (zones included), before the sink pass
   if cfg.sectors.autoSize then SEC = P.autoSectorTiles(SEC); M.sec = SEC end
@@ -7465,6 +7518,7 @@ function P.onUpdate(dtReal, dtSim, dtRaw)
     P.stats.maxFrameAge = 0
   end
   P.samplePerf(dtReal)
+  P.updateCompaction(dtReal or 0)
 end
 
 function P.onPreRender(dtReal, dtSim)
@@ -7497,6 +7551,7 @@ function P.onVehicleResetted(vid)
   P.configureVehicle(vid)
   local wm = P.mod('wheelMud')
   if wm then wm.onVehicleReset(vid) end
+  if P.compact then P.compact.reset = true end
 end
 
 function P.onVehicleDestroyed(vid)
