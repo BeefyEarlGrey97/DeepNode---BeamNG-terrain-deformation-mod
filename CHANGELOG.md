@@ -9,10 +9,20 @@
   double-click to open the window. Kept inside the game window (`SetNextWindowViewport`).
 
 ### Changed
-- Window polish: one dark theme (neutral surfaces, green accent on checks and sliders,
-  rounded frames), a status row with the same light on the Run tab, Start/Stop as a filled
-  green/red button, buttons in two equal columns, Run options grouped under Ground look /
-  Physics / Deformable ground / Display, shorter labels ("Experimental ..." -> "... (beta)").
+- Window in BeamNG's own UI look (options menu, toasts): dark translucent panels, rows a tone
+  lighter, orange selected tab, orange Start/Stop button, orange ticked boxes with a white tick
+  (drawn over: the game's ImGui fills ticked boxes blue whatever the style), plain
+  left-aligned headings; the status light box has the toast's orange left edge. A status row
+  with the same light on the Run tab, buttons in two equal columns, Run options grouped under
+  Ground look / Physics / Deformable ground / Display, shorter labels ("Experimental ..." ->
+  "... (beta)").
+- Region mode (big maps) only above 8 x 8 km: `region.autoAboveKm2` 16 -> 68, so 8 km maps
+  (hw550, 8192 m = 67.1 km2) stay whole with no region reloads. hw550 whole: start 4.3-4.6 s
+  (sink pass 3.0 s, once), terrain arrays 148 MB; in region mode it started in 1.4-1.6 s.
+- Region 1000 -> 2000 m (`region.size`), recentred every 500 m instead of 250 (`shiftAt`).
+  hw550 forced into region mode: each recentre 188-208 ms (terrain update 174-192 ms), was
+  85-88 ms at 1000 m; half as many recentres, each about 2.3x longer.
+- Region mode warns about the stutter: a game toast at start and a line on the Run tab.
 
 ### Fixed
 - Dark slivers along mud mesh edges (15-40 m away) after switching to a lower graphics

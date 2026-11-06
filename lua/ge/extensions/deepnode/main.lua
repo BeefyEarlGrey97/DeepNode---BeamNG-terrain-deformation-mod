@@ -99,9 +99,10 @@ local defaults = {
   -- centre: the overlap keeps its ruts, the rest is rebuilt in one go (one terrain update).
   region = {
     enabled = 'auto',       -- true, false, or 'auto': on for terrains over autoAboveKm2
-    autoAboveKm2 = 16,      -- 4 km x 4 km; gridmap_v2 (4 km2), Johnson Valley (9.4) stay whole
-    size = 1000,            -- m: side of the region (1 km2)
-    shiftAt = 250,          -- m off the region centre (either axis) that moves it
+    -- over 8 km x 8 km: 8 km maps (hw550 8192 m = 67.1 km2) stay whole, no region reloads
+    autoAboveKm2 = 68,
+    size = 2000,            -- m: side of the region (4 km2)
+    shiftAt = 500,          -- m off the region centre (either axis) that moves it
     checkEvery = 0.5,       -- s between checks
     loadBudgetMs = 4,       -- ms per frame for loading the next region (layer map, distance field)
     -- terrains with squares over maxSquare m (huge_desert: 64 m) get a virtual grid of
@@ -2728,7 +2729,14 @@ function P.initTerrain()
   P.stats.orientation = P.orientation
   if P.reg.on then
     log('I', logTag, sfmt('region mode: %.0f km2 terrain, region %d x %d squares (%.0f m) around %.0f, %.0f, recentred %.0f m off centre',
-      (ter.worldSize / 1000) ^ 2, regW, regY1 - regY0 + 1, regW * ter.sq, fx, fy, cfg.region.shiftAt or 250))
+      (ter.worldSize / 1000) ^ 2, regW, regY1 - regY0 + 1, regW * ter.sq, fx, fy, cfg.region.shiftAt or 500))
+    -- each recentre rebuilds part of the mud in one frame: tell the player once per start
+    if guihooks then
+      guihooks.trigger('toastrMsg', { type = 'warning', title = 'DeepNode: big map mode',
+        msg = sfmt('This map is over 8 x 8 km, so the mud follows you in a %.0f m area. '
+          .. 'Expect a short stutter each time it moves (every %.0f m driven).', cfg.region.size or 2000, cfg.region.shiftAt or 500),
+        config = { timeOut = 10000 } })
+    end
   end
   return true
 end
@@ -2761,7 +2769,7 @@ end
 function P.regionBox(fx, fy)
   local S = ter.size
   if not (P.reg and P.reg.on) then return 0, 0, S - 1, S - 1 end
-  local half = max(8, ceil((tonumber(cfg.region.size) or 1000) * 0.5 / ter.sq))
+  local half = max(8, ceil((tonumber(cfg.region.size) or 2000) * 0.5 / ter.sq))
   local gx = floor((fx - ter.ox) / ter.sq + 0.5)
   local gy = floor((fy - ter.oy) / ter.sq + 0.5)
   gx = clamp(gx, 0, S - 1)
@@ -3544,7 +3552,7 @@ function P.updateRegion(dtReal)
     local fx, fy = P.regionFocus()
     local gx, gy = (fx - ter.ox) / ter.sq, (fy - ter.oy) / ter.sq
     local outside = gx < regX0 or gx > regX1 or gy < regY0 or gy > regY1
-    if not outside and max(abs(fx - r.cx), abs(fy - r.cy)) <= (tonumber(cfg.region.shiftAt) or 250) then return end
+    if not outside and max(abs(fx - r.cx), abs(fy - r.cy)) <= (tonumber(cfg.region.shiftAt) or 500) then return end
     local x0, y0, x1, y1 = P.regionBox(fx, fy)
     if x0 == regX0 and y0 == regY0 and x1 == regX1 and y1 == regY1 then r.cx, r.cy = fx, fy; return end
     r.fx, r.fy = fx, fy
@@ -3564,6 +3572,7 @@ end
 M.shiftRegionForTests = function(x, y) return P.shiftRegion(x, y) end
 -- region mode is loading the next area (GUI status light)
 function M.regionLoading() return P.reg ~= nil and P.reg.co ~= nil end
+function M.regionMode() return P.reg ~= nil and P.reg.on == true end
 
 -------------------------------------------------------------------------------
 -- materials

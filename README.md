@@ -24,7 +24,7 @@ learned by reading the Dynamic Scratch mod; none of its code, shaders or texture
 - Heavy physics: customized physic for deeper ground models and a terrain rut floor affect how tyres behave (its very subtle)
 - Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
 - Experimental screen-space ground look (after MudRunner): universal tyre prints, wet churned mud, crumbs on the berms, water pooled in the rut hollows, wet trenches, mud splats from spinning wheels, mud carried onto hard ground, grass / dirt tracks, wet tracks that dry, wet glossy tyres, all drawn by GPU post effects (no mesh uploads), on by default (GUI **Experimental tread prints**)
-- Big maps (BeamNG.earth, hw550): the mod works in a 1 km2 region around the player that moves with them (`region`)
+- Big maps over 8 x 8 km (BeamNG.earth, huge_desert): the mod works in a 2 km x 2 km region around the player that moves with them, with a short stutter at each move (`region`); 8 km maps like hw550 stay whole
 - Simple UI with live settings and performance stats
   
 ## Benchmarks included

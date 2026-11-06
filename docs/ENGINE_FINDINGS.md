@@ -338,3 +338,9 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   the PostFx state. Its contact shadows draw dark slivers 15-40 m away at mesh edges a few mm
   above the terrain. `$pref::Terrain::lodScale` (set it with `VariableRegistry.set`) did not
   open visible seams between mud meshes and terrain (1.5 vs 0.001, same shot).
+- BeamNG's ImGui build fills a ticked `Checkbox` blue whatever the style colours (probed every
+  `Col_*` slot the Lua binding exposes). Draw over it (`GetItemRectMin`, `GetFrameHeight`) for
+  another look. ImGui windows hide with `toggle_ui {"show":false}` too. A new ImGui window can get
+  its own OS window (viewport) unless `SetNextWindowViewport(GetMainViewport().ID)` is set.
+- hw550 region recentre cost vs region size: 1000 m 85-88 ms, 2000 m 188-208 ms, mostly
+  `tb:updateGrid` (76-79 ms vs 174-192 ms).

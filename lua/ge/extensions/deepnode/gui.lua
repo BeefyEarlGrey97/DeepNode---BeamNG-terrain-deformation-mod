@@ -108,32 +108,39 @@ local function ensure()
     -- status light: on / off / loading
     on = im.ImVec4(0.33, 0.78, 0.47, 1), off = im.ImVec4(0.88, 0.32, 0.29, 1), load = im.ImVec4(0.96, 0.72, 0.26, 1),
   }
-  -- one quiet dark theme: neutral surfaces a tone step apart, green accent on the
-  -- active controls only
+  -- BeamNG's own UI look (options menu, toasts): dark translucent panels, rows a tone
+  -- lighter, white text, orange accent on the selected tab, checks, sliders and the main
+  -- button; headings are plain left-aligned text
   local function v4(r, g, b, a) return im.ImVec4(r, g, b, a or 1) end
+  local orange, orangeHi = v4(1, 0.4, 0), v4(1, 0.5, 0.15)
+  col.accent = orange
   THEME = {
-    { im.Col_WindowBg, v4(0.105, 0.11, 0.115, 0.97) }, { im.Col_PopupBg, v4(0.13, 0.135, 0.14, 0.98) },
-    { im.Col_TitleBg, v4(0.085, 0.09, 0.095) }, { im.Col_TitleBgActive, v4(0.13, 0.135, 0.14) },
-    { im.Col_Text, v4(0.93, 0.93, 0.92) }, { im.Col_TextDisabled, v4(0.5, 0.5, 0.5) },
-    { im.Col_Border, v4(0.2, 0.21, 0.22, 0.6) }, { im.Col_Separator, v4(0.24, 0.25, 0.26) },
-    { im.Col_FrameBg, v4(0.17, 0.175, 0.185) }, { im.Col_FrameBgHovered, v4(0.22, 0.23, 0.24) },
-    { im.Col_Button, v4(0.19, 0.2, 0.21) }, { im.Col_ButtonHovered, v4(0.25, 0.26, 0.275) },
-    { im.Col_ButtonActive, v4(0.3, 0.315, 0.33) },
-    { im.Col_Tab, v4(0.14, 0.145, 0.15) }, { im.Col_TabHovered, v4(0.25, 0.26, 0.275) },
-    { im.Col_TabActive, v4(0.21, 0.22, 0.23) }, { im.Col_TabUnfocusedActive, v4(0.18, 0.185, 0.195) },
-    { im.Col_CheckMark, col.on }, { im.Col_SliderGrab, v4(0.33, 0.7, 0.45) },
-    { im.Col_SliderGrabActive, col.on }, { im.Col_PlotLines, v4(0.55, 0.75, 0.62) },
+    { im.Col_WindowBg, v4(0.09, 0.09, 0.09, 0.9) }, { im.Col_PopupBg, v4(0.12, 0.12, 0.12, 0.96) },
+    { im.Col_TitleBg, v4(0.06, 0.06, 0.06, 0.95) }, { im.Col_TitleBgActive, v4(0.06, 0.06, 0.06, 0.95) },
+    { im.Col_TitleBgCollapsed, v4(0.06, 0.06, 0.06, 0.9) },
+    { im.Col_Text, v4(1, 1, 1) }, { im.Col_TextDisabled, v4(0.55, 0.55, 0.55) },
+    { im.Col_Border, v4(0, 0, 0, 0) }, { im.Col_Separator, v4(0.25, 0.25, 0.25) },
+    { im.Col_FrameBg, v4(0.2, 0.2, 0.2, 0.85) }, { im.Col_FrameBgHovered, v4(0.27, 0.27, 0.27, 0.9) },
+    { im.Col_FrameBgActive, v4(0.32, 0.32, 0.32, 0.9) },
+    { im.Col_Button, v4(0.2, 0.2, 0.2, 0.85) }, { im.Col_ButtonHovered, v4(0.28, 0.28, 0.28, 0.9) },
+    { im.Col_ButtonActive, v4(0.34, 0.34, 0.34, 0.95) },
+    { im.Col_Tab, v4(0.17, 0.17, 0.17, 0.9) }, { im.Col_TabHovered, orangeHi },
+    { im.Col_TabActive, orange }, { im.Col_TabUnfocusedActive, orange },
+    { im.Col_CheckMark, orange }, { im.Col_SliderGrab, orange }, { im.Col_SliderGrabActive, orangeHi },
+    { im.Col_ScrollbarGrab, v4(0.3, 0.3, 0.3) }, { im.Col_PlotLines, orange },
   }
   THEME_VARS = {
-    { im.StyleVar_WindowPadding, im.ImVec2(12, 10) }, { im.StyleVar_FramePadding, im.ImVec2(8, 4) },
+    { im.StyleVar_WindowPadding, im.ImVec2(12, 10) }, { im.StyleVar_FramePadding, im.ImVec2(8, 5) },
     { im.StyleVar_ItemSpacing, im.ImVec2(8, 6) },
-    { im.StyleVar_WindowRounding, 6 }, { im.StyleVar_FrameRounding, 4 }, { im.StyleVar_GrabRounding, 4 },
-    { im.StyleVar_TabRounding, 4 }, { im.StyleVar_PopupRounding, 4 },
+    { im.StyleVar_WindowRounding, 3 }, { im.StyleVar_FrameRounding, 3 }, { im.StyleVar_GrabRounding, 2 },
+    { im.StyleVar_TabRounding, 3 }, { im.StyleVar_PopupRounding, 3 }, { im.StyleVar_WindowBorderSize, 0 },
+    { im.StyleVar_SeparatorTextBorderSize, 0 }, { im.StyleVar_SeparatorTextAlign, im.ImVec2(0, 0.5) },
+    { im.StyleVar_SeparatorTextPadding, im.ImVec2(0, 4) },
   }
   BTN = {
-    start = { v4(0.2, 0.5, 0.3), v4(0.24, 0.58, 0.35), v4(0.28, 0.64, 0.39) },
-    stop = { v4(0.52, 0.2, 0.19), v4(0.6, 0.24, 0.22), v4(0.66, 0.28, 0.25) },
-    pend = { v4(0.62, 0.42, 0.12), v4(0.7, 0.48, 0.15), v4(0.76, 0.53, 0.18) },
+    start = { orange, orangeHi, v4(1, 0.58, 0.25) },
+    stop = { orange, orangeHi, v4(1, 0.58, 0.25) },
+    pend = { orange, orangeHi, v4(1, 0.58, 0.25) },
   }
   return true
 end
@@ -156,6 +163,23 @@ local function tintButton(kind, label, size)
   im.PushStyleColor2(im.Col_ButtonActive, c[3])
   local hit = im.Button(label, size)
   im.PopStyleColor(3)
+  return hit
+end
+
+-- Checkbox in BeamNG's look: a ticked box is orange with a white tick (the game's ImGui
+-- build fills it blue whatever the style colours, so it is drawn over).
+local function check(label, p)
+  local hit = im.Checkbox(label, p)
+  if p[0] then
+    local a = im.GetItemRectMin()
+    local s = im.GetFrameHeight()
+    local dl = im.GetWindowDrawList()
+    im.ImDrawList_AddRectFilled(dl, a, im.ImVec2(a.x + s, a.y + s), im.GetColorU322(col.accent), 3, 0)
+    im.ImDrawList_PathLineTo(dl, im.ImVec2(a.x + s * 0.25, a.y + s * 0.52))
+    im.ImDrawList_PathLineTo(dl, im.ImVec2(a.x + s * 0.43, a.y + s * 0.7))
+    im.ImDrawList_PathLineTo(dl, im.ImVec2(a.x + s * 0.76, a.y + s * 0.32))
+    im.ImDrawList_PathStroke(dl, im.GetColorU322(col.box), 0, 2.2)
+  end
   return hit
 end
 
@@ -380,6 +404,12 @@ local function tabRun(m)
     ctext('dim', 'Stopped')
   end
   if st.err and st.err ~= '' then im.PushTextWrapPos(0); ctext('bad', st.err); im.PopTextWrapPos() end
+  if running and m.regionMode and m.regionMode() then
+    im.PushTextWrapPos(0)
+    ctext('warn', 'Big map mode (over 8 x 8 km): the mud follows you and reloads as you drive. '
+      .. 'Expect a short stutter each time.')
+    im.PopTextWrapPos()
+  end
   im.Spacing()
   -- two equal columns of buttons across the window
   local half = im.ImVec2(math.max(80, (im.GetContentRegionAvail().x - 8) * 0.5), 0)
@@ -394,7 +424,7 @@ local function tabRun(m)
   -- dug); on/off live, off by default
   ptr.decals = ptr.decals or im.BoolPtr(false)
   ptr.decals[0] = m.decalRoadsOn and m.decalRoadsOn() or false
-  if im.Checkbox('Decal roads on mud (beta)', ptr.decals) then
+  if check('Decal roads on mud (beta)', ptr.decals) then
     m.setDecalRoads(ptr.decals[0])
     changed()
   end
@@ -407,7 +437,7 @@ local function tabRun(m)
   ptr.preRut = ptr.preRut or im.BoolPtr(false)
   local rcfg = m.cfg and m.cfg.roads or {}
   ptr.preRut[0] = rcfg.preRut == true
-  if im.Checkbox('Pre-rutted roads (beta)', ptr.preRut) then
+  if check('Pre-rutted roads (beta)', ptr.preRut) then
     rcfg.preRut = ptr.preRut[0]
     st.preRutPending = ptr.preRut[0] ~= (m.preRutActive and m.preRutActive() or false)
     changed()
@@ -424,7 +454,7 @@ local function tabRun(m)
   -- experimental: tread prints + wet darkening drawn on the GPU over the ruts (deepnode_overlay)
   ptr.rutOverlay = ptr.rutOverlay or im.BoolPtr(true)
   ptr.rutOverlay[0] = m.rutOverlayOn and m.rutOverlayOn() or false
-  if im.Checkbox('Tread prints (beta)', ptr.rutOverlay) then
+  if check('Tread prints (beta)', ptr.rutOverlay) then
     m.setRutOverlay(ptr.rutOverlay[0])
     changed()
   end
@@ -433,7 +463,7 @@ local function tabRun(m)
       'mud carried onto hard ground and wet glossy tyres (screen-space shaders, no mesh uploads).\n' ..
       'Prints follow the camera within 128 m.\nOff: mesh ruts only.')
   end
-  if im.Checkbox('Tyre mud', ptr['clods.enabled']) then m.setClodsEnabled(ptr['clods.enabled'][0]); changed() end
+  if check('Tyre mud', ptr['clods.enabled']) then m.setClodsEnabled(ptr['clods.enabled'][0]); changed() end
   im.SeparatorText('Physics')
   local full = im.ImVec2(-1, 0)
   -- physics option (deepnode_physics): restarts the mod; the terrain under the mud changes,
@@ -472,7 +502,7 @@ local function tabRun(m)
     im.SeparatorText('Deformable ground')
     for _, r in ipairs(st.matRows) do
       local p = ptr['mat_' .. r.label]
-      if im.Checkbox(r.label, p) then
+      if check(r.label, p) then
         r.on = p[0]
         st.matPending = m.setMaterialTick(r.label, p[0])
       end
@@ -482,7 +512,7 @@ local function tabRun(m)
     if st.matPending then ctext('warn', 'Changes apply on Restart') end
   end
   im.SeparatorText('Display')
-  if im.Checkbox('Status light when this window is closed', ptr['gui.indicator']) then
+  if check('Status light when this window is closed', ptr['gui.indicator']) then
     setv(m.cfg, 'gui.indicator', ptr['gui.indicator'][0]); changed()
   end
   if im.IsItemHovered() then
@@ -490,14 +520,14 @@ local function tabRun(m)
       'green running, red stopped, amber spinner while a big map loads the next area.\n' ..
       'Drag it to move it, double-click it to open this window.')
   end
-  if im.Checkbox('Screen-space shadows off', ptr['render.disableSSS']) then
+  if check('Screen-space shadows off', ptr['render.disableSSS']) then
     m.setScreenSpaceShadowsOff(ptr['render.disableSSS'][0]); changed()
   end
   if im.IsItemHovered() then
     im.SetTooltip('On (default): no dark slivers along the mud edges and no shadow flashes\n' ..
       'while meshes rebuild. Restored when the mod stops.')
   end
-  if im.Checkbox('Chunk outline', ptr.chunks) then m.setDebugChunks(ptr.chunks[0]) end
+  if check('Chunk outline', ptr.chunks) then m.setDebugChunks(ptr.chunks[0]) end
 end
 
 local function tabConfig(m)
@@ -562,10 +592,10 @@ local function tabDebug(m)
   end
   if im.Button('Lua cleanup', im.ImVec2(100, 0)) then m.flushMemory('button'); st.t = -1 end
   im.SeparatorText('Outline')
-  if im.Checkbox('On', ptr.chunks) then m.setDebugChunks(ptr.chunks[0]) end
+  if check('On', ptr.chunks) then m.setDebugChunks(ptr.chunks[0]) end
   for _, p in ipairs({ { 'debug.tiles', 'Tiles' }, { 'debug.sectors', 'Sectors' }, { 'debug.boxes', 'Boxes' } }) do
     im.SameLine()
-    if im.Checkbox(p[2], ptr[p[1]]) then setv(m.cfg, p[1], ptr[p[1]][0]); changed() end
+    if check(p[2], ptr[p[1]]) then setv(m.cfg, p[1], ptr[p[1]][0]); changed() end
   end
   im.PushItemWidth(170)
   if im.SliderFloat('Radius', ptr['debug.drawRadius'], 20, 250, '%.0f m') then
@@ -632,6 +662,10 @@ local function indicator(m)
   im.SetNextWindowViewport(vp.ID)
   pushTheme()
   if im.Begin('DeepNode light', nil, IND_FLAGS) then
+    -- orange edge on the left, like BeamNG's own toasts
+    local wp, ws = im.GetWindowPos(), im.GetWindowSize()
+    im.ImDrawList_AddRectFilled(im.GetWindowDrawList(), wp, im.ImVec2(wp.x + 4, wp.y + ws.y),
+      im.GetColorU322(col.accent), 0, 0)
     local ls = lightState(m)
     light(ls)
     im.TextUnformatted('DeepNode')

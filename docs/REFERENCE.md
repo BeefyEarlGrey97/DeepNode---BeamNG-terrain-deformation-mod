@@ -540,9 +540,9 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | 'auto' | true, false, or 'auto' (on for terrains over `autoAboveKm2`) |
-| `autoAboveKm2` | 16 | Terrain area above which 'auto' turns region mode on (gridmap_v2 4, johnson_valley 9.4 stay whole; hw550 67 uses regions) |
-| `size` | 1000 | Side of the region in m (1 km2) |
-| `shiftAt` | 250 | Distance (either axis) of the player from the region centre that recentres it; also when the player is outside it |
+| `autoAboveKm2` | 68 | Terrain area above which 'auto' turns region mode on (over 8 x 8 km: gridmap_v2 4, johnson_valley 9.4, hw550 67.1 stay whole) |
+| `size` | 2000 | Side of the region in m (4 km2) |
+| `shiftAt` | 500 | Distance (either axis) of the player from the region centre that recentres it; also when the player is outside it |
 | `checkEvery` | 0.5 | Seconds between checks |
 | `loadBudgetMs` | 4 | ms per frame for loading the next region's layer map and distance field (the switch itself runs in one frame) |
 | `maxSquare` | 2 | Terrains with squares over this many m get a virtual grid (huge_desert: 64 m) |
