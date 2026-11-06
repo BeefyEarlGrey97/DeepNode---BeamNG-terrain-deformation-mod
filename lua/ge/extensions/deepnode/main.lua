@@ -254,6 +254,12 @@ local defaults = {
     -- 47.5 -> 52 fps, low1 35.5 -> 40; ruts still show right behind the rear wheels)
     bodyMaxWait = 1.5,
     bodyHideMargin = 0.5,   -- m added round the vehicle box for that test
+    -- Hz: a fresh rut front in view under the body skips that wait and rebuilds at most
+    -- this often (the ground between the wheels shows from the side) within bodyFreshDist m
+    -- of the camera. 8 trucks, gridmap_v2: rut front 0.29 -> 0.075 s behind the wheel,
+    -- uploads 2000 -> 4100 per bench, 52 -> 46 fps (no distance limit: 39-43 fps); 0 = wait
+    bodyFreshHz = 20,
+    bodyFreshDist = 20,
     bigChange = 0.02,       -- m: a rut change this big rebuilds at tileRebuildHz ...
     smallChangeWait = 0.4,  -- s: ... smaller ones (axles behind deepening it) wait this long
     -- Depth ladder, first rung: a re-upload whose largest change against the mesh on
@@ -6347,6 +6353,8 @@ function P.rebuildTiles()
   local meshR2 = (meshR + TILE) * (meshR + TILE)
   local settleGap = 1 / max(0.5, cfg.ring.settleRebuildHz or 2)
   local bodyWait = cfg.ring.bodyMaxWait or 1.5
+  local bodyFreshGap = (cfg.ring.bodyFreshHz or 0) > 0 and 1 / cfg.ring.bodyFreshHz or nil
+  local bodyFreshDist = cfg.ring.bodyFreshDist or 20
   local smallWait = cfg.ring.smallChangeWait or 0.4
   local borderGap = cfg.ring.borderRebuildGap or 1
   -- rut code steps (2.7 mm each for a 0.35 m deep mud) that count as a visible change
@@ -6394,7 +6402,11 @@ function P.rebuildTiles()
         if t.obj and not t.bigChange and t.pendSince and simTime - t.pendSince < smallWait then
           wait = true
         elseif t.ndsq and t.ndsq > 0 and t.obj and P.dirtyHidden(t) then
-          wait = simTime - (t.pendSince or simTime) < bodyWait
+          -- a fresh front in view is not hidden: the ground between the wheels shows from
+          -- a side or chase camera (the front axle lies inside the box, so the rut showed
+          -- only once it came out at mid truck); it rebuilds at bodyFreshHz instead
+          if t.digNow and bodyFreshGap and dc <= bodyFreshDist then gap = max(gap, bodyFreshGap)
+          else wait = simTime - (t.pendSince or simTime) < bodyWait end
         elseif t.pendSince and not t.visSince then
           t.visSince = simTime
         end

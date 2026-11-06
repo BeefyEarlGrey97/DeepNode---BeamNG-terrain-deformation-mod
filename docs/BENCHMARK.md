@@ -419,3 +419,20 @@ Lag by class (one run, E): in-view fresh fronts 0.000 s, in-view deepening 0.003
 `outViewMaxDefer`. fps drifts ~4 between repeats of one variant in this session. No collision
 compaction ran during these benches (growth per reset < 50 MB).
 
+### 17b. Fresh front under the truck body (bodyFreshHz, same session)
+
+Same bench, settings E, run 2, uploads per bench (2 runs).
+
+| bodyFreshHz / dist | fps | low1 | front lag | uploads |
+|---|---|---|---|---|
+| 0 (hold, x3) | 49.2 / 52.7 / 52.3 | 32.0 / 37.5 / 35.3 | 0.20-0.35 | 1882-2206 |
+| 20, no limit (x2) | 38.9 / 43.2 | 25.9 / 21.1 | 0.057 | 5227-5994 |
+| 30, no limit | 33.0 | 16.0 | 0.047 | 8052 |
+| 20, 30 m (x2) | 41.0 / 39.3 | 26.4 / 26.0 | 0.062-0.064 | 4727-5260 |
+| 20, 20 m (kept) | 46.2 | 26.9 | 0.075 | 4096 |
+| 10, 20 m | 46.9 | 32.0 | 0.091 | 3219 |
+
+A tile stays under an 8x8 body ~1 s, so a fresh front at 20 Hz is ~20 uploads per tile per
+truck instead of 2-3; the cost is per upload (engine first-draw), not per vertex. One more 10 Hz
+run read 87.7 fps / mod 0.44 ms (camera off the pits): discarded.
+

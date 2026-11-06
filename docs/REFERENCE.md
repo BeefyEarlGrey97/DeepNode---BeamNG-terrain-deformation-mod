@@ -647,6 +647,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `minVisibleChange` | 0.006 | A tile re-upload whose largest height change against the mesh on screen is below this (m) is skipped (data keeps the change) |
 | `inViewTarget` / `outViewTarget` | 0.3 / 1.5 | Target latency (s) of a waiting rebuild in / out of the camera view: the queue serves the earliest deadline first after fresh rut fronts |
 | `outViewMaxDefer` | 4 | Deepening of a meshed tile out of view waits until it comes into view, at most this long (s; config.json 1) |
+| `bodyFreshHz` / `bodyFreshDist` | 20 / 20 | A fresh rut front in view under the vehicle body (front axle inside the footprint box) skips `bodyMaxWait` and rebuilds at this rate within this many m of the camera; 0 Hz = wait |
 | `deepenFast` | true | Ruts deepened in view by the axles behind (within `digNearDist`) take the fresh-front fast path instead of the shared budget |
 | `ownMeshRadius` | 3 | Untouched tiles this close to a footprint box get their own mesh ahead of the wheels |
 | `maxMeshBuildsPerSec` | 40 | Tile + sector mesh replaces per second at most (config.json 400; the kept collision memory is returned by collision compaction) |

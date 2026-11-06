@@ -58,6 +58,11 @@ fast path: in-view lag fresh 0.000 s / deepening 0.003 s per upload, near lag 0.
 (`outViewMaxDefer` 1 s) and tiles still under a slow truck body (`bodyMaxWait`). Not measured: the
 time from a carve to its terrain floor write on screen (`physics.heavy.floorHz`, now 20).
 
+Fresh front under the body: `ring.bodyFreshHz` 20 / `bodyFreshDist` 20 m (2026-11-07) shows
+the rut right behind the front wheel (front lag 0.075 s) at -6 fps with 8 trucks; trucks farther
+than 20 m from the camera still hold until mid truck. Cheaper per-upload cost would let the
+distance grow (see 1).
+
 Idle: 8 parked Percherons on the pits still made ~27 tile uploads per second (2026-11-07), not
 looked at.
 

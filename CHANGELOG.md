@@ -10,6 +10,9 @@
   a vehicle reset (once the process grew 50 MB), or when the player vehicle is nearly stopped
   after 1000 MB. One compaction freed 226-251 MB of test meshes, 52 MB after two 8-truck runs, in
   375-511 ms. Console `deepnode_main.compactCollision()` / `lastCompaction()`.
+- `ring.bodyFreshHz` 20 / `bodyFreshDist` 20 m: the fresh rut behind the front wheel no longer
+  waits under the truck body (it showed only from mid truck); it rebuilds at 20 Hz within 20 m of
+  the camera. 8 trucks: front lag 0.29 -> 0.075 s, uploads 2000 -> 4100 per bench, 52 -> 46 fps.
 - `ring.deepenFast` (default on): ruts deepened in view by the axles behind take the fresh-front
   fast path; in-view deepening lag 0.60 -> 0.003 s per upload, near rut lag 0.205 -> 0.16 s, same
   fps (8 trucks, gridmap_v2).
