@@ -3562,6 +3562,8 @@ function P.updateRegion(dtReal)
   if not okS then P.regionFail(err) end
 end
 M.shiftRegionForTests = function(x, y) return P.shiftRegion(x, y) end
+-- region mode is loading the next area (GUI status light)
+function M.regionLoading() return P.reg ~= nil and P.reg.co ~= nil end
 
 -------------------------------------------------------------------------------
 -- materials

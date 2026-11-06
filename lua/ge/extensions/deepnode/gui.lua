@@ -56,7 +56,7 @@ local SLIDERS = {
 }
 -- other values the GUI owns and saves
 local EXTRA = { 'clods.enabled', 'render.disableSSS', 'debug.tiles', 'debug.sectors', 'debug.boxes', 'debug.drawRadius',
-  'clods.kinds' }
+  'clods.kinds', 'gui.indicator' }
 local KIND_COLORS = { { 'mud', 'Mud colour' }, { 'sand', 'Sand colour' }, { 'snow', 'Snow colour' } }
 
 local st = {
@@ -66,6 +66,7 @@ local st = {
 }
 local ptr = {}           -- path -> FloatPtr / IntPtr / BoolPtr
 local col = nil
+local THEME, THEME_VARS, BTN = nil, nil, nil
 
 local function main() return extensions and extensions.deepnode_main end
 
@@ -104,8 +105,83 @@ local function ensure()
     own = im.ImVec4(0.25, 0.55, 1, 1), sec = im.ImVec4(0.55, 0.72, 1, 1), frozen = im.ImVec4(1, 0.25, 0.2, 1),
     near = im.ImVec4(0, 0.9, 0.9, 1), far = im.ImVec4(1, 0.6, 0.15, 1), build = im.ImVec4(1, 0.95, 0.2, 1),
     box = im.ImVec4(1, 1, 1, 1),
+    -- status light: on / off / loading
+    on = im.ImVec4(0.33, 0.78, 0.47, 1), off = im.ImVec4(0.88, 0.32, 0.29, 1), load = im.ImVec4(0.96, 0.72, 0.26, 1),
+  }
+  -- one quiet dark theme: neutral surfaces a tone step apart, green accent on the
+  -- active controls only
+  local function v4(r, g, b, a) return im.ImVec4(r, g, b, a or 1) end
+  THEME = {
+    { im.Col_WindowBg, v4(0.105, 0.11, 0.115, 0.97) }, { im.Col_PopupBg, v4(0.13, 0.135, 0.14, 0.98) },
+    { im.Col_TitleBg, v4(0.085, 0.09, 0.095) }, { im.Col_TitleBgActive, v4(0.13, 0.135, 0.14) },
+    { im.Col_Text, v4(0.93, 0.93, 0.92) }, { im.Col_TextDisabled, v4(0.5, 0.5, 0.5) },
+    { im.Col_Border, v4(0.2, 0.21, 0.22, 0.6) }, { im.Col_Separator, v4(0.24, 0.25, 0.26) },
+    { im.Col_FrameBg, v4(0.17, 0.175, 0.185) }, { im.Col_FrameBgHovered, v4(0.22, 0.23, 0.24) },
+    { im.Col_Button, v4(0.19, 0.2, 0.21) }, { im.Col_ButtonHovered, v4(0.25, 0.26, 0.275) },
+    { im.Col_ButtonActive, v4(0.3, 0.315, 0.33) },
+    { im.Col_Tab, v4(0.14, 0.145, 0.15) }, { im.Col_TabHovered, v4(0.25, 0.26, 0.275) },
+    { im.Col_TabActive, v4(0.21, 0.22, 0.23) }, { im.Col_TabUnfocusedActive, v4(0.18, 0.185, 0.195) },
+    { im.Col_CheckMark, col.on }, { im.Col_SliderGrab, v4(0.33, 0.7, 0.45) },
+    { im.Col_SliderGrabActive, col.on }, { im.Col_PlotLines, v4(0.55, 0.75, 0.62) },
+  }
+  THEME_VARS = {
+    { im.StyleVar_WindowPadding, im.ImVec2(12, 10) }, { im.StyleVar_FramePadding, im.ImVec2(8, 4) },
+    { im.StyleVar_ItemSpacing, im.ImVec2(8, 6) },
+    { im.StyleVar_WindowRounding, 6 }, { im.StyleVar_FrameRounding, 4 }, { im.StyleVar_GrabRounding, 4 },
+    { im.StyleVar_TabRounding, 4 }, { im.StyleVar_PopupRounding, 4 },
+  }
+  BTN = {
+    start = { v4(0.2, 0.5, 0.3), v4(0.24, 0.58, 0.35), v4(0.28, 0.64, 0.39) },
+    stop = { v4(0.52, 0.2, 0.19), v4(0.6, 0.24, 0.22), v4(0.66, 0.28, 0.25) },
+    pend = { v4(0.62, 0.42, 0.12), v4(0.7, 0.48, 0.15), v4(0.76, 0.53, 0.18) },
   }
   return true
+end
+
+local function pushTheme()
+  for _, c in ipairs(THEME) do im.PushStyleColor2(c[1], c[2]) end
+  for _, v in ipairs(THEME_VARS) do
+    if type(v[2]) == 'number' then im.PushStyleVar1(v[1], v[2]) else im.PushStyleVar2(v[1], v[2]) end
+  end
+end
+local function popTheme()
+  im.PopStyleVar(#THEME_VARS)
+  im.PopStyleColor(#THEME)
+end
+
+-- filled button colours (start / stop / pending restart); returns what Button returns
+local function tintButton(kind, label, size)
+  local c = BTN[kind]
+  im.PushStyleColor2(im.Col_Button, c[1]); im.PushStyleColor2(im.Col_ButtonHovered, c[2])
+  im.PushStyleColor2(im.Col_ButtonActive, c[3])
+  local hit = im.Button(label, size)
+  im.PopStyleColor(3)
+  return hit
+end
+
+-- Mod state for the light: 'load' (region mode streaming the next area), 'on', 'off'.
+local function lightState(m)
+  if not m.isRunning() then return 'off' end
+  if m.regionLoading and m.regionLoading() then return 'load' end
+  return 'on'
+end
+
+-- The light as one text-height item: a filled dot, or a turning arc while loading.
+local function light(state)
+  local h = im.GetTextLineHeight()
+  local p = im.GetCursorScreenPos()
+  im.Dummy(im.ImVec2(h, h))
+  local dl = im.GetWindowDrawList()
+  local c = im.ImVec2(p.x + h * 0.5, p.y + h * 0.5)
+  local u = im.GetColorU322(col[state])
+  if state == 'load' then
+    local a = im.GetTime() * 6
+    im.ImDrawList_PathArcTo(dl, c, h * 0.36, a, a + 4.4, 18)
+    im.ImDrawList_PathStroke(dl, u, 0, 2.2)
+  else
+    im.ImDrawList_AddCircleFilled(dl, c, h * 0.34, u, 20)
+  end
+  im.SameLine()
 end
 
 function M.open() if ensure() then open[0] = true; st.t = -1 end end
@@ -244,7 +320,7 @@ local function refresh(m)
   st.histN = st.histN + 1
   st.err = s.lastError or ''
   st.runCol = msCol(modMs, 2, 5)
-  st.runLine = sfmt('RUNNING   %.0f fps   mod %.2f ms', pf.fps or 0, modMs)
+  st.runLine = sfmt('%.0f fps    mod %.2f ms', pf.fps or 0, modMs)
   st.zoneLabel = sfmt('Clear zones (%d)###clr', m.zoneCount())
   -- deformable ground rows (deepnode_materials via main); ticks live in main, per session
   st.matRows = m.materialRows and m.materialRows() or nil
@@ -292,24 +368,33 @@ end
 -------------------------------------------------------------------------------
 local function tabRun(m)
   local running = m.isRunning()
-  if running then
-    ctext(st.runCol or 'ok', st.runLine or 'RUNNING')
+  -- status row: the light, the state in words, the live numbers
+  local ls = lightState(m)
+  light(ls)
+  if ls == 'load' then
+    ctext('load', 'Loading terrain')
+  elseif running then
+    im.TextUnformatted('Running')
+    im.SameLine(); ctext(st.runCol == 'ok' and 'dim' or st.runCol or 'dim', st.runLine or '')
   else
-    ctext('warn', 'STOPPED')
+    ctext('dim', 'Stopped')
   end
-  if st.err and st.err ~= '' then ctext('bad', st.err) end
-  im.Separator()
-  if im.Button(running and 'Stop' or 'Start', im.ImVec2(90, 0)) then flush(m); m.toggle(); st.t = -1 end
+  if st.err and st.err ~= '' then im.PushTextWrapPos(0); ctext('bad', st.err); im.PopTextWrapPos() end
+  im.Spacing()
+  -- two equal columns of buttons across the window
+  local half = im.ImVec2(math.max(80, (im.GetContentRegionAvail().x - 8) * 0.5), 0)
+  if tintButton(running and 'stop' or 'start', running and 'Stop' or 'Start', half) then flush(m); m.toggle(); st.t = -1 end
   im.SameLine()
-  if im.Button('Restart', im.ImVec2(90, 0)) then flush(m); m.reloadLevelData(); st.t = -1; st.preRutPending = nil end
-  if im.Button('Smooth ruts', im.ImVec2(90, 0)) then m.clearRuts() end
+  if im.Button('Restart', half) then flush(m); m.reloadLevelData(); st.t = -1; st.preRutPending = nil end
+  if im.Button('Smooth ruts', half) then m.clearRuts() end
   im.SameLine()
-  if im.Button('Wash tyres', im.ImVec2(90, 0)) then m.cleanWheels() end
+  if im.Button('Wash tyres', half) then m.cleanWheels() end
+  im.SeparatorText('Ground look')
   -- experimental: decal roads drawn on the mud (molded into it, left out where tyres
   -- dug); on/off live, off by default
   ptr.decals = ptr.decals or im.BoolPtr(false)
   ptr.decals[0] = m.decalRoadsOn and m.decalRoadsOn() or false
-  if im.Checkbox('Experimental decal road', ptr.decals) then
+  if im.Checkbox('Decal roads on mud (beta)', ptr.decals) then
     m.setDecalRoads(ptr.decals[0])
     changed()
   end
@@ -322,7 +407,7 @@ local function tabRun(m)
   ptr.preRut = ptr.preRut or im.BoolPtr(false)
   local rcfg = m.cfg and m.cfg.roads or {}
   ptr.preRut[0] = rcfg.preRut == true
-  if im.Checkbox('Experimental pre-rutted roads', ptr.preRut) then
+  if im.Checkbox('Pre-rutted roads (beta)', ptr.preRut) then
     rcfg.preRut = ptr.preRut[0]
     st.preRutPending = ptr.preRut[0] ~= (m.preRutActive and m.preRutActive() or false)
     changed()
@@ -339,7 +424,7 @@ local function tabRun(m)
   -- experimental: tread prints + wet darkening drawn on the GPU over the ruts (deepnode_overlay)
   ptr.rutOverlay = ptr.rutOverlay or im.BoolPtr(true)
   ptr.rutOverlay[0] = m.rutOverlayOn and m.rutOverlayOn() or false
-  if im.Checkbox('Experimental tread prints', ptr.rutOverlay) then
+  if im.Checkbox('Tread prints (beta)', ptr.rutOverlay) then
     m.setRutOverlay(ptr.rutOverlay[0])
     changed()
   end
@@ -348,12 +433,15 @@ local function tabRun(m)
       'mud carried onto hard ground and wet glossy tyres (screen-space shaders, no mesh uploads).\n' ..
       'Prints follow the camera within 128 m.\nOff: mesh ruts only.')
   end
+  if im.Checkbox('Tyre mud', ptr['clods.enabled']) then m.setClodsEnabled(ptr['clods.enabled'][0]); changed() end
+  im.SeparatorText('Physics')
+  local full = im.ImVec2(-1, 0)
   -- physics option (deepnode_physics): restarts the mod; the terrain under the mud changes,
   -- so switch with no vehicle sunk in it
   local ph = extensions and extensions.deepnode_physics
   if ph then
     local heavy = ph.mode() == 'heavy'
-    if im.Button(heavy and 'Physics: HEAVY###phys' or 'Physics: vanilla###phys', im.ImVec2(186, 0)) then
+    if im.Button(heavy and 'Ground: heavy###phys' or 'Ground: vanilla###phys', full) then
       flush(m)
       ph.setMode(heavy and 'vanilla' or 'heavy')
       st.t = -1
@@ -368,7 +456,7 @@ local function tabRun(m)
   local PV = { all = 'all vehicles', player = 'player only', near = 'player + near' }
   local NEXT = { all = 'player', player = 'near', near = 'all' }
   local pv = m.cfg.ring.physicalVehicles or 'all'
-  if im.Button('Ruts: ' .. (PV[pv] or pv) .. '###physveh', im.ImVec2(186, 0)) then
+  if im.Button('Ruts from: ' .. (PV[pv] or pv) .. '###physveh', full) then
     m.cfg.ring.physicalVehicles = NEXT[pv] or 'all'
     changed()
   end
@@ -391,14 +479,25 @@ local function tabRun(m)
       im.SameLine()
       ctext('dim', r.kind)
     end
-    if st.matPending then ctext('warn', 'changes apply on Restart') end
+    if st.matPending then ctext('warn', 'Changes apply on Restart') end
   end
-  im.Separator()
-  if im.Checkbox('Tyre mud', ptr['clods.enabled']) then m.setClodsEnabled(ptr['clods.enabled'][0]); changed() end
-  if im.Checkbox('Chunk outline', ptr.chunks) then m.setDebugChunks(ptr.chunks[0]) end
-  if im.Checkbox('SS shadows off', ptr['render.disableSSS']) then
+  im.SeparatorText('Display')
+  if im.Checkbox('Status light when this window is closed', ptr['gui.indicator']) then
+    setv(m.cfg, 'gui.indicator', ptr['gui.indicator'][0]); changed()
+  end
+  if im.IsItemHovered() then
+    im.SetTooltip('A small light stays on screen while this window is closed or folded:\n' ..
+      'green running, red stopped, amber spinner while a big map loads the next area.\n' ..
+      'Drag it to move it, double-click it to open this window.')
+  end
+  if im.Checkbox('Screen-space shadows off', ptr['render.disableSSS']) then
     m.setScreenSpaceShadowsOff(ptr['render.disableSSS'][0]); changed()
   end
+  if im.IsItemHovered() then
+    im.SetTooltip('On (default): no dark slivers along the mud edges and no shadow flashes\n' ..
+      'while meshes rebuild. Restored when the mod stops.')
+  end
+  if im.Checkbox('Chunk outline', ptr.chunks) then m.setDebugChunks(ptr.chunks[0]) end
 end
 
 local function tabConfig(m)
@@ -408,9 +507,7 @@ local function tabConfig(m)
     if s[6] and st.applied[s[1]] ~= nil and st.applied[s[1]] ~= getv(cfg, s[1]) then pending = true end
   end
   if pending then
-    im.PushStyleColor2(im.Col_Button, im.ImVec4(0.7, 0.35, 0.05, 1))
-    if im.Button('Restart to apply *', im.ImVec2(150, 0)) then flush(m); m.reloadLevelData(); st.t = -1 end
-    im.PopStyleColor(1)
+    if tintButton('pend', 'Restart to apply *', im.ImVec2(150, 0)) then flush(m); m.reloadLevelData(); st.t = -1 end
   else
     im.BeginDisabled(true); im.Button('Restart to apply *', im.ImVec2(150, 0)); im.EndDisabled()
   end
@@ -512,10 +609,49 @@ local function body(m)
   if err then error(err, 0) end
 end
 
+-- Status light window while the main window is closed or folded (cfg.gui.indicator):
+-- the light and one word, no title bar; drag to move, double-click opens the window.
+local IND_FLAGS = nil
+local function indicator(m)
+  local g = m.cfg and m.cfg.gui
+  if g and g.indicator == false then return end
+  if not IND_FLAGS then
+    IND_FLAGS = im.WindowFlags_NoDecoration + im.WindowFlags_NoFocusOnAppearing
+      + im.WindowFlags_NoNav + im.WindowFlags_NoDocking
+    st.indPos, st.indPivot = im.ImVec2(0, 0), im.ImVec2(1, 0)
+    -- one fixed size that fits the longest line: the box neither jumps nor grows off the
+    -- screen edge when the text changes (theme padding 12 x 10, item spacing 8)
+    local h = im.GetTextLineHeight()
+    st.indSize = im.ImVec2(24 + h + 16 + im.CalcTextSize('DeepNode').x + im.CalcTextSize('Loading terrain').x + 2, h + 20)
+  end
+  local vp = im.GetMainViewport()
+  st.indPos.x, st.indPos.y = vp.WorkPos.x + vp.WorkSize.x - 24, vp.WorkPos.y + 72
+  im.SetNextWindowPos(st.indPos, im.Cond_FirstUseEver, st.indPivot)
+  im.SetNextWindowSize(st.indSize, im.Cond_Always)
+  -- stay inside the game window (ImGui otherwise gave it an OS window of its own)
+  im.SetNextWindowViewport(vp.ID)
+  pushTheme()
+  if im.Begin('DeepNode light', nil, IND_FLAGS) then
+    local ls = lightState(m)
+    light(ls)
+    im.TextUnformatted('DeepNode')
+    im.SameLine()
+    if ls == 'load' then ctext('load', 'Loading terrain') else ctext('dim', ls == 'on' and 'on' or 'off') end
+    if im.IsWindowHovered() then
+      if im.IsMouseDoubleClicked(0) then M.open() end
+      im.SetTooltip('Double-click to open the DeepNode window. Drag to move.')
+    end
+  end
+  im.End()
+  popTheme()
+end
+
 local function onUpdate(dtReal)
   if not open or not open[0] then
+    local m = main()
     -- pending save still goes out after the window closes
-    if st.saveAt and os.clock() >= st.saveAt then local m = main(); st.saveAt = nil; if m then save(m) end end
+    if st.saveAt and os.clock() >= st.saveAt then st.saveAt = nil; if m then save(m) end end
+    if m and im then indicator(m) end
     return
   end
   local m = main()
@@ -530,9 +666,11 @@ local function onUpdate(dtReal)
   end
   if st.saveAt and now >= st.saveAt then st.saveAt = nil; save(m) end
 
-  im.SetNextWindowSize(im.ImVec2(360, 520), im.Cond_FirstUseEver)
-  -- Begin/End stay balanced even when the body fails
-  if im.Begin('DeepNode', open) then
+  im.SetNextWindowSize(im.ImVec2(380, 560), im.Cond_FirstUseEver)
+  -- Begin/End and the theme stay balanced even when the body fails
+  pushTheme()
+  local expanded = im.Begin('DeepNode', open)
+  if expanded then
     local ok, err = pcall(body, m)
     if not ok then
       log('E', 'deepnode', 'gui error: ' .. tostring(err))
@@ -540,6 +678,9 @@ local function onUpdate(dtReal)
     end
   end
   im.End()
+  popTheme()
+  -- folded window: the status light stays up
+  if not expanded then indicator(m) end
 end
 
 local function onExtensionLoaded()

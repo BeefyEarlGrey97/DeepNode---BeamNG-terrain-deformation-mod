@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- Status light (`gui.indicator`, default on): while the DeepNode window is closed or folded a
+  small box stays on screen, green dot when the mod runs, red when stopped, an amber spinner
+  with "Loading terrain" while region mode loads the next area on a big map. Drag to move,
+  double-click to open the window. Kept inside the game window (`SetNextWindowViewport`).
+
+### Changed
+- Window polish: one dark theme (neutral surfaces, green accent on checks and sliders,
+  rounded frames), a status row with the same light on the Run tab, Start/Stop as a filled
+  green/red button, buttons in two equal columns, Run options grouped under Ground look /
+  Physics / Deformable ground / Display, shorter labels ("Experimental ..." -> "... (beta)").
+
 ### Fixed
 - Dark slivers along mud mesh edges (15-40 m away) after switching to a lower graphics
   preset while the mod runs (motorsports_playground, SteamDeck preset). The preset re-enables

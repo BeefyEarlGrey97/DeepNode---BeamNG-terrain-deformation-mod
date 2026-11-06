@@ -350,7 +350,8 @@
     "decalMinCorners": 96
   },
   "gui": {
-    "openOnStart": true
+    "openOnStart": true,
+    "indicator": true
   },
   "memory": {
     "gcStepKB": 0

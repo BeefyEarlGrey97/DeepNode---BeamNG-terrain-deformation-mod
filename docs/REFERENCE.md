@@ -462,9 +462,14 @@ and Stop restores the option the user picked last. The GUI can keep them on.
 
 Three tabs:
 
-* **Run** (everyday): Start/Stop, Restart, Smooth ruts, Wash tyres, decal road and tread
-  print toggles, physics mode, which vehicles dig, Deformable ground (one tick per ground
-  model, apply on Restart), Tyre mud.
+* **Run** (everyday): status row (light, Running / Stopped / Loading terrain, fps, mod ms),
+  Start/Stop, Restart, Smooth ruts, Wash tyres; Ground look (decal roads, pre-rutted roads,
+  tread prints, tyre mud); Physics (ground models, which vehicles dig); Deformable ground (one
+  tick per ground model, apply on Restart); Display (status light, screen-space shadows off,
+  chunk outline).
+* **Status light**: while the window is closed or folded, a small box (top right by default)
+  shows a green dot when running, red when stopped, an amber spinner with "Loading terrain"
+  while region mode loads the next area. Drag to move, double-click to open the window.
 * **Debug** also holds the Zones section (Zone radius, Zone depth, Add zone here, Clear
   zones), moved off the Run tab 2026-11-04.
 * **Settings**: vehicles with full mud, chunk rebuilds per second, terrain UV flip,
@@ -846,6 +851,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `pool.mode` | pair | 'pair': each chunk alternates between two objects of its own (no flicker, least engine memory); 'swap': a fresh pooled object per upload |
 | `memory.gcStepKB` | 0 | >0: a Lua GC step of this size every frame (GUI: Steady GC) |
 | `gui.openOnStart` | true | Open the window when the mod starts |
+| `gui.indicator` | true | Status light while the window is closed or folded (green on, red off, amber spinner while region mode loads) |
 | `debug.chunks` | false | Chunk border overlay (GUI checkbox; kept over mod restarts) |
 | `debug.drawRadius` | 120 | Tiles within this distance of the camera are outlined (sectors within twice it) |
 | `debug.lift` | 0.12 | Overlay lines float this high over the mud |
