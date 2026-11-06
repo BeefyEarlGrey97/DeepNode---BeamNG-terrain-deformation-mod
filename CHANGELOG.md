@@ -7,6 +7,13 @@
   small box stays on screen, green dot when the mod runs, red when stopped, an amber spinner
   with "Loading terrain" while region mode loads the next area on a big map. Drag to move,
   double-click to open the window. Kept inside the game window (`SetNextWindowViewport`).
+- Parallax tyre prints (after MudRunner's wheel track pass 2, `overlay.parallax` steps, default
+  6, `overlay.parallaxDepth`): the overlay marches the view ray down into the print relief in
+  the print's own frame (along, lat) and shades the point it hits, so streaks and ripples sit
+  sunk in at low camera angles. Mud, sand and hard-ground tracks only (not pre-rutted road
+  lines, stains, splats or wet tracks), print pixels within the fade distance only. Checked in
+  game on gridmap_v2: screen diff on vs off sits on the print strips only; effect subtle at
+  the 2.5 cm press depth. GPU cost not measured.
 
 ### Changed
 - Window in BeamNG's own UI look (options menu, toasts): dark translucent panels, rows a tone

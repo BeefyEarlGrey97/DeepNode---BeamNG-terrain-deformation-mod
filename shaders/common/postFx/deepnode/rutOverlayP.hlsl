@@ -73,7 +73,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnKindX;   // sand relief (x mud), sand crumb height (x mud), crumb lift mud, crumb lift sand
     uniform float4 dnWater;   // puddle amount (0..1), depth where water starts (m), murk, deepest rut (m)
     uniform float4 dnTrench;  // wet trench: depth it starts (m), depth range (m), wetness, slick darkening
-    uniform float4 dnPool;    // pooled water only (1) or the noise level where no pool is stored (0), unused x3
+    uniform float4 dnPool;    // pooled water only (1) or the noise level where no pool is stored (0), parallax steps, parallax depth (x press), unused
 };
 
 #include "../postFx.hlsl"
@@ -176,6 +176,44 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     // footprint filters: streak cells across (11 per half width) and ripples along (4 per m)
     float fs = 1.0 - smoothstep(0.35, 0.8, length(float2(dlx, dly)) * 11.0);
     float fr = 1.0 - smoothstep(0.35, 0.8, length(float2(dax, day)) * 4.0);
+    // parallax (MudRunner's wheel track pass 2): march the view ray down into the print relief
+    // and shade the point it hits, so the grooves look sunk in at low camera angles. Marched in
+    // the print's own frame (along, lat): a world xy shift maps to it by their world gradients.
+    // Only on print pixels near the camera (the relief is flat further out); no gradient
+    // instruction inside the branch, ddx(relief) below stays in uniform control flow.
+    int kindP = plainP ? 0 : (int)kindF;
+    float pxDepth = dnTread.z * dnPool.z * (kindP == 1 ? dnKindX.x : (kindP == 5 || kindP == 6 ? dnPress.w : 1.0));
+    float dist0 = length(wp - eyePosWorld);
+    if (dnPool.y > 0.5 && pxDepth > 0.0 && !plainP && (kindP <= 1 || kindP == 5 || kindP == 6)
+        && all(uv >= 0.0) && all(uv <= 1.0) && (rp.r > 0.0 || r.r >= 0.01) && dist0 < dnLook.y + dnLook.z
+        && abs(lat) < 1.2 && g.w < 0.99999) {
+        float3 ng0 = normalize(cross(dpx, dpy));
+        if (ng0.z < 0.0) ng0 = -ng0;
+        float3 V0 = normalize(eyePosWorld - wp);
+        float vn = max(dot(V0, ng0), 0.25);
+        float2 shift = -(V0 - ng0 * dot(V0, ng0)).xy / vn * pxDepth; // world xy at full depth
+        float2 dA = float2(dot(dnWorldGrad(dax, day, dpx.xy, dpy.xy), shift),
+                           dot(dnWorldGrad(dlx, dly, dpx.xy, dpy.xy), shift));
+        // the lat gradient jumps where texels switch to point values: bound the shift
+        dA = clamp(dA, float2(-0.3, -0.5), float2(0.3, 0.5));
+        int n = (int)min(dnPool.y, 12.0);
+        float tPrev = 0.0, hPrev = 0.0, tHit = 1.0;
+        [loop] for (int i = 1; i <= n; i++) {
+            float t = (float)i / n;
+            float2 c = float2(along, lat) + dA * t;
+            float h = printGroove(c.x, c.y, per, fs, fr) * (1.0 - smoothstep(0.8, 1.0, abs(c.y)));
+            if (t >= h) {
+                // linear refine between the last miss and the hit
+                float a = hPrev - tPrev, b = h - t;
+                tHit = lerp(tPrev, t, saturate(a / max(a - b, 1e-4)));
+                break;
+            }
+            tPrev = t;
+            hPrev = h;
+        }
+        along += dA.x * tHit;
+        lat += dA.y * tHit;
+    }
     float al = abs(lat);
     float inside = 1.0 - smoothstep(0.8, 1.0, al);
     float groove = plainP ? 0.0 : printGroove(along, lat, per, fs, fr) * inside;

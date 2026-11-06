@@ -882,6 +882,8 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.streaks` | 0.65 | Share of smear streaks in the print relief (the rest: stick-slip ripples). No tread pattern: the print suits any wheel |
 | `overlay.pressDepth` | 0.025 | Depth of the print relief (m) |
 | `overlay.lip` | 0.8 | Height of the mud lip squeezed up at the print edge, x pressDepth |
+| `overlay.parallax` | 6 | Ray march steps into the print relief (MudRunner's track parallax: grooves look sunk in at low camera angles), 0 = off, max 12 |
+| `overlay.parallaxDepth` | 1.0 | Depth of the marched relief, x pressDepth |
 | `overlay.grooveDark` | 0.4 | Darkening of the deepest pressed parts (reads whatever side the sun is on) |
 | `overlay.ambient` | 0.45 | Ambient share in the relight ratio |
 | `overlay.highlight` | 1.0 | Sun highlight on wet ground |

@@ -143,10 +143,14 @@ local defaults = {
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; the copy layers draw in priority order (roadCopy)
     copyLiftStep = 0,       -- m more per renderPriority level (not needed for the order)
-    -- road copies fade over disturbed mud: { m of largest |surface - rest| of a quad, opacity
-    -- x }, one fainter material clone per level (no vertex alpha in a ProceduralMesh)
-    -- (from 3 cm: the shallow soil spread beside a rut faded whole 1 m squares in blocks)
-    copyFade = { { 0.03, 0.75 }, { 0.05, 0.55 }, { 0.07, 0.4 }, { 0.1, 0.25 }, { 0.14, 0.12 } },
+    -- m: road copies are torn along the contour where |surface - rest| passes this (ruts and
+    -- berms show their own mud, smooth edge through the cells); 0 = drape over everything
+    copyCut = 0.03,
+    -- optional fade over disturbed mud: { m of mean |surface - rest| of a quad, opacity x },
+    -- one fainter material clone per level (no vertex alpha in a ProceduralMesh). Off: every
+    -- clone is one more submesh per mesh, and each submesh costs shadow + reflection pass
+    -- time even with castShadows 0 (5 levels -10 fps with 8 trucks, BENCHMARK 15)
+    copyFade = {},
     copyMerge = true,       -- drawn cells of a dug square merged into planar rectangles for the copies
     copyMergeFlat = 0.004,  -- m: largest mud deviation from a merged copy quad (under copyLift)
     -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
@@ -751,6 +755,8 @@ local defaults = {
     streaks = 0.65,         -- streak share of the relief (the rest: ripples)
     pressDepth = 0.025,     -- m: depth of the print relief
     lip = 0.8,              -- edge lip height, x pressDepth
+    parallax = 6,           -- ray march steps into the print relief (MudRunner track parallax), 0 = off
+    parallaxDepth = 1.0,    -- depth of that relief, x pressDepth
     grooveDark = 0.4,       -- darkening of the deepest pressed parts
     ambient = 0.45,         -- ambient share in the relight ratio
     highlight = 1.0,        -- sun highlight on wet ground
