@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-07 — ruts keep up with the truck, engine memory returned
+
 ### Added
 - Collision compaction (`memory.compactMB` 1000, `compactMinMB` 50, `compactStopSpeed` 1): every
   createMesh also builds a physics collision mesh, and the engine keeps every one until
