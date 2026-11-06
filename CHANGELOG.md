@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Fixed
+- Dark slivers along mud mesh edges (15-40 m away) after switching to a lower graphics
+  preset while the mod runs (motorsports_playground, SteamDeck preset). The preset re-enables
+  `ScreenSpaceShadowsPostFx`, which the mod had turned off at start; its contact shadows fall
+  from the mesh edge that floats `terrainFirstLift` over the terrain. `onSettingsChanged` now
+  turns it off again and stores the new option value for Stop. Terrain `lodScale` (1.5 vs
+  0.001) changed nothing.
 - Long multi-axle trucks bogged in their own ruts: every following wheel of the same vehicle
   counted as a full soil pass, so the 4th axle of an 8x8 could dig 5.2x the first one's depth
   in mud. Following wheels of the same vehicle within `stamp.soil.trainGap` (10 s) now count

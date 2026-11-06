@@ -454,7 +454,9 @@ wrapped so the camera and other ray users also see the mud surface for rays up t
 ### Shadows
 
 Screen-space shadows are switched off while the mod runs and restored on Stop (any visible
-mesh casts them and rebuilding meshes makes them flash). The GUI can keep them on.
+mesh casts them and rebuilding meshes makes them flash; they also draw dark slivers along
+the mud mesh edges). A graphics settings change re-enables them; the mod turns them off again
+and Stop restores the option the user picked last. The GUI can keep them on.
 
 ## GUI
 

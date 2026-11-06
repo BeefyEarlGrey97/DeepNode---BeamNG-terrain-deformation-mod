@@ -6638,6 +6638,16 @@ function M.setScreenSpaceShadowsOff(off)
   if running then P.setSSSOff(cfg.render.disableSSS) end
 end
 function M.screenSpaceShadowsOff() return P.sssSaved ~= nil end
+-- a graphics preset change (e.g. Low / SteamDeck) re-enables ScreenSpaceShadowsPostFx while
+-- the mod runs: its contact shadows draw dark slivers along the mud mesh edges (the mesh
+-- floats terrainFirstLift over the terrain). Disable again and keep the stored option
+-- (not the PostFx state we forced) as the user's choice that Stop restores.
+function P.onSettingsChanged()
+  if not (running and cfg.render.disableSSS) then return end
+  local on = settings.getValue('PostFXScreenSpaceShadowsEnabled') ~= false
+  P.sssSaved = { enabled = on, mask = on }
+  P.setSSSOff(true)
+end
 
 -------------------------------------------------------------------------------
 -- chunk debug overlay (debug.chunks): tile and sector borders drawn on the mud
@@ -7522,6 +7532,7 @@ M.onEditorActivated = P.onEditorActivated
 M.onEditorDeactivated = P.onEditorDeactivated
 
 M.onUpdate = P.onUpdate
+M.onSettingsChanged = P.onSettingsChanged
 M.onPreRender = P.onPreRender
 M.onClientPostStartMission = P.onClientPostStartMission
 M.onClientEndMission = P.onClientEndMission

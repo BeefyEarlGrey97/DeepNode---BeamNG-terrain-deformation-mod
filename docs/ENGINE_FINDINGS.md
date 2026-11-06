@@ -331,3 +331,10 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   log says "dont have required size of ... declared in TerrainMaterialTextureSet".
 - Terrain normals: `lerp(lerp(base, macro, mF), detail, dF)`; object materials (defaultMat.hlsl):
   `normal.xy += detail.xy * detailNormalMapStrength`.
+- Any graphics settings apply (preset or `PostFXScreenSpaceShadowsEnabled`) calls
+  `setScreenSpaceShadowsEnabled` (core/settings/graphic.lua) and re-enables
+  `ScreenSpaceShadowsPostFx` + `$AL::UseSSSmask`; `extensions.hook('onSettingsChanged')` fires
+  after it. `settings.getValue('PostFXScreenSpaceShadowsEnabled')` returns the stored option, not
+  the PostFx state. Its contact shadows draw dark slivers 15-40 m away at mesh edges a few mm
+  above the terrain. `$pref::Terrain::lodScale` (set it with `VariableRegistry.set`) did not
+  open visible seams between mud meshes and terrain (1.5 vs 0.001, same shot).
