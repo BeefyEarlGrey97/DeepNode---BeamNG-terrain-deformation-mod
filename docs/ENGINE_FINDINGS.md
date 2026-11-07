@@ -263,7 +263,7 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
     binding null-descriptor fallback").
   - the shadow pass ignores the custom VS (shadow cast from the uploaded vertices).
   So GPU displacement of static mud meshes (no uploads) is not possible this way.
-- Why it crashed (offline study 2026-11-07, stock shaders + exe strings; not yet retested live):
+- Why it crashed (2026-11-07, stock shaders + exe strings, then live on game 0.40.5, D3D12):
   - Meshes draw on the **bindless** path (`MFT_Bindless`): no vertex buffer, no per-draw cbuffer.
     The vertex, the primitive transform and the material live in one byte arena
     (`materialsBytes`, t10 space0), found through push constants `pushC` at b3
@@ -285,6 +285,27 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
     engine probably fills only known names. Generic per-material constants: unknown.
   - Textures on a bindless CustomMaterial: unknown (no stock custom mesh shader samples one).
   - `-nogfxbindless` launch flag exists (legacy binding path); not usable for players.
+- Live test 2026-11-07 (gridmap_v2, 4 m ProceduralMesh grid, probe shader
+  `tools/dev/bindlessWave.hlsl`: opaque magenta, VS sine wave from `accumTime`):
+  - A CustomMaterial made in Lua (pixVersion 6 or 5, opaque or translucent, `reload()` or not)
+    never runs its own shader, on a ProceduralMesh or in a vehicle `setRenderPass`. No crash: the
+    ProceduralMesh draws flat dark grey (the default shader with empty material data), a
+    translucent one draws nothing. The shader cache (`temp/shaders/shaders.d3d12.db`) holds only
+    one bare compile of the file (no `MFT_*` features), while `vehicle/ghost.hlsl` has full
+    `MFT_Bindless` permutations. The same file compiles offline against all 996 cached
+    `defaultMat` feature sets and the ghost's 12.
+  - Cause: the exe registers custom-material permutations only for the hard-coded names
+    `vehicleGhost` and `VehicleHighlightMat` (`engine::registerCustomMaterialPermutation`, with
+    a capacity limit; also `vehicleOverrideMat` in `VehicleResourceContainer`).
+  - Proof: pointing the stock `VehicleGhostShader` at our file (`DXVertexShaderFile` /
+    `DXPixelShaderFile` + `ShaderData:reload()` + `vehicleGhost:reload()`) made it run: on the
+    player vehicle via `setRenderPass(0, 'vehicleGhost', meshes, false, true)`, AND as the
+    `material` of a ProceduralMesh submesh: the flat grid was drawn as a moving 1 m sine wave.
+    So **GPU vertex displacement of a ProceduralMesh works**, through a hijacked engine slot.
+  - Limits of that route: only two slots (taking `vehicleGhost` breaks the parts-selector x-ray
+    while used), both translucent forward passes (no G-buffer, no engine lighting, no shadow:
+    the shader must light itself), per-draw data only from the scene cbuffer (time, camera) and
+    the vertices; custom constants (`highlightAlpha` only, slot 2) and textures not tested.
 - GPU work available to Lua: compute PostEffects (`ShaderData.DXComputShaderName`, e.g.
   `postFx/passthru.cs.hlsl`, writes the `pfxOut` UAV of the target texture). Compute that writes
   mesh vertices exists only engine-internal (`skinning.cs.hlsl`, `dynamicDecals/processMesh.cs.hlsl`),
