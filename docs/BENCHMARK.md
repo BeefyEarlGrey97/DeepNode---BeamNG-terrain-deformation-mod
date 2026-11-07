@@ -436,3 +436,20 @@ A tile stays under an 8x8 body ~1 s, so a fresh front at 20 Hz is ~20 uploads pe
 truck instead of 2-3; the cost is per upload (engine first-draw), not per vertex. One more 10 Hz
 run read 87.7 fps / mod 0.44 ms (camera off the pits): discarded.
 
+
+## 18. Tyre material updates: CPU cost vs the screen-space tyre pass (2026-11-07, test d3d8eb2 + working tree)
+
+gridmap_v2, 4 Percherons (`gridmap_spawn4.lua`), orbit cam yaw 160 / pitch 14 / 16 m, vsync off,
+`bench2.py <label> 2 clear`, variants interleaved A B A B, set live. Run 2 shown. Counts per bench
+(2 runs) from `deepnode_wheelMud.stats()`.
+
+| variant | fps (run 2) | low1 | tyre updates per bench |
+|---|---|---|---|
+| A: as shipped (`clods.rubberWet` on, coat flushes on), x4 | 53.6 / 51.7 / 49.9 / 51.5 | 31.7 / 30.8 / 27.7 / 31.0 | coat flushes ~600 at 0.93 ms; rubber `Material:reload` ~10 at ~7.5 ms |
+| B: `rubberWet` off (the overlay tyre pass still darkens wet tyres), x2 | 53.7 / 51.2 | 33.2 / 29.8 | rubber reloads 0 |
+| C: coat flushes off (`clods.flushPerFrame` 0: coverage frozen, ceiling only), x2 | 53.1 / 52.9 | 29.6 / 31.1 | coat flushes 0 |
+
+B = A within noise: the rubber reloads are a rare ~7 ms spike, not an average cost. C is +1.4 to
++3.2 fps over its neighbouring A runs: that is the most a shader-drawn coat (`overlay.tyreCoat`)
+could save with 4 trucks, if it replaced the coat meshes' material flushes. The shader pass draws
+at most 16 wheels (`tyreMaxWheels`); 4 Percherons have 32.
