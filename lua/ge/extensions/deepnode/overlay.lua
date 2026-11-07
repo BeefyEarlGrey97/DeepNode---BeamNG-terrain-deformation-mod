@@ -1648,6 +1648,8 @@ function M.frame()
   setConst(FX_OVER, 'dnWater', oc.puddles or 0, oc.puddleDepth or 0.1, oc.puddleMurk or 0.7, oc.maxDepth or 1.2)
   local tr2 = oc.trench or {}
   setConst(FX_OVER, 'dnTrench', tr2.start or 0.08, tr2.range or 0.12, tr2.wet or 0, tr2.darken or 0)
+  local ed = oc.shade or {}
+  setConst(FX_OVER, 'dnEdge', ed.rim or 0, ed.floor or 0, ed.floorDepth or 0.4, ed.bermLift or 0)
   setConst(FX_OVER, 'dnPool', (oc.puddleMode or 'fill') == 'fill' and 1 or 0, oc.parallax or 0,
     oc.parallaxDepth or 1, 0)
 end
