@@ -281,6 +281,21 @@ local function filesExist(files)
   end
   return true
 end
+-- all five written: the screenshot writer creates a file before it finishes it, and a cook that
+-- starts then reads a partial PNG ("TextureCooker: Could not open ..."), so the sizes must be
+-- non-zero and unchanged since the previous frame
+local function filesDone(rec)
+  if not filesExist(rec.files) then return false end
+  local same = rec.sizes ~= nil
+  rec.sizes = rec.sizes or {}
+  for _, n in ipairs({ 'b', 'o', 'nm', 'r', 'm' }) do
+    local st = FS:stat(rec.files[n])
+    local sz = st and tonumber(st.filesize) or 0
+    if sz <= 0 or rec.sizes[n] ~= sz then same = false end
+    rec.sizes[n] = sz
+  end
+  return same
+end
 local function cookPath(f) return '/temp' .. f:gsub('%.png$', '.dds') end
 local function cooked(files)
   for _, n in ipairs({ 'b', 'o', 'nm', 'r', 'm' }) do
@@ -295,7 +310,7 @@ local function cookOne(files)
   for _, n in ipairs({ 'b', 'o', 'nm', 'r', 'm' }) do
     if not FS:fileExists(cookPath(files[n])) then
       local im = rawget(_G, 'ui_imgui')
-      if im and im.ImTextureHandler then pcall(im.ImTextureHandler, files[n]) end
+      if im and im.ImTextureHandler and FS:fileExists(files[n]) then pcall(im.ImTextureHandler, files[n]) end
       return false
     end
   end
@@ -378,16 +393,15 @@ local function stepJob(rec)
     rec.t0 = now()
     return true
   elseif rec.state == 'save' then
-    if filesExist(rec.files) then
+    if filesDone(rec) then
       bakeOff()
       -- the screenshot module keeps every job and re-sends the whole list to the UI on each
       -- callback: hundreds of bake jobs made every frame ~16 ms slower (measured 2026-11-07)
       local ss = require('screenshot')
       if ss.clearScreenshotJobs then ss.clearScreenshotJobs() end
-      -- older images of this tile (other signature)
-      for _, f in ipairs(FS:findFiles(rec.files.dir, tostring(rec.key) .. '_*.png', 0, true, false) or {}) do
-        if not f:find(rec.sig, 1, true) then FS:removeFile(f) end
-      end
+      -- older images of this tile stay until the next start (sweepCache): a material may still
+      -- reference them, and a file deleted under a live material made the engine re-cook it and
+      -- crash (2026-11-07)
       rec.state = 'precook'
       rec.t0 = now()
       return true
@@ -621,6 +635,44 @@ function M.stats() return stats end
 function M.state(k) local r = recs[k]; return r and r.state or nil, r and r.files or nil end
 function M.jobState() return job and job.state or nil end
 
+-- stale images (a tile baked again under another signature): per tile only the newest
+-- signature's files are kept, and only for tiles without a clone material in the scene (a live
+-- material must never lose its files, see the save step)
+local function sweepCache()
+  local dir = C.cachePaths(ctx.private.levelName, 0, 'x').dir
+  local byKey = {}
+  for _, f in ipairs(FS:findFiles(dir, '*.png', 0, true, false) or {}) do
+    local key, sig = f:match('/(%d+)_(%x+)_%a+%.%a+%.png$')
+    if key then
+      local e = byKey[key] or {}
+      byKey[key] = e
+      local st = FS:stat(f)
+      local t = st and tonumber(st.modtime) or 0
+      e[sig] = e[sig] or { t = 0, files = {} }
+      e[sig].t = max(e[sig].t, t)
+      table.insert(e[sig].files, f)
+    end
+  end
+  local cloned = {}
+  for _, n in ipairs(scenetree.findClassObjects and scenetree.findClassObjects('Material') or {}) do
+    local key = n:match('^deepnode_rb_(%d+)_')
+    if key then cloned[key] = true end
+  end
+  local removed = 0
+  for key, sigs in pairs(byKey) do
+    if not cloned[key] then
+      local newest, nt = nil, -1
+      for sig, e in pairs(sigs) do if e.t > nt then newest, nt = sig, e.t end end
+      for sig, e in pairs(sigs) do
+        if sig ~= newest then
+          for _, f in ipairs(e.files) do FS:removeFile(f); removed = removed + 1 end
+        end
+      end
+    end
+  end
+  return removed
+end
+
 function M.start(main)
   ctx = main
   C = (extensions and extensions.deepnode_roadBakeCore) or require('ge/extensions/deepnode/roadBakeCore')
@@ -640,6 +692,8 @@ function M.start(main)
   end
   for _ in pairs(byTile) do stats.tiles = stats.tiles + 1 end
   stats.roads = #roads
+  local okS, removed = pcall(sweepCache)
+  if okS and removed > 0 then log('I', 'deepnode', 'road bake: removed ' .. removed .. ' stale cache images') end
   enabled = true
   log('I', 'deepnode', sfmt('road bake: %d roads over soft ground, %d tiles, %.0f ms', #roads, stats.tiles, t0 and t0:stop() or 0))
   return #roads

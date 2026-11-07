@@ -357,3 +357,36 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   its own OS window (viewport) unless `SetNextWindowViewport(GetMainViewport().ID)` is set.
 - hw550 region recentre cost vs region size: 1000 m 85-88 ms, 2000 m 188-208 ms, mostly
   `tb:updateGrid` (76-79 ms vs 174-192 ms).
+
+## Baked road layer (roads.mode 'bake', 2026-11-07, gridmap_v2, D3D12)
+
+- A stock Material cannot sample a `#named` render target (`baseColorMap` / `diffuseMap` = '#name':
+  "Failed to load 'diffuse' map"), own PostEffect targets and engine ones alike.
+- A PostEffect target can be saved to PNG: `require('screenshot').createScreenshotTracked{ filename =
+  'path/without/ext', bufferType = '<target name without #>', superSampling = 1 }` (exact pixels at the
+  target size; alpha is written as 255). The screenshot module keeps every job and re-sends the whole
+  list to the UI on each callback: call `clearScreenshotJobs()` after a batch (hundreds of jobs made
+  every frame ~16 ms slower).
+- The screenshot writer creates the file before it finishes it: wait until the size is non-zero and
+  stable, else a cook reads a partial PNG ("TextureCooker: Could not open ..." and a NO TEXTURE layer).
+- The engine cooks a PNG to `/temp/<path>.dds` (`.color` -> BC7 sRGB, `.data` -> BC7, `.normal` -> BC5)
+  only when its texture manager loads it; creating or `reload()`ing a Material does not.
+  `ui_imgui.ImTextureHandler(path)` cooks at once (~10 ms per 512² image).
+- Files created by an outside process are not seen by the game's file system (NO TEXTURE); files the
+  game writes (screenshots, GBitmap:saveFile) are.
+- Deleting a texture file that a live Material uses crashes the game (the file watcher re-cooks it,
+  "Texture[] started importing", C++ crash). Never delete cache images while the level runs.
+- `defaultMat.hlsl` layer maths: a layer with no base maps and detail maps at strength 1 gives
+  colour = saturate(2 detail), opacity = saturate(2 opacityDetail.r), roughness / metallic =
+  factor * saturate(2 x), normal = normalize(flat + detailNormal.xy); layers lerp by opacity. Every
+  channel has a detail slot (`detailMap`, `opacityDetailMap`, `detailNormalMap`, `roughnessDetailMap`,
+  `metallicDetailMap`, `ambientOcclusionDetailMap`) scaled by the layer's `detailScale`; `*MapUseUV`
+  only switches the UV channel.
+- `PostEffect:setTexture(slot, path)` switches a slot live. Several PostEffects must not declare the
+  same `#target` (one effect pair with switched maps instead).
+- Five named-buffer readbacks per tile cost ~+5 ms a frame while baking (GPU sync; the same at 256² and
+  512², invisible in the CPU metrics).
+- Draw order checked against the engine's own decals on an undug pit tile (patch 4 mm over the terrain
+  with the mud material + baked layer): lower renderPriority on top (`bakeHighOnTop = false`) matched
+  within 1.2 % mean / 2.6 % luminance std at 6 m and 0.6 % / 2.5 % at 3 m; higher on top buried the
+  furrows under the water sheet (soft, pale).
