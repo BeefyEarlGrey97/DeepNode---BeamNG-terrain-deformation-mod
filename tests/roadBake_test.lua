@@ -48,6 +48,12 @@ rq[1].prio = 20
 expect(C.signature(rq, p) ~= s1, 'signature_changes_with_roads')
 rq[1].prio = 19
 expect(C.signature(rq, { version = 1, size = 256, highOnTop = true }) ~= s1, 'signature_changes_with_size')
+-- heavy mode lowers the terrain under dug roads: the road regenerates and its 3D length (v) shifts
+-- a little; the images must stay cached (only the plan geometry, to 1 cm, counts)
+local rv = { { id = 1, mat = 'water', prio = 19, tl = 10, quads = { { 0, 0, 1, 0, 0, 1, 1, 1, 0.0013, -0.1017, 1.002 } } } }
+expect(C.signature(rv, p) == s1, 'signature_ignores_v_and_mm_noise')
+local rx = { { id = 1, mat = 'water', prio = 19, tl = 10, quads = { { 0.05, 0, 1, 0, 0, 1, 1, 1, 0, -0.1, 1 } } } }
+expect(C.signature(rx, p) ~= s1, 'signature_changes_with_plan_geometry')
 
 -- cache paths
 local cp = C.cachePaths('gridmap_v2', 9175179, 'a1b2c3d4')

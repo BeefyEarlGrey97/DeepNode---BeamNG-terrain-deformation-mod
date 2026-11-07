@@ -78,9 +78,13 @@ function M.signature(roads, params)
   local parts = { tostring(params.version), tostring(params.size), tostring(params.highOnTop) }
   for _, r in ipairs(sorted(roads, params.highOnTop)) do
     parts[#parts + 1] = sfmt('%s|%s|%s', tostring(r.mat), tostring(r.prio), tostring(r.tl))
+    -- plan geometry only (corners, width) to 1 cm: v comes from the road's 3D length, which
+    -- shifts when heavy mode lowers the terrain under it and the road regenerates (a signature
+    -- with v rebaked every dug tile on each start, 2026-11-07)
     for _, q in ipairs(r.quads) do
       if type(q) == 'table' then
-        for k = 1, #q do parts[#parts + 1] = sfmt('%d', floor(q[k] * 1000 + 0.5)) end
+        for k = 1, 8 do parts[#parts + 1] = sfmt('%d', floor(q[k] * 100 + 0.5)) end
+        parts[#parts + 1] = sfmt('%d', floor((q[11] or 0) * 100 + 0.5))
       end
     end
   end
