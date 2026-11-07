@@ -3,8 +3,10 @@
 -- gridmap_setup.lua / data/), facing south. Rewrites bench_spawn.json with the 2 new ids: rerun gridmap_setup.lua first to get the 8-truck list back.
 -- Run with gridmap_v2 loaded through MCP run_lua (`python lua.py gridmap_spawn2.lua`).
 local d = jsonReadFile('/settings/deepnode/bench_spawn.json')
-local pick = { 2, 6 }
-local old = getPlayerVehicle(0)
+local pick = #d.list >= 6 and { 2, 6 } or { 2, 4 } -- 8-truck or 4-truck list
+-- only trucks of an earlier bench run go: the player's own vehicle stays
+local old = {}
+for _, e in ipairs(d.list) do local o = e.id and be:getObjectByID(e.id); if o then old[#old + 1] = o end end
 local list = {}
 for n, k in ipairs(pick) do
   local e = d.list[k]
@@ -12,7 +14,7 @@ for n, k in ipairs(pick) do
   local v = core_vehicles.spawnNewVehicle('percheron', { config = 'vehicles/percheron/s450_8x8_flatbed_A.pc', pos = vec3(e.p[1], e.p[2], e.p[3]), rot = rot, autoEnterVehicle = n == 1 })
   if v then list[#list + 1] = { id = v:getID(), p = e.p, r = e.r, d = e.d } end
 end
-if old then old:delete() end
+for _, o in ipairs(old) do o:delete() end
 jsonWriteFile('/settings/deepnode/bench_spawn.json', { list = list }, true)
 if dntestRun then extensions.unload('dntestRun') end
 extensions.load('dntestRun')

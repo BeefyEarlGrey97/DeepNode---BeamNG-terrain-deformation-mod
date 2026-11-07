@@ -29,7 +29,10 @@ local T = main.tileSize
 local KEY = main.KEY
 local x0, y0 = main.ter.ox + (key % KEY) * T, main.ter.oy + math.floor(key / KEY) * T
 local e = main.mudLayerAt(x0 + T * 0.5, y0 + T * 0.5)
-local map = C.tileMapping(main.uvOf, e, x0, y0, T)
+-- the images cover the tile's region (4 x 4 tiles, roadBake REGION)
+local rx, ry = C.regionOf(key % KEY, math.floor(key / KEY), 4)
+local rx0, ry0 = C.regionOrigin(rx, ry, 4, T, main.ter.ox, main.ter.oy)
+local map = C.tileMapping(main.uvOf, e, rx0, ry0, 4 * T)
 local src = find(main.matName(e))
 local m = find(MAT)
 if not m then m = createObject('Material'); m.canSave = false; m:registerObject(MAT) end
