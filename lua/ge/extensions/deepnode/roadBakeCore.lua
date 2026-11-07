@@ -138,6 +138,13 @@ function M.layerFields(activeLayers, files, map)
   }
 end
 
+-- regions of R x R tiles share one set of baked images (Revision B)
+function M.regionOf(tx, ty, R) return floor(tx / R), floor(ty / R) end
+function M.regionOrigin(rx, ry, R, tile, ox, oy) return ox + rx * R * tile, oy + ry * R * tile end
+function M.regionKey(rx, ry) return 'r' .. rx .. '_' .. ry end
+-- bake only on maps up to maxKm2 (8 x 8 km)
+function M.mapAllowed(worldSize, maxKm2) return (worldSize / 1000) ^ 2 <= maxKm2 end
+
 if setExtensionUnloadMode then
   M.onExtensionLoaded = function() setExtensionUnloadMode(M, 'manual') end
 end

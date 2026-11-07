@@ -75,5 +75,19 @@ expect(by['activeLayers@0'] == '3' and by['detailMap@2'] == cp.b and by['detailS
 expect(by['opacityDetailMap@2'] == cp.o and by['detailNormalMap@2'] == cp.nm and by['metallicDetailMap@2'] == cp.m, 'layer_fields_maps')
 expect(C.layerFields(4, cp, m) == nil, 'layer_fields_full_material')
 
+-- regions of 4 x 4 tiles (Revision B)
+local rx, ry = C.regionOf(-1, 7, 4)
+expect(rx == -1 and ry == 1, 'region_of_negative_tiles')
+local rx0, ry0 = C.regionOrigin(34, 33, 4, 5, -1023.5, -1023.5)
+expect(near(rx0, -343.5) and near(ry0, -363.5), 'region_origin')
+expect(C.regionKey(34, 33) == 'r34_33', 'region_key')
+expect(C.cachePaths('gridmap_v2', C.regionKey(34, 33), 'a1b2c3d4').b == '/deepnode_cache/roadbake/gridmap_v2/r34_33_a1b2c3d4_b.color.png', 'region_cache_name')
+local rm = C.tileMapping(uvOf, 2, rx0, ry0, 20)
+expect(near(rm.sx, 102.4) and near(rm.sy, 102.4), 'region_mapping_scale')
+
+-- map size gate: 8 x 8 km maps (hw550 8192 m = 67.1 km2) bake, bigger ones do not
+expect(C.mapAllowed(8192, 68) == true, 'map_8192_allowed')
+expect(C.mapAllowed(12288, 68) == false, 'map_12288_refused')
+
 print(fails == 0 and 'ALL OK' or (fails .. ' FAILED'))
 os.exit(fails == 0 and 0 or 1)
