@@ -281,9 +281,23 @@ local function filesExist(files)
   end
   return true
 end
+local function cookPath(f) return '/temp' .. f:gsub('%.png$', '.dds') end
 local function cooked(files)
   for _, n in ipairs({ 'b', 'o', 'nm', 'r', 'm' }) do
-    if not FS:fileExists('/temp' .. files[n]:gsub('%.png$', '.dds')) then return false end
+    if not FS:fileExists(cookPath(files[n])) then return false end
+  end
+  return true
+end
+-- the engine cooks a PNG to /temp/<path>.dds only when its texture manager loads it (a material
+-- that is merely created or reloaded does not); an ImGui texture handle loads it at once
+-- (~10 ms each, measured 2026-11-07). One image per call; true once all five are cooked.
+local function cookOne(files)
+  for _, n in ipairs({ 'b', 'o', 'nm', 'r', 'm' }) do
+    if not FS:fileExists(cookPath(files[n])) then
+      local im = rawget(_G, 'ui_imgui')
+      if im and im.ImTextureHandler then pcall(im.ImTextureHandler, files[n]) end
+      return false
+    end
   end
   return true
 end
@@ -374,11 +388,19 @@ local function stepJob(rec)
       for _, f in ipairs(FS:findFiles(rec.files.dir, tostring(rec.key) .. '_*.png', 0, true, false) or {}) do
         if not f:find(rec.sig, 1, true) then FS:removeFile(f) end
       end
+      rec.state = 'precook'
+      rec.t0 = now()
+      return true
+    end
+    if now() - rec.t0 > 10 then bakeOff(); fail(rec, 'screenshots not saved'); return false end
+    return true
+  elseif rec.state == 'precook' then
+    if cookOne(rec.files) then
       rec.state = 'baked'
       stats.baked = stats.baked + 1
       return false
     end
-    if now() - rec.t0 > 10 then bakeOff(); fail(rec, 'screenshots not saved'); return false end
+    if now() - rec.t0 > 10 then fail(rec, 'textures not cooked'); return false end
     return true
   end
   return false
@@ -537,14 +559,18 @@ function M.onUpdate()
     if now() - queueT > 1 then rebuildQueue(); queueT = now() end
     startNext()
   end
-  -- baked tiles: clones once they have a mesh, ready once the cooks exist
+  -- baked tiles: clones once they have a mesh, ready once the cooks exist (at most one image
+  -- cooked a frame: cache hits from an earlier session whose /temp was cleared)
   local tiles = ctx.tiles
+  local cookBudget = 1
   for k, rec in pairs(recs) do
     if rec.state == 'baked' then
       local t = tiles[k]
       if t and t.obj then attach(rec, t) end
     elseif rec.state == 'cook' then
-      if cooked(rec.files) then
+      local done = cooked(rec.files)
+      if not done and cookBudget > 0 then cookBudget = cookBudget - 1; done = cookOne(rec.files) end
+      if done then
         reloadClones(rec)
         rec.state = 'ready'
         stats.ready = stats.ready + 1

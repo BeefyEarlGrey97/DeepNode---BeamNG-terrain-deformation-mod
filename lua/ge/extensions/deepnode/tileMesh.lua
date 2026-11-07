@@ -1004,7 +1004,7 @@ function M.emitTileCells(b, t, zOff, rule, stride)
   if stride == 1 and main.cfg.tiles.mergePlain ~= false then
     for mi = 1, #t.matList do
       local m = t.matList[mi]
-      s = b:sub(main.matName(m), W * W)
+      s = b:sub(main.tileMatName(t, m), W * W)
       curM = m
       for k = 0, W * W - 1 do vidx[k] = -1 end
       for sj = 0, ts - 1 do
@@ -1074,7 +1074,7 @@ function M.emitTileCells(b, t, zOff, rule, stride)
 
   for mi = 1, #t.matList do
     local m = t.matList[mi]
-    s = b:sub(main.matName(m), W * W)
+    s = b:sub(main.tileMatName(t, m), W * W)
     curM = m
     for k = 0, W * W - 1 do vidx[k] = -1 end
     for lj = 1, L - 1 do
@@ -1135,7 +1135,7 @@ function M.emitTilePixels(b, t, zOff, rule)
   end
   for mi = 1, #t.matList do
     local m = t.matList[mi]
-    s = b:sub(main.matName(m), W * W)
+    s = b:sub(main.tileMatName(t, m), W * W)
     curM = m
     for k = 0, W * W - 1 do vidx[k] = -1 end
     for sj = 0, ts - 1 do
@@ -1242,8 +1242,14 @@ function M.buildTile(t, rule, forceDecal)
   -- without them dirty when it falls quiet (P.decalQuiet).
   -- road copies (deepnode_roadCopy, roads.mode 'copy'): on every build, from the quads
   -- recorded above
+  -- baked road layer (deepnode_roadBake, roads.mode 'bake'): a ready tile carries the roads in
+  -- its own material (main.tileMatName), no copies; until then the copies, and the tile goes to
+  -- the front of the bake queue
   local rc = extensions and extensions.deepnode_roadCopy
-  if rc and rc.isEnabled() then rc.emit(tileBuilder, t.key, t.N) end
+  local rbk = extensions and extensions.deepnode_roadBake
+  local baked = rbk and rbk.isEnabled() and rbk.ready(t.key)
+  if rbk and rbk.isEnabled() and not baked then rbk.prioritize(t.key) end
+  if not baked and rc and rc.isEnabled() then rc.emit(tileBuilder, t.key, t.N) end
   local dec = extensions and extensions.deepnode_decals
   if dec then
     local quiet = ctx.cfg.roads.overlayQuiet or 1

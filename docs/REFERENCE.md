@@ -587,13 +587,19 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `preCellStride` | 1 | Sector cell stride for undug pinned tiles (4 = 0.8 m lost the 0.3 m grooves) |
 | `preTileMax` | 4000 | Pre-rutted tiles kept as frozen tile data (sectors draw them at full resolution) |
 | `preSkipMatch` | `["line", "asphalt", "invisible", "skidmark"]` | Road materials never pre-rutted |
-| `mode` | `"copy"` | Decal roads on the mud: `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
+| `mode` | `"copy"` | Decal roads on the mud: `bake` (roads baked per tile into a layer of the mud material, copies until a tile is ready; GUI "Bake roads into the mud"), `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
 | `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
 | `copyCut` | 0 | Mode `copy`: m; > 0 leaves copy quads with a corner dug deeper than this out (plain holes in the road pattern) |
 | `copyFade` | 5 levels, 0.03-0.14 m | Mode `copy`: `{ { m, opacity x }, ... }`; a copy quad whose mean \|surface - rest\| passes a level's m is drawn with a fainter clone of the road material (no vertex alpha in a ProceduralMesh): the road pattern fades into ruts and over berms |
 | `copyLift` / `copyLiftStep` | 0.008 / 0 | Mode `copy`: m over the mud; extra m per renderPriority level (not needed: copy submeshes draw bottom layer first, depth writes off) |
 | `copyMerge` | true | Mode `copy`: the drawn cells of a dug square go into the copies as greedy planar rectangles instead of one quad per cell |
 | `copyMergeFlat` | 0.004 | Mode `copy`: m; largest mud deviation from a merged copy quad (keep it under `copyLift`) |
+| `bakeSize` | 512 | Mode `bake` (deepnode_roadBake): texels per tile side of the baked road images (5 m tiles: ~1 cm); part of the cache signature |
+| `bakeRadius` | 80 | Mode `bake`: m around the camera and every vehicle; road tiles within it are baked ahead (others when they get a mesh) |
+| `bakeMaxPerSec` | 3 | Mode `bake`: tiles started per second; each GPU bake costs ~+5 ms a frame while it runs (readback of 5 images), cache hits nothing |
+| `bakeCache` | true | Mode `bake`: keep the images on disk (`<user folder>/deepnode_cache/roadbake/<level>/<tile>_<signature>_*.png`); a changed road set rebakes only its tiles |
+| `bakeHighOnTop` | false | Mode `bake`: draw order of stacked roads; true = higher renderPriority on top (set by the calibration against the vanilla decals) |
+| `bakeTangent` | `{1, 1}` | Mode `bake`: sign of the baked normal's x / y in the tile frame (calibration) |
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |
 | `overlayOnRuts` | true | Copies also on rut and track cells, clipped to the strip (the pattern drapes over the ruts); false = untouched squares only |
 | `overlayQuiet` | 1.0 | s after a tile's last stamp before its decal copies are built (0 = every build) |

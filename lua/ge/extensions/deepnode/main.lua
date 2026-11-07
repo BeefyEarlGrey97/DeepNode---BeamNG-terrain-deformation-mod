@@ -152,6 +152,14 @@ local defaults = {
     -- time even with castShadows 0 (5 levels -10 fps with 8 trucks, BENCHMARK 15)
     copyFade = {},
     copyMerge = true,       -- drawn cells of a dug square merged into planar rectangles for the copies
+    -- 'bake' (deepnode_roadBake): every road over a tile rendered once into five images the
+    -- tile's mud material reads as one layer (no copy submeshes); copies until a tile is baked
+    bakeSize = 512,         -- texels per tile side (5 m tiles: ~1 cm)
+    bakeRadius = 80,        -- m around the camera and the vehicles: tiles baked ahead
+    bakeMaxPerSec = 3,      -- tiles started per second (each bake costs ~+5 ms a frame on the GPU)
+    bakeCache = true,       -- keep the images on disk per level (deepnode_cache/roadbake/<level>/)
+    bakeHighOnTop = false,  -- draw order: higher renderPriority on top (else lower on top)
+    bakeTangent = { 1, 1 }, -- sign of the baked normal's x / y in the tile frame (calibration)
     copyMergeFlat = 0.004,  -- m: largest mud deviation from a merged copy quad (under copyLift)
     -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
     -- the level's decal); false = alpha-clipped matte copies (old look)
@@ -1054,6 +1062,17 @@ end
 function M.matName(m)
   return P.matNames[m] or P.FALLBACK_MAT
 end
+-- material of layer m on tile t: the baked clone with the decal roads (deepnode_roadBake) once
+-- the tile is ready, else the layer's patch material
+function M.tileMatName(t, m)
+  local rbk = P.mod('roadBake')
+  return (rbk and t and rbk.matFor(t.key, m)) or P.matNames[m] or P.FALLBACK_MAT
+end
+-- a tile's baked layer became ready (or fell back to copies): rebuild it once
+function M.onRoadBakeReady(key)
+  local t = tiles[key]
+  if t and t.obj then t.dirty = true; t.decalForce = true end
+end
 
 -- rut code: 0 = floor, 128 = rest surface, 255 = rest + bermMax
 -- One branch (min compiles branch-free): side traces off the old three-way branch failed
@@ -1721,6 +1740,7 @@ function P.roadMode()
   if r.mode == 'drape' then return r.overObjects ~= false and 'drape' or 'off' end
   if r.mode == 'off' then return 'off' end
   if r.mode == 'overlay' then return 'overlay' end
+  if r.mode == 'bake' then return 'bake' end
   -- 'copy' (default): the engine's decals stay, copies in the mud meshes (deepnode_roadCopy)
   return 'copy'
 end
@@ -2301,9 +2321,11 @@ end
 -- Decal roads on the mud on/off (GUI "Experimental decal road"), live: the overlay module
 -- starts or stops, the road cover above is set or removed and every loaded mesh is rebuilt
 -- (tiles at their rebuild rate, sectors in turn).
-function M.decalRoadsOn() return P.roadMode() == 'copy' or P.roadMode() == 'overlay' end
-function M.setDecalRoads(on)
-  cfg.roads.mode = on and 'copy' or 'off'
+function M.decalRoadsOn() return P.roadMode() == 'copy' or P.roadMode() == 'overlay' or P.roadMode() == 'bake' end
+function M.roadBakeOn() return P.roadMode() == 'bake' end
+-- mode: 'copy' (default) or 'bake' when on
+function M.setDecalRoads(on, mode)
+  cfg.roads.mode = on and (mode == 'bake' and 'bake' or 'copy') or 'off'
   if not running then return end
   P.coverRoads(not on)
   local dec = P.mod('decals')
@@ -2315,6 +2337,14 @@ function M.setDecalRoads(on)
       if not ok then log('E', logTag, 'road copies failed: ' .. tostring(err)) end
     else
       rcp.stop()
+    end
+  end
+  local rbk = P.mod('roadBake')
+  if rbk then
+    rbk.stop()
+    if P.roadMode() == 'bake' then
+      local ok, err = pcall(rbk.start, M)
+      if not ok then log('E', logTag, 'road bake failed: ' .. tostring(err)) end
     end
   end
   for _, t in pairs(tiles) do
@@ -3527,7 +3557,9 @@ function P.shiftTail(fx, fy, ob, nb, extra, t0, loadMs, sinkMs, gridMs, what)
   local mode = P.roadMode()
   if mode == 'off' then P.coverRoads(true, true) end
   local rcp = P.mod('roadCopy')
-  if rcp and mode == 'copy' and rcp.isEnabled and rcp.isEnabled() then rcp.stop(); pcall(rcp.start, M) end
+  if rcp and (mode == 'copy' or mode == 'bake') and rcp.isEnabled and rcp.isEnabled() then rcp.stop(); pcall(rcp.start, M) end
+  local rbk = P.mod('roadBake')
+  if rbk and mode == 'bake' and rbk.isEnabled() then rbk.stop(); pcall(rbk.start, M) end
   local dec = P.mod('decals')
   if dec and mode == 'overlay' and dec.isEnabled and dec.isEnabled() then dec.stop(true); pcall(dec.start, M) end
   if mode == 'drape' and not P.reg.drapeWarned then
@@ -7078,7 +7110,7 @@ end
 -- lifecycle
 -------------------------------------------------------------------------------
 function P.loadSubModules()
-  for _, n in ipairs({ 'materials', 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'roadCopy', 'overlay', 'preRut', 'gui' }) do
+  for _, n in ipairs({ 'materials', 'tileMesh', 'farMesh', 'wheelMud', 'physics', 'decals', 'roadCopy', 'roadBakeCore', 'roadBake', 'overlay', 'preRut', 'gui' }) do
     local name = 'deepnode_' .. n
     if extensions and not extensions[name] then
       extensions.load(name)
@@ -7192,9 +7224,14 @@ function P.start()
     if not okDec then log('E', logTag, 'decal overlay failed: ' .. tostring(errDec)) end
   end
   local rcp = P.mod('roadCopy')
-  if rcp and P.roadMode() == 'copy' then
+  if rcp and (P.roadMode() == 'copy' or P.roadMode() == 'bake') then
     local okRc, errRc = pcall(rcp.start, M)
     if not okRc then log('E', logTag, 'road copies failed: ' .. tostring(errRc)) end
+  end
+  local rbk = P.mod('roadBake')
+  if rbk and P.roadMode() == 'bake' then
+    local okRb, errRb = pcall(rbk.start, M)
+    if not okRb then log('E', logTag, 'road bake failed: ' .. tostring(errRb)) end
   end
   local ov = P.mod('overlay')
   if ov then
@@ -7267,6 +7304,8 @@ function P.stop(objectsAlive)
   if dec then dec.stop(objectsAlive) end
   local rcp = P.mod('roadCopy')
   if rcp then rcp.stop() end
+  local rbk = P.mod('roadBake')
+  if rbk then rbk.stop() end
   local ov = P.mod('overlay')
   if ov then ov.stop(objectsAlive) end
   -- decal roads hidden while off are shown again

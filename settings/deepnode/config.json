@@ -18,6 +18,11 @@
   "roads": {
     "enabled": true,
     "mode": "off",
+    "bakeSize": 512,
+    "bakeRadius": 80,
+    "bakeMaxPerSec": 3,
+    "bakeCache": true,
+    "bakeHighOnTop": false,
     "overlayOriginal": true,
     "overlayOnRuts": true,
     "hideOnMud": true,
