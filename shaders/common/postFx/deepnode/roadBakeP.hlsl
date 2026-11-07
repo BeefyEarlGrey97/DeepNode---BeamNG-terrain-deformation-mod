@@ -25,7 +25,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnMat;   // tint rgb, opacity factor
     uniform float4 dnMat2;  // alphaRef (-1 none), normal strength, roughness factor, metallic factor
     uniform float4 dnMat3;  // texel size (m), texture length (m per v repeat), tangent x sign, tangent y sign
-    uniform float4 dnCtl;   // quad count, output (0 = A, 1 = B), has opacity map, clear (> 0.5: output zero)
+    uniform float4 dnCtl;   // quad count, output (0 = A, 1 = B), maps present (1 opacity + 2 roughness), clear (> 0.5: output zero)
     // quad i: dnP = left0 xy, right0 xy; dnQ = left1 xy, right1 xy; dnV = v0, v1, road index, road width (m)
     uniform float4 dnP0; uniform float4 dnQ0; uniform float4 dnV0;
     uniform float4 dnP1; uniform float4 dnQ1; uniform float4 dnV1;
@@ -132,7 +132,8 @@ float4 roadSample(float2 uv, float2 rgt, float width, float outB, out float a)
     // mip level of a bake texel on the road texture (texel size over width across, texture length along)
     float lod = max(0.0, log2(max(dnMat3.x * tw / max(width, 0.1), dnMat3.x * th / max(dnMat3.y, 0.1))));
     float4 col = colTexTex.SampleLevel(colTex_sampler_, uv, lod);
-    a = dnMat.w * (dnCtl.z > 0.5 ? opaTexTex.SampleLevel(opaTex_sampler_, uv, lod).x : col.a);
+    uint maps = (uint)(dnCtl.z + 0.5);
+    a = dnMat.w * ((maps & 1u) ? opaTexTex.SampleLevel(opaTex_sampler_, uv, lod).x : col.a);
     if (dnMat2.x >= 0.0 && a < dnMat2.x) a = 0.0;
     a = saturate(a);
     if (outB < 0.5) return float4(col.rgb * dnMat.rgb, a);
@@ -142,7 +143,7 @@ float4 roadSample(float2 uv, float2 rgt, float width, float outB, out float a)
     float2 fwd = float2(-r.y, r.x);
     float2 w = nr.x * r + nr.y * (-fwd);              // road frame: tangent u = right, bitangent v = -forward
     float2 nt = float2(w.x * dnMap.y * dnMat3.z, w.y * dnMap.w * dnMat3.w);   // tile frame: tangent along su x, bitangent along sv y
-    float rough = rghTexTex.SampleLevel(rghTex_sampler_, uv, lod).x * dnMat2.z;
+    float rough = ((maps & 2u) ? rghTexTex.SampleLevel(rghTex_sampler_, uv, lod).x : 1.0) * dnMat2.z;
     return float4(nt * 0.5 + 0.5, rough, dnMat2.w);
 }
 
