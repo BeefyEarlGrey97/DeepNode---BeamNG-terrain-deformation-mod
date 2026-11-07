@@ -325,8 +325,8 @@ local function refresh(m)
     local rbk = extensions and extensions.deepnode_roadBake
     if rbk and rbk.isEnabled() then
       local b = rbk.stats()
-      line(b.failed > 0 and 'warn' or 'txt', sfmt('ROADS baked %d (cache %d)  ready %d  queue %d  copies %d  fail %d',
-        b.baked, b.cached, b.ready, b.queued, b.fallback, b.failed))
+      line(b.failed > 0 and 'warn' or 'txt', sfmt('ROADS baked %d / %d regions (cache %d)  ready %d  copies %d  fail %d',
+        b.baked, b.regions, b.cached, b.ready, b.fallback, b.failed))
     end
     local cl = s.clods
     if cl then

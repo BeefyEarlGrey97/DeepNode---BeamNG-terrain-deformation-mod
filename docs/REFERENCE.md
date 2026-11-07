@@ -594,10 +594,11 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `copyLift` / `copyLiftStep` | 0.008 / 0 | Mode `copy`: m over the mud; extra m per renderPriority level (not needed: copy submeshes draw bottom layer first, depth writes off) |
 | `copyMerge` | true | Mode `copy`: the drawn cells of a dug square go into the copies as greedy planar rectangles instead of one quad per cell |
 | `copyMergeFlat` | 0.004 | Mode `copy`: m; largest mud deviation from a merged copy quad (keep it under `copyLift`) |
-| `bakeSize` | 512 | Mode `bake` (deepnode_roadBake): texels per tile side of the baked road images (5 m tiles: ~1 cm); part of the cache signature |
-| `bakeRadius` | 80 | Mode `bake`: m around the camera and every vehicle; road tiles within it are baked ahead (others when they get a mesh) |
-| `bakeMaxPerSec` | 3 | Mode `bake`: tiles started per second; each GPU bake costs ~+5 ms a frame while it runs (readback of 5 images), cache hits nothing |
-| `bakeCache` | true | Mode `bake`: keep the images on disk (`<user folder>/deepnode_cache/roadbake/<level>/<tile>_<signature>_*.png`); a changed road set rebakes only its tiles |
+| `bakeSize` | 2048 | deepnode_roadBake: texels per region side of the baked road images (regions of 4 x 4 tiles, 20 m: ~1 cm); part of the cache signature |
+| `bakeLoadMax` | 120 | s: every mode bakes all decal roads over soft ground at map load with physics paused (progress in a UI message); after this many seconds physics resumes and the rest bakes in the background |
+| `bakeMaxPerSec` | 1 | Regions started per second after the load phase; each GPU bake costs ~+5 ms a frame while it runs (readback of 5 images), cache hits nothing |
+| `maxMapKm2` | 68 | Maps larger than this (km², 8 x 8 km; hw550 8192 m = 67.1) bake nothing and decal roads on the mud are off (mode treated as `off`) |
+| `bakeCache` | true | Mode `bake`: keep the images on disk (`<user folder>/deepnode_cache/roadbake/<level>/r<rx>_<ry>_<signature>_*.png`, one set per region); a changed road set rebakes only its regions; stale images are removed at the next start |
 | `bakeHighOnTop` | false | Mode `bake`: draw order of stacked roads; true = higher renderPriority on top (set by the calibration against the vanilla decals) |
 | `bakeTangent` | `{1, 1}` | Mode `bake`: sign of the baked normal's x / y in the tile frame (calibration) |
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |

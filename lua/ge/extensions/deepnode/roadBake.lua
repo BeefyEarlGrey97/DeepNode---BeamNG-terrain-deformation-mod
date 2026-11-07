@@ -1,22 +1,26 @@
 -- deepnode_roadBake
--- Decal roads baked into the mud (roads.mode 'bake'). Every road over a soft-ground tile is
--- rendered once, top-down, into five small images per tile (colour, opacity, normal,
--- roughness, metallic); the tile's mud material gets one detail-only layer that reads them
+-- Decal roads baked into the mud (roads.mode 'bake'). Every road over soft ground is rendered
+-- once, top-down, into five images per region of REGION x REGION tiles (colour, opacity, normal,
+-- roughness, metallic); the mud material of its tiles gets one detail-only layer that reads them
 -- (roadBakeCore.layerFields). The road then lies in the mud surface itself: it follows every rut,
 -- is lit like the ground and needs no copy submeshes (deepnode_roadCopy stays the fallback for
 -- tiles whose bake is not loaded yet, see main.tileMatName / tileMesh).
 --
--- Bake (GPU, one tile at a time, one road material per frame): roadBakeP.hlsl composites the
+-- Bake (GPU, one region at a time, one road material per frame): roadBakeP.hlsl composites the
 -- material's quads over the accumulators #deepnode_rbA / #deepnode_rbB (ping-pong through
 -- rutCopyP.hlsl: several post effects cannot share one named target, so one effect pair is used
 -- and its road maps are switched per step with PostEffect:setTexture). roadBakeResolveP.hlsl writes
 -- the five images; named-buffer screenshots save them as PNG in the cache
 -- (deepnode_cache/roadbake/<level>/, roadBakeCore.cachePaths). The engine cooks each PNG to
--- /temp/<path>.dds when a material first uses it; the clone is reloaded once the cooks exist, and
--- only then the tile counts as ready (main.onRoadBakeReady rebuilds it).
+-- /temp/<path>.dds when its texture manager loads it (cookOne); only then the region counts as
+-- ready (main.onRoadBakeReady rebuilds its tiles).
 --
--- Clones (deepnode_rb_<tile>_<layer>) are never deleted during a session: the tile mesh pool keeps
--- ProceduralMesh objects that still reference them.
+-- Every region bakes at map load, whatever roads.mode is, with physics paused for at most
+-- roads.bakeLoadMax s (start(main, true)); the rest bakes in the background. Only mode 'bake'
+-- uses the images (ready / matFor); the other modes fill the cache for later loads.
+--
+-- Clones (deepnode_rb_<region>_<layer>) are never deleted during a session: the tile mesh pool
+-- keeps ProceduralMesh objects that still reference them.
 
 local M = {}
 
@@ -28,6 +32,7 @@ local ctx = nil         -- deepnode_main
 local enabled = false
 local VERSION = 1       -- bake shader / layout version (part of the signature)
 local MAXQ = 64         -- quads per bake step (roadBakeP.hlsl constant slots)
+local REGION = 4        -- tiles per region side (5 m tiles: 20 m regions)
 local SHADER_DIR = 'shaders/common/postFx/deepnode/'
 local BAKE_PATH, RES_PATH, COPY_PATH = SHADER_DIR .. 'roadBakeP.hlsl', SHADER_DIR .. 'roadBakeResolveP.hlsl', SHADER_DIR .. 'rutCopyP.hlsl'
 local FX_A, FX_B, FX_CA, FX_CB = 'deepnode_rbFxA', 'deepnode_rbFxB', 'deepnode_rbCopyA', 'deepnode_rbCopyB'
@@ -36,17 +41,19 @@ local SB = 'deepnode_rbSB'
 local T_A, T_AT, T_B, T_BT, T_OUT = '#deepnode_rbA', '#deepnode_rbAt', '#deepnode_rbB', '#deepnode_rbBt', '#deepnode_rbOut'
 
 local roads = {}        -- { id, mat, prio, tl, L, R, D, info }
-local byTile = {}       -- tile key -> { road, ... }
+local byRegion = {}     -- region key -> { rx, ry, roads = { road, ... } }
+local regionOfTile = {} -- tile key -> region key
 local matInfo = {}      -- road material -> { col, opa, nrm, rgh, tint, opacity, aref, nstr, rough, metal } | false
-local recs = {}         -- tile key -> { state, sig, files, map, groups, step, clones, t0 }
-local front = {}        -- tile keys moved to the front of the queue (meshed while unbaked)
+local recs = {}         -- region key -> { state, sig, files, map, groups, step, clones, t0 }
+local front = {}        -- region keys moved to the front of the queue (meshed while unbaked)
 local queue, queuePos, queueT = {}, 1, -huge
-local job = nil         -- tile record being baked
+local job = nil         -- region record being baked
+local loading = nil     -- map-load phase: { t0, total, msgT, wasRunning }
 local fxReady = false
 local shaderNames = {}
 local consts = { a = {}, b = {}, res = {} }
-local startedT = {}     -- start times of the tiles of the last second (bakeMaxPerSec)
-local stats = { roads = 0, tiles = 0, queued = 0, baked = 0, ready = 0, fallback = 0, failed = 0, cached = 0, bakeMs = 0, lastError = '' }
+local startedT = {}     -- start times of the regions of the last second (bakeMaxPerSec)
+local stats = { roads = 0, tiles = 0, regions = 0, loadMs = 0, queued = 0, baked = 0, ready = 0, fallback = 0, failed = 0, cached = 0, bakeMs = 0, lastError = '' }
 
 local function find(n) return scenetree.findObject(n) end
 local function field(o, name, st)
@@ -56,7 +63,8 @@ local function field(o, name, st)
 end
 local function num(o, name, d) return tonumber(field(o, name)) or d end
 local function isFinite(v) return type(v) == 'number' and v == v and v > -1e7 and v < 1e7 end
-local function now() return ctx.simTime() end
+-- real time: physics (and the mod's sim clock) is paused while the map-load phase bakes
+local function now() return os.clock() end
 
 -------------------------------------------------------------------------------
 -- roads over soft ground
@@ -114,7 +122,7 @@ local function addRoad(road, P)
   local e = { id = road:getId(), mat = mat, prio = tonumber(field(road, 'renderPriority')) or 10, tl = tl, L = L, R = R, D = D }
   roads[#roads + 1] = e
   local ter, T, KEY = ctx.ter, ctx.tileSize, ctx.KEY
-  local seen = {}
+  local seen, seenR = {}, {}
   for i = 1, n - 1 do
     local x0 = min(L[i].x, R[i].x, L[i + 1].x, R[i + 1].x) - 0.3
     local x1 = max(L[i].x, R[i].x, L[i + 1].x, R[i + 1].x) + 0.3
@@ -125,20 +133,26 @@ local function addRoad(road, P)
         local k = ty * KEY + tx
         if not seen[k] then
           seen[k] = true
-          local list = byTile[k]
-          if not list then list = {}; byTile[k] = list end
-          list[#list + 1] = e
+          local rx, ry = C.regionOf(tx, ty, REGION)
+          local rk = C.regionKey(rx, ry)
+          regionOfTile[k] = rk
+          if not seenR[rk] then
+            seenR[rk] = true
+            local reg = byRegion[rk]
+            if not reg then reg = { rx = rx, ry = ry, roads = {} }; byRegion[rk] = reg end
+            reg.roads[#reg.roads + 1] = e
+          end
         end
       end
     end
   end
 end
 
-local function tileOrigin(k)
-  local KEY = ctx.KEY
-  local tx, ty = k % KEY, floor(k / KEY)
-  return ctx.ter.ox + tx * ctx.tileSize, ctx.ter.oy + ty * ctx.tileSize
+local function regionOrigin(rk)
+  local reg = byRegion[rk]
+  return C.regionOrigin(reg.rx, reg.ry, REGION, ctx.tileSize, ctx.ter.ox, ctx.ter.oy)
 end
+local function regionSize() return REGION * ctx.tileSize end
 
 -------------------------------------------------------------------------------
 -- post effects
@@ -242,17 +256,17 @@ local function killEffects()
 end
 
 -------------------------------------------------------------------------------
--- one tile
+-- one region
 -------------------------------------------------------------------------------
 local function f4(a, b, c, d) return sfmt('%.6f %.6f %.6f %.6f', a, b, c, d) end
 
--- roads over tile k as roadBakeCore wants them (quads clipped to the tile)
-local function tileRoads(k)
-  local x0, y0 = tileOrigin(k)
-  local T = ctx.tileSize
+-- roads over region rk as roadBakeCore wants them (quads clipped to the region)
+local function regionRoads(rk)
+  local x0, y0 = regionOrigin(rk)
+  local S = regionSize()
   local out = {}
-  for _, r in ipairs(byTile[k] or {}) do
-    local q = C.tileQuads(r, x0, y0, T, 0.3)
+  for _, r in ipairs(byRegion[rk].roads) do
+    local q = C.tileQuads(r, x0, y0, S, 0.3)
     if #q > 0 then out[#out + 1] = { id = r.id, mat = r.mat, prio = r.prio, tl = r.tl, quads = q } end
   end
   return out, x0, y0
@@ -260,18 +274,18 @@ end
 
 local function highOnTop() return ctx.cfg.roads.bakeHighOnTop == true end
 
--- the record of tile k with signature, files and bake groups (nil: no roads over it)
+-- the record of region k with signature, files and bake groups (nil: no roads over it)
 local function prepare(k)
-  local rs, x0, y0 = tileRoads(k)
+  local rs, x0, y0 = regionRoads(k)
   if #rs == 0 then return nil end
-  local T = ctx.tileSize
-  local e = ctx.mudLayerAt(x0 + T * 0.5, y0 + T * 0.5)
-  local map = C.tileMapping(ctx.uvOf, e, x0, y0, T)
-  local size = floor(ctx.cfg.roads.bakeSize or 512)
+  local S = regionSize()
+  local e = ctx.mudLayerAt(x0 + S * 0.5, y0 + S * 0.5)
+  local map = C.tileMapping(ctx.uvOf, e, x0, y0, S)
+  local size = floor(ctx.cfg.roads.bakeSize or 2048)
   local sig = C.signature(rs, { version = sfmt('%d|%.6f|%.6f|%.6f|%.6f|%d|%d', VERSION, map.sx, map.sy, map.cu, map.cv, map.su, map.sv),
     size = size, highOnTop = highOnTop() })
   local files = C.cachePaths(ctx.private.levelName, k, sig)
-  return { key = k, x0 = x0, y0 = y0, e = e, map = map, sig = sig, files = files, size = size,
+  return { key = k, x0 = x0, y0 = y0, S = S, e = e, map = map, sig = sig, files = files, size = size,
     groups = C.drawGroups(rs, highOnTop(), MAXQ), clones = {} }
 end
 
@@ -311,6 +325,8 @@ local function cookOne(files)
     if not FS:fileExists(cookPath(files[n])) then
       local im = rawget(_G, 'ui_imgui')
       if im and im.ImTextureHandler and FS:fileExists(files[n]) then pcall(im.ImTextureHandler, files[n]) end
+      -- the handle is not kept: its texture would stay in VRAM next to the material's
+      collectgarbage('step')
       return false
     end
   end
@@ -320,7 +336,7 @@ end
 -- constants of one bake step: group g (nil: clear) for output 0 (A) or 1 (B)
 local function stepConsts(dst, rec, g, out)
   for k in pairs(dst) do dst[k] = nil end
-  local map, T = rec.map, ctx.tileSize
+  local map, T = rec.map, rec.S
   dst['$dnTile'] = f4(rec.x0, rec.y0, T, rec.size)
   dst['$dnMap'] = f4(map.cu, map.su, map.cv, map.sv)
   local tangent = ctx.cfg.roads.bakeTangent or { 1, 1 }
@@ -358,7 +374,7 @@ end
 local function fail(rec, why)
   rec.state = 'failed'
   stats.failed = stats.failed + 1
-  stats.lastError = sfmt('tile %d: %s', rec.key, why)
+  stats.lastError = sfmt('region %s: %s', rec.key, why)
   log('W', 'deepnode', 'road bake ' .. stats.lastError)
 end
 
@@ -402,21 +418,15 @@ local function stepJob(rec)
       -- older images of this tile stay until the next start (sweepCache): a material may still
       -- reference them, and a file deleted under a live material made the engine re-cook it and
       -- crash (2026-11-07)
-      rec.state = 'precook'
+      rec.state = 'cook'
       rec.t0 = now()
       return true
     end
     if now() - rec.t0 > 10 then bakeOff(); fail(rec, 'screenshots not saved'); return false end
     return true
-  elseif rec.state == 'precook' then
-    if cookOne(rec.files) then
-      rec.state = 'baked'
-      stats.baked = stats.baked + 1
-      return false
-    end
-    if now() - rec.t0 > 10 then fail(rec, 'textures not cooked'); return false end
-    return true
   end
+  -- 'cook': the job is done, onUpdate cooks the images
+  stats.baked = stats.baked + 1
   return false
 end
 
@@ -428,15 +438,16 @@ local function sameMap(a, b)
     and math.abs(a.cv - b.cv) < 1e-6 and a.su == b.su and a.sv == b.sv
 end
 
--- clone of layer e's mud material with the baked layer (nil: not possible)
+-- clone of layer e's mud material with the baked layer (nil: not possible); shared by the
+-- region's tiles (mesh UV = terrain UV, so one detailScale fits all of them)
 local function makeClone(rec, e)
   local have = rec.clones[e]
   if have ~= nil then return have or nil end
-  local map = C.tileMapping(ctx.uvOf, e, rec.x0, rec.y0, ctx.tileSize)
+  local map = C.tileMapping(ctx.uvOf, e, rec.x0, rec.y0, rec.S)
   local src = find(ctx.matName(e))
   local fields = src and sameMap(map, rec.map) and C.layerFields(num(src, 'activeLayers', 1), rec.files, rec.map)
   if not fields then rec.clones[e] = false; return nil end
-  local name = sfmt('deepnode_rb_%d_%d', rec.key, e)
+  local name = sfmt('deepnode_rb_%s_%d', rec.key, e)
   local m = find(name)
   local fresh = m == nil
   if fresh then m = createObject('Material') end
@@ -451,33 +462,19 @@ local function makeClone(rec, e)
   if fresh then
     m.canSave = false
     m:registerObject(name)
-  else
-    pcall(function() m:reload() end)
   end
+  -- the cooks exist (state 'ready'): the reload loads them
+  pcall(function() m:reload() end)
   rec.clones[e] = name
   return name
 end
 
-local function reloadClones(rec)
-  for _, name in pairs(rec.clones) do
-    local m = name and find(name)
-    if m then pcall(function() m:reload() end) end
+-- the region's tiles rebuild with (or without) the baked layer
+local function notifyTiles(rec)
+  if not ctx.onRoadBakeReady then return end
+  for k, rk in pairs(regionOfTile) do
+    if rk == rec.key then ctx.onRoadBakeReady(k) end
   end
-end
-
--- a baked tile that has a mesh: clones for its layers, then wait for the cooks
-local function attach(rec, t)
-  local okAll = true
-  for _, e in ipairs(t.matList or { rec.e }) do
-    if not makeClone(rec, e) then okAll = false end
-  end
-  if not okAll then
-    rec.state = 'fallback'
-    stats.fallback = stats.fallback + 1
-    return
-  end
-  rec.state = 'cook'
-  rec.t0 = now()
 end
 
 -------------------------------------------------------------------------------
@@ -497,16 +494,17 @@ local function points()
   return pts
 end
 
+-- every region not started yet, nearest to the camera and the vehicles first
 local function rebuildQueue()
-  local T = ctx.tileSize
+  local S = regionSize()
   local cand = {}
-  for k in pairs(byTile) do
+  for k in pairs(byRegion) do
     if not recs[k] then
-      local x0, y0 = tileOrigin(k)
-      cand[k] = { x0 + T * 0.5, y0 + T * 0.5 }
+      local x0, y0 = regionOrigin(k)
+      cand[k] = { x0 + S * 0.5, y0 + S * 0.5 }
     end
   end
-  queue = C.queueOrder(cand, points(), ctx.cfg.roads.bakeRadius or 80)
+  queue = C.queueOrder(cand, points(), huge)
   queuePos = 1
   stats.queued = #queue
 end
@@ -514,7 +512,7 @@ end
 local function nextKey()
   while #front > 0 do
     local k = table.remove(front, 1)
-    if not recs[k] and byTile[k] then return k end
+    if not recs[k] and byRegion[k] then return k end
   end
   while queuePos <= #queue do
     local k = queue[queuePos]
@@ -525,32 +523,71 @@ local function nextKey()
 end
 
 local function mayStart()
+  if loading then return true end
   local t = now()
   local keep = {}
   for _, s in ipairs(startedT) do if t - s < 1 then keep[#keep + 1] = s end end
   startedT = keep
-  return #startedT < (ctx.cfg.roads.bakeMaxPerSec or 3)
+  return #startedT < (ctx.cfg.roads.bakeMaxPerSec or 1)
 end
 
--- start the next tile: cache hit (files with the current signature) or a GPU job
+-- start the next region: cache hit (files with the current signature) or a GPU job
 local function startNext()
   local k = nextKey()
-  if not k then return end
+  if not k then return false end
   local rec = prepare(k)
-  if not rec then recs[k] = { key = k, state = 'none', clones = {} }; return end
+  if not rec then recs[k] = { key = k, state = 'none', clones = {} }; return true end
   recs[k] = rec
   startedT[#startedT + 1] = now()
+  rec.t0 = now()
   if ctx.cfg.roads.bakeCache ~= false and filesExist(rec.files) then
-    rec.state = 'baked'
+    rec.state = 'cook'
     stats.cached = stats.cached + 1
     stats.baked = stats.baked + 1
-    return
+    return true
   end
   makeEffects()
   rec.state = 'bake'
   rec.step = 0
   rec.tStart = os.clock()
   job = rec
+  return true
+end
+
+local function setPhysics(on)
+  pcall(function() be:setPhysicsRunning(on) end)
+end
+
+local function regionsDone()
+  local done, cooking = 0, false
+  for _, rec in pairs(recs) do
+    if rec.state == 'cook' or rec.state == 'bake' or rec.state == 'resolve' or rec.state == 'shoot' or rec.state == 'save' then
+      cooking = true
+    else
+      done = done + 1
+    end
+  end
+  return done, cooking
+end
+
+-- map-load phase: ends when every region is done, or after bakeLoadMax s
+local function updateLoading()
+  local done, busy = regionsDone()
+  local t = now()
+  local over = t - loading.t0 > (ctx.cfg.roads.bakeLoadMax or 120)
+  if (done >= loading.total and not busy) or over then
+    stats.loadMs = (t - loading.t0) * 1000
+    if loading.wasRunning ~= false then setPhysics(true) end
+    log('I', 'deepnode', sfmt('road bake at load: %d / %d regions in %.1f s (%d from cache)%s', done, loading.total,
+      t - loading.t0, stats.cached, over and ', time cap: the rest bakes in the background' or ''))
+    if ui_message then ui_message(sfmt('DeepNode: decal roads baked (%d / %d)', done, loading.total), 3, 'deepnode_bake') end
+    loading = nil
+    return
+  end
+  if ui_message and t - loading.msgT > 0.5 then
+    loading.msgT = t
+    ui_message(sfmt('DeepNode: baking decal roads %d / %d', done, loading.total), 2, 'deepnode_bake')
+  end
 end
 
 function M.onUpdate()
@@ -569,80 +606,84 @@ function M.onUpdate()
         job = nil
       end
     end
-  elseif mayStart() then
-    if now() - queueT > 1 then rebuildQueue(); queueT = now() end
-    startNext()
   end
-  -- baked tiles: clones once they have a mesh, ready once the cooks exist (at most one image
-  -- cooked a frame: cache hits from an earlier session whose /temp was cleared)
-  local tiles = ctx.tiles
-  local cookBudget = 1
-  for k, rec in pairs(recs) do
-    if rec.state == 'baked' then
-      local t = tiles[k]
-      if t and t.obj then attach(rec, t) end
-    elseif rec.state == 'cook' then
+  -- cache hits start without a GPU job: several a frame while loading
+  for _ = 1, (loading and 8 or 1) do
+    if job or not mayStart() then break end
+    if now() - queueT > 1 then rebuildQueue(); queueT = now() end
+    if not startNext() then break end
+  end
+  -- baked regions: ready once the cooks exist (one image a frame, three while loading)
+  local cookBudget = loading and 3 or 1
+  for _, rec in pairs(recs) do
+    if rec.state == 'cook' then
       local done = cooked(rec.files)
-      if not done and cookBudget > 0 then cookBudget = cookBudget - 1; done = cookOne(rec.files) end
+      while not done and cookBudget > 0 do cookBudget = cookBudget - 1; done = cookOne(rec.files) end
       if done then
-        reloadClones(rec)
         rec.state = 'ready'
         stats.ready = stats.ready + 1
-        if ctx.onRoadBakeReady then ctx.onRoadBakeReady(k) end
+        if ctx.roadBakeOn and ctx.roadBakeOn() then notifyTiles(rec) end
       elseif now() - rec.t0 > 30 then
         fail(rec, 'textures not cooked')
       end
     end
   end
+  if loading then updateLoading() end
 end
 
 -------------------------------------------------------------------------------
 -- interface
 -------------------------------------------------------------------------------
+local function inUse() return enabled and ctx.roadBakeOn and ctx.roadBakeOn() end
+
+-- tile k's region is baked and cooked (mode 'bake' only)
 function M.ready(k)
-  local rec = recs[k]
-  return enabled and rec ~= nil and rec.state == 'ready'
+  local rk = regionOfTile[k]
+  local rec = rk and recs[rk]
+  return inUse() and rec ~= nil and rec.state == 'ready'
 end
 
 -- baked material of layer e on tile k (nil: plain mud material and the copies)
 function M.matFor(k, e)
-  local rec = recs[k]
-  if not (enabled and rec and rec.state == 'ready') then return nil end
-  local name = rec.clones[e]
-  if name == nil then
-    -- a layer the tile did not have when it was attached (dug into another soil): its cooks exist
-    name = makeClone(rec, e)
-    if name then
-      local m = find(name)
-      if m then pcall(function() m:reload() end) end
-    else
-      rec.state = 'fallback'
-      stats.ready = stats.ready - 1
-      stats.fallback = stats.fallback + 1
-      if ctx.onRoadBakeReady then ctx.onRoadBakeReady(k) end
-    end
+  local rk = regionOfTile[k]
+  local rec = rk and recs[rk]
+  if not (inUse() and rec and rec.state == 'ready') then return nil end
+  local name = makeClone(rec, e)
+  if not name then
+    rec.state = 'fallback'
+    stats.ready = stats.ready - 1
+    stats.fallback = stats.fallback + 1
+    notifyTiles(rec)
   end
-  return name or nil
+  return name
 end
 
 function M.prioritize(k)
-  if enabled and byTile[k] and not recs[k] then front[#front + 1] = k end
+  local rk = regionOfTile[k]
+  if enabled and rk and not recs[rk] then front[#front + 1] = rk end
 end
 
-function M.hasRoads(k) return byTile[k] ~= nil end
+function M.hasRoads(k) return regionOfTile[k] ~= nil end
 function M.isEnabled() return enabled end
 function M.stats() return stats end
-function M.state(k) local r = recs[k]; return r and r.state or nil, r and r.files or nil end
+function M.state(k) local r = recs[regionOfTile[k] or '']; return r and r.state or nil, r and r.files or nil end
 function M.jobState() return job and job.state or nil end
+-- map-load phase running, regions done, regions in all
+function M.loading()
+  if not loading then return false, stats.regions, stats.regions end
+  return true, (regionsDone()), loading.total
+end
 
--- stale images (a tile baked again under another signature): per tile only the newest
--- signature's files are kept, and only for tiles without a clone material in the scene (a live
--- material must never lose its files, see the save step)
+-- stale images (a region baked again under another signature, or old per-tile images): per
+-- region only the newest signature's files are kept, and only for keys without a clone
+-- material in the scene (a live material must never lose its files, see the save step)
 local function sweepCache()
-  local dir = C.cachePaths(ctx.private.levelName, 0, 'x').dir
+  local dir = C.cachePaths(ctx.private.levelName, 'x', 'x').dir
   local byKey = {}
   for _, f in ipairs(FS:findFiles(dir, '*.png', 0, true, false) or {}) do
-    local key, sig = f:match('/(%d+)_(%x+)_%a+%.%a+%.png$')
+    local key, sig = f:match('/(r%d+_%d+)_(%x+)_%a+%.%a+%.png$')
+    local tileKey = not key and f:match('/(%d+)_%x+_%a+%.%a+%.png$')
+    if tileKey then key, sig = tileKey, 'tile' end
     if key then
       local e = byKey[key] or {}
       byKey[key] = e
@@ -655,14 +696,15 @@ local function sweepCache()
   end
   local cloned = {}
   for _, n in ipairs(scenetree.findClassObjects and scenetree.findClassObjects('Material') or {}) do
-    local key = n:match('^deepnode_rb_(%d+)_')
+    local key = n:match('^deepnode_rb_(r%d+_%d+)_') or n:match('^deepnode_rb_(%d+)_')
     if key then cloned[key] = true end
   end
   local removed = 0
   for key, sigs in pairs(byKey) do
     if not cloned[key] then
+      -- old per-tile images ('tile') are never the newest: regions replaced them
       local newest, nt = nil, -1
-      for sig, e in pairs(sigs) do if e.t > nt then newest, nt = sig, e.t end end
+      for sig, e in pairs(sigs) do if sig ~= 'tile' and e.t > nt then newest, nt = sig, e.t end end
       for sig, e in pairs(sigs) do
         if sig ~= newest then
           for _, f in ipairs(e.files) do FS:removeFile(f); removed = removed + 1 end
@@ -673,10 +715,12 @@ local function sweepCache()
   return removed
 end
 
-function M.start(main)
+-- atLoad: the map-load phase (physics paused, every region first); else background only
+function M.start(main, atLoad)
   ctx = main
   C = (extensions and extensions.deepnode_roadBakeCore) or require('ge/extensions/deepnode/roadBakeCore')
-  roads, byTile, matInfo, recs, front, queue, queuePos, queueT, job = {}, {}, {}, {}, {}, {}, 1, -huge, nil
+  roads, byRegion, regionOfTile, matInfo, recs, front = {}, {}, {}, {}, {}, {}
+  queue, queuePos, queueT, job, loading = {}, 1, -huge, nil, nil
   for k in pairs(stats) do stats[k] = type(stats[k]) == 'number' and 0 or '' end
   local P = main.private
   local t0 = hptimer and hptimer()
@@ -690,20 +734,31 @@ function M.start(main)
       end
     end
   end
-  for _ in pairs(byTile) do stats.tiles = stats.tiles + 1 end
+  for _ in pairs(regionOfTile) do stats.tiles = stats.tiles + 1 end
+  for _ in pairs(byRegion) do stats.regions = stats.regions + 1 end
   stats.roads = #roads
   local okS, removed = pcall(sweepCache)
   if okS and removed > 0 then log('I', 'deepnode', 'road bake: removed ' .. removed .. ' stale cache images') end
   enabled = true
-  log('I', 'deepnode', sfmt('road bake: %d roads over soft ground, %d tiles, %.0f ms', #roads, stats.tiles, t0 and t0:stop() or 0))
+  if atLoad and stats.regions > 0 then
+    local okR, wasRunning = pcall(function() return be:getPhysicsRunning() end)
+    loading = { t0 = now(), msgT = -huge, total = stats.regions, wasRunning = okR and wasRunning or nil }
+    setPhysics(false)
+  end
+  log('I', 'deepnode', sfmt('road bake: %d roads over soft ground, %d tiles, %d regions, %.0f ms', #roads, stats.tiles,
+    stats.regions, t0 and t0:stop() or 0))
   return #roads
 end
 
 function M.stop()
   enabled = false
   job = nil
+  if loading then
+    if loading.wasRunning ~= false then setPhysics(true) end
+    loading = nil
+  end
   killEffects()
-  roads, byTile, recs, front, queue = {}, {}, {}, {}, {}
+  roads, byRegion, regionOfTile, recs, front, queue = {}, {}, {}, {}, {}, {}
 end
 
 M.onExtensionLoaded = function() setExtensionUnloadMode(M, 'manual') end

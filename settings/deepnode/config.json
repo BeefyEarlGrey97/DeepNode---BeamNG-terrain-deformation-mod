@@ -18,9 +18,10 @@
   "roads": {
     "enabled": true,
     "mode": "off",
-    "bakeSize": 512,
-    "bakeRadius": 80,
-    "bakeMaxPerSec": 3,
+    "bakeSize": 2048,
+    "bakeLoadMax": 120,
+    "bakeMaxPerSec": 1,
+    "maxMapKm2": 68,
     "bakeCache": true,
     "bakeHighOnTop": false,
     "overlayOriginal": true,

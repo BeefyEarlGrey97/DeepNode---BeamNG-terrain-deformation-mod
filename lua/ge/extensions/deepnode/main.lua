@@ -152,11 +152,10 @@ local defaults = {
     -- time even with castShadows 0 (5 levels -10 fps with 8 trucks, BENCHMARK 15)
     copyFade = {},
     copyMerge = true,       -- drawn cells of a dug square merged into planar rectangles for the copies
-    -- 'bake' (deepnode_roadBake): every road over a tile rendered once into five images the
-    -- tile's mud material reads as one layer (no copy submeshes); copies until a tile is baked
-    bakeSize = 512,         -- texels per tile side (5 m tiles: ~1 cm)
-    bakeRadius = 80,        -- m around the camera and the vehicles: tiles baked ahead
-    bakeMaxPerSec = 3,      -- tiles started per second (each bake costs ~+5 ms a frame on the GPU)
+    bakeSize = 2048,        -- texels per region side (20 m regions: ~1 cm)
+    bakeLoadMax = 120,      -- s: map-load phase (physics paused); the rest bakes in the background
+    bakeMaxPerSec = 1,      -- regions started per second after the load phase (~+5 ms a frame on the GPU)
+    maxMapKm2 = 68,         -- maps over this (8 x 8 km; hw550 8192 m = 67.1) bake nothing, decal roads off
     bakeCache = true,       -- keep the images on disk per level (deepnode_cache/roadbake/<level>/)
     bakeHighOnTop = false,  -- draw order: higher renderPriority on top (else lower on top)
     bakeTangent = { 1, 1 }, -- sign of the baked normal's x / y in the tile frame (calibration)
@@ -1734,9 +1733,15 @@ end
 
 -- 'overlay' (decals drawn into the mud meshes, deepnode_decals), 'drape' (engine decals
 -- switched to overObjects and draped by a collision reload) or 'off'
+-- decal roads on the mud only on maps up to roads.maxMapKm2 (the bake and the copies)
+function P.roadsAllowed()
+  local C = P.mod('roadBakeCore')
+  return not (ter and C and not C.mapAllowed(ter.worldSize, cfg.roads.maxMapKm2 or 68))
+end
+
 function P.roadMode()
   local r = cfg.roads
-  if not r or r.enabled == false then return 'off' end
+  if not r or r.enabled == false or not P.roadsAllowed() then return 'off' end
   if r.mode == 'drape' then return r.overObjects ~= false and 'drape' or 'off' end
   if r.mode == 'off' then return 'off' end
   if r.mode == 'overlay' then return 'overlay' end
@@ -2339,13 +2344,11 @@ function M.setDecalRoads(on, mode)
       rcp.stop()
     end
   end
+  -- the bake runs in every mode (started at load); a late start bakes in the background
   local rbk = P.mod('roadBake')
-  if rbk then
-    rbk.stop()
-    if P.roadMode() == 'bake' then
-      local ok, err = pcall(rbk.start, M)
-      if not ok then log('E', logTag, 'road bake failed: ' .. tostring(err)) end
-    end
+  if rbk and not rbk.isEnabled() and P.roadsAllowed() and cfg.roads.enabled ~= false then
+    local ok, err = pcall(rbk.start, M)
+    if not ok then log('E', logTag, 'road bake failed: ' .. tostring(err)) end
   end
   for _, t in pairs(tiles) do
     if t.obj then t.dirty = true end
@@ -3559,7 +3562,7 @@ function P.shiftTail(fx, fy, ob, nb, extra, t0, loadMs, sinkMs, gridMs, what)
   local rcp = P.mod('roadCopy')
   if rcp and (mode == 'copy' or mode == 'bake') and rcp.isEnabled and rcp.isEnabled() then rcp.stop(); pcall(rcp.start, M) end
   local rbk = P.mod('roadBake')
-  if rbk and mode == 'bake' and rbk.isEnabled() then rbk.stop(); pcall(rbk.start, M) end
+  if rbk and rbk.isEnabled() then rbk.stop(); pcall(rbk.start, M) end
   local dec = P.mod('decals')
   if dec and mode == 'overlay' and dec.isEnabled and dec.isEnabled() then dec.stop(true); pcall(dec.start, M) end
   if mode == 'drape' and not P.reg.drapeWarned then
@@ -7228,9 +7231,13 @@ function P.start()
     local okRc, errRc = pcall(rcp.start, M)
     if not okRc then log('E', logTag, 'road copies failed: ' .. tostring(errRc)) end
   end
+  -- every mode bakes the roads at load (physics paused up to bakeLoadMax s): the images are
+  -- cached for mode 'bake' and later loads
   local rbk = P.mod('roadBake')
-  if rbk and P.roadMode() == 'bake' then
-    local okRb, errRb = pcall(rbk.start, M)
+  if rbk and not P.roadsAllowed() then
+    log('I', logTag, sfmt('decal roads off: map %.1f km2 over roads.maxMapKm2 %s', (ter.worldSize / 1000) ^ 2, tostring(cfg.roads.maxMapKm2 or 68)))
+  elseif rbk and cfg.roads.enabled ~= false then
+    local okRb, errRb = pcall(rbk.start, M, true)
     if not okRb then log('E', logTag, 'road bake failed: ' .. tostring(errRb)) end
   end
   local ov = P.mod('overlay')
