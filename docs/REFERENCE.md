@@ -923,6 +923,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.poolQuiet` | 0.8 | Seconds a tile must go unstamped before its pools are worked out |
 | `overlay.poolMaxPerSec` | 6 | Tiles per second whose pools are worked out (0.6-0.8 ms each) |
 | `overlay.trench` | start 0.08, range 0.12, wet 0.95, darken 0.12 | Wet trench look: mud ruts deeper than `start` m get wetter (up to `wet`), smoother and darker (`darken`) over `range` m |
+| `overlay.shade` | rim 0.35, floor 0.3, floorDepth 0.4, bermLift 0.15 | Depth shading of the prints: floors darker the deeper they lie (`floor`, full at `floorDepth` m below the undisturbed ground), berm tops lighter (`bermLift`, full 5 cm above it); `rim`: dark wet band where mud coverage fades out (not on sand) |
 | `overlay.puddleDepth` | 0.1 | 'noise' mode: rut depth below the undisturbed ground where water starts (m) |
 | `overlay.puddleMurk` | 0.7 | How opaque the muddy water is |
 | `overlay.minNormalZ` | 0.45 | Steeper ground fades out (slope from the depth buffer, not the normal-mapped G-buffer normal) |

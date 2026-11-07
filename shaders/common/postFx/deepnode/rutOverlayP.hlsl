@@ -22,7 +22,9 @@
 //    below it the mud floor turns into flat murky water with a sky sheen, sun glint and
 //    ripples. The old patchy level (puddleMode 'noise') is the fallback;
 //  * wet trenches: the deeper a mud rut, the wetter, smoother and darker its floor
-//    (dnTrench), slick clay instead of crumbs.
+//    (dnTrench), slick clay instead of crumbs;
+//  * depth shading and a wet rim (dnEdge): rut floors darker with depth, berm tops lighter
+//    (drier crust in the light), a dark wet band where the churned soil meets the ground.
 // Fog and translucent objects draw over it afterwards.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
@@ -74,6 +76,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnWater;   // puddle amount (0..1), depth where water starts (m), murk, deepest rut (m)
     uniform float4 dnTrench;  // wet trench: depth it starts (m), depth range (m), wetness, slick darkening
     uniform float4 dnPool;    // pooled water only (1) or the noise level where no pool is stored (0), parallax steps, parallax depth (x press), unused
+    uniform float4 dnEdge;    // wet rim darkening, floor darkening, depth of full floor darkening (m), berm top lightening
 };
 
 #include "../postFx.hlsl"
@@ -374,6 +377,10 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         C2 = max(lerp(dnLum(C2).xxx, C2, 1.0 + K.y * wet), 0.0) * slick;
         // fresh crumbs a little drier than the wet floor under them
         C2 *= 1.0 + (kind == 1 ? dnKindX.w : dnKindX.z) * crumbK * (berm ? 1.0 : 0.5);
+        // depth shading: floors darker the deeper they lie, berm tops (above the ground) lighter
+        C2 *= 1.0 - dnEdge.y * saturate(-dz / max(dnEdge.z, 1e-3)) + dnEdge.w * saturate(dz / 0.05);
+        // wet rim (mud only): dark band where the coverage crosses half (the churned soil's edge), broken up
+        if (kind != 1) C2 *= 1.0 - dnEdge.x * (1.0 - saturate(abs(str - 0.5) / 0.3)) * (0.6 + 0.4 * churn);
     } else {
         // streaky stain of the tyre's coat, breaking up as it runs out
         float4 Cc = kind == 2 ? dnCarry : dnDust;

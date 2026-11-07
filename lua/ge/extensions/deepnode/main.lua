@@ -795,6 +795,9 @@ local defaults = {
     -- wet trenches: mud ruts deeper than start m below the undisturbed ground get wetter
     -- (up to wet), smoother and darker (darken) over range m
     trench = { start = 0.08, range = 0.12, wet = 0.95, darken = 0.12 },
+    -- depth shading and wet rim: floors darker down to floorDepth m (floor), berm tops lighter
+    -- (bermLift), a dark wet band at the churned soil's edge (rim)
+    shade = { rim = 0.35, floor = 0.3, floorDepth = 0.4, bermLift = 0.15 },
     minNormalZ = 0.45,      -- ground steeper than this fades out (geometric slope from depth)
     bermReach = { mud = 2.4, sand = 2.6, snow = 2.0, firm = 1.8 }, -- berm band beside the print, x tyre half width
     -- soft layers whose name contains one of these read as dry soil: sand look (no wet mud,

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Print depth shading (`overlay.shade`): rut floors darken with depth (up to 30 % at 0.4 m), berm
+  tops above the ground lighten (15 %), and mud prints get a dark wet band where their coverage
+  fades out (35 %, not on sand). Overlay shader only, no extra pass.
+
 ## [0.7.0] — 2026-11-07 — ruts keep up with the truck, engine memory returned
 
 ### Added
