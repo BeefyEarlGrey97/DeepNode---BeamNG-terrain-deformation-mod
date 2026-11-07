@@ -48,7 +48,7 @@
     ],
     "overlayLiftStep": 0.002,
     "overlayAlphaRef": 110,
-    "preRut": true,
+    "preRut": false,
     "preDepth": {
       "mud": 0.3,
       "sand": 0.17,

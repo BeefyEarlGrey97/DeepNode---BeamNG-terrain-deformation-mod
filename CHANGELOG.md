@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-07 — hotfix: safer defaults
+
+### Changed
+- Pre-rutted decal roads off by default (`roads.preRut` false; Run tab tick turns them on,
+  applies on Restart).
+- Decal roads on mud default to none (`roads.mode` 'off': terrain material only; docs said 'copy').
+
 ### Added
 - `roads.mode` 'vanilla' (GUI button "Decal roads on mud" cycles off / vanilla / copies):
   the level's own decal roads untouched.

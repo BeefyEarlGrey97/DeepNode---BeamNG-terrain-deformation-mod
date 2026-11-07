@@ -565,7 +565,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `enabled` | true | Keep terrain under hard decal roads free of mud |
 | `margin` | 0.5 | Extra width (m) kept free of mud on each side of a road |
 | `skipMatch` | `["invisible", "dirt"]` | Roads with a material containing one of these texts (or a `softMatch` text) are not carved |
-| `preRut` | true | Decal roads on soft ground become ruts at start: their normal map is integrated to a height field (deepnode_preRut) and carved into the rest surface. GUI "Experimental pre-rutted roads" (applies on Restart) |
+| `preRut` | false | Decal roads on soft ground become ruts at start: their normal map is integrated to a height field (deepnode_preRut) and carved into the rest surface. GUI "Experimental pre-rutted roads" (applies on Restart) |
 | `preDepth` | mud 0.3, sand 0.17, snow 0.1 | Depth (m) of the height field's 5th percentile per ground kind |
 | `preDepthScale` | 1 | Factor on `preDepth` |
 | `preTexWidth` | 64 | Smallest normal-map mip at least this wide is decoded (BC5 / BC4 in Lua) |
@@ -587,7 +587,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `preCellStride` | 1 | Sector cell stride for undug pinned tiles (4 = 0.8 m lost the 0.3 m grooves) |
 | `preTileMax` | 4000 | Pre-rutted tiles kept as frozen tile data (sectors draw them at full resolution) |
 | `preSkipMatch` | `["line", "asphalt", "invisible", "skidmark"]` | Road materials never pre-rutted |
-| `mode` | `"copy"` | Decal roads on the mud (GUI button "Decal roads on mud"): `vanilla` (the level's own decal roads untouched: not hidden, no copies, do not follow ruts), `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
+| `mode` | `"off"` | Decal roads on the mud (GUI button "Decal roads on mud"): `vanilla` (the level's own decal roads untouched: not hidden, no copies, do not follow ruts), `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
 | `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
 | `copyCut` | 0 | Mode `copy`: m; > 0 leaves copy quads with a corner dug deeper than this out (plain holes in the road pattern) |
 | `copyFade` | 5 levels, 0.03-0.14 m | Mode `copy`: `{ { m, opacity x }, ... }`; a copy quad whose mean \|surface - rest\| passes a level's m is drawn with a fainter clone of the road material (no vertex alpha in a ProceduralMesh): the road pattern fades into ruts and over berms |
