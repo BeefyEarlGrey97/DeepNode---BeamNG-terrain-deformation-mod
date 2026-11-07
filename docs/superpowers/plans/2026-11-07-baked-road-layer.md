@@ -237,12 +237,13 @@ Tasks 1–5 are done (per-tile version, commits 1228d1e..61f541e). Task 6 is rep
 
 ### Task 8: Region bake at map load
 
-**Files:** Modify `lua/ge/extensions/deepnode/roadBake.lua`, `lua/ge/extensions/deepnode/main.lua` (start roadBake for every mode; loading phase hooks), `lua/ge/extensions/deepnode/tileMesh.lua` (unchanged API: `rb.ready(t.key)` / `main.tileMatName`), `settings/deepnode/config.json` + `docs/REFERENCE.md` (`bakeSize` 2048, `bakeLoadMax` 60 s, `bakeMaxPerSec` = regions/s).
+**Files:** Modify `lua/ge/extensions/deepnode/roadBake.lua`, `lua/ge/extensions/deepnode/main.lua` (start roadBake for every mode; loading phase hooks), `lua/ge/extensions/deepnode/tileMesh.lua` (unchanged API: `rb.ready(t.key)` / `main.tileMatName`), `settings/deepnode/config.json` + `docs/REFERENCE.md` (`bakeSize` 2048, `bakeLoadMax` 120 s, `bakeMaxPerSec` = regions/s, `maxMapKm2` 68).
 
 **Interfaces — produces:** `M.start(main)` always (records `M.bakeOnly = mode ~= 'bake'`); `M.loading() -> bool, done, total`; `M.ready(tileKey)` true when the tile's region is cooked and its clone exists; `M.matFor(tileKey, e)`; `M.stats()` with `regions`, `loadMs`.
 
 - [ ] Region records keyed by region string; byTile → byRegion (roads clipped to the 20 m square + 0.3 m).
-- [ ] Loading phase: physics paused, `ui_message('DeepNode: baking decal roads n / N', ...)`, one bake step per frame for the active region, next region as soon as its five PNGs are complete, cooks one image per frame; stops at all done or `bakeLoadMax` s, then physics resumes; remainder in the background at `bakeMaxPerSec`.
+- [ ] Loading phase: physics paused, `ui_message('DeepNode: baking decal roads n / N', ...)`, one bake step per frame for the active region, next region as soon as its five PNGs are complete, cooks one image per frame; stops at all done or `bakeLoadMax` (120) s, then physics resumes; remainder in the background at `bakeMaxPerSec`.
+- [ ] Map size gate: `(ter.worldSize / 1000)^2 > roads.maxMapKm2` (68) → roadBake not started and `P.roadMode()` returns 'off' (log one line). Test: `C.mapAllowed(worldSize, maxKm2)` in roadBakeCore — `map_8192_allowed` (8192 → true), `map_12288_refused` (12288 → false).
 - [ ] Cook without keeping texture handles alive (local handle, `collectgarbage('step')` after the cook batch).
 - [ ] Clones per (region, layer); never deleted in-session; sweep at start skips regions with a live clone.
 - [ ] Live: fresh gridmap_v2 load with an empty cache — loading phase time, regions baked, failures 0; second load — cache hits, load time; dig test in bake mode (no plain-mud gap, region clone used); VRAM with mode copy vs bake (`deepnode_main.stats().perf.vramMB` after a dig); luacheck + offline tests; commit "Bake decal roads by region at map load".

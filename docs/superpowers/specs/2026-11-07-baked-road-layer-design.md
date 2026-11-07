@@ -180,7 +180,7 @@ Measured on the per-tile implementation (commits 1228d1e..61f541e): gridmap_v2 h
 under heavily stacked decal roads (the mud pit: 4–6 road materials, up to ~30 roads per tile). Baking
 per tile ran at ~3 tiles/s with ~+5 ms a frame (5 readbacks per tile), so a first visit kept baking for
 minutes in play; every dug tile kept its own material and 1.75 MB of textures, and the session ended
-at 11 GB VRAM. User decision: bake everything at map load, up to one minute, whether or not the road
+at 11 GB VRAM. User decision: bake everything at map load, up to two minutes (first said one), whether or not the road
 feature is on, and keep the result on disk.
 
 ### Decided
@@ -193,9 +193,13 @@ feature is on, and keep the result on disk.
   Loading phase: physics paused (`be:setPhysicsRunning(false)`, as the road drape does), a progress
   notice (`ui_message`), bake steps every frame without the play budget, then the five images cooked.
   Cache hits (current signature on disk, cooked DDS present) cost no GPU work.
-- **One-minute cap:** regions are baked nearest the camera and vehicles first; if the phase reaches
-  60 s, physics resumes and the rest bakes in the background at the old play budget
-  (`roads.bakeMaxPerSec`, regions/s). Huge levels (johnson_valley) are expected to hit the cap.
+- **Two-minute cap:** regions are baked nearest the camera and vehicles first; if the phase reaches
+  120 s (`roads.bakeLoadMax`), physics resumes and the rest bakes in the background at the old play
+  budget (`roads.bakeMaxPerSec`, regions/s).
+- **Map size limit (user, 2026-11-07):** only maps up to 8 x 8 km. Above `roads.maxMapKm2` = 68 km²
+  (the same line as `region.autoAboveKm2`: hw550 8192 m = 67.1 km² still counts) there is no bake and
+  the decal roads on the mud are off (`P.roadMode()` returns 'off'; the engine's decals on undug
+  terrain stay as without the mod).
 - **Play:** in `roads.mode 'bake'` a dug tile uses its region's clone once the region is baked and
   cooked (materials and textures load on the first dug tile of a region); otherwise copies as before.
   In other modes the bake only fills the cache.
