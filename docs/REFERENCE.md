@@ -587,20 +587,14 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `preCellStride` | 1 | Sector cell stride for undug pinned tiles (4 = 0.8 m lost the 0.3 m grooves) |
 | `preTileMax` | 4000 | Pre-rutted tiles kept as frozen tile data (sectors draw them at full resolution) |
 | `preSkipMatch` | `["line", "asphalt", "invisible", "skidmark"]` | Road materials never pre-rutted |
-| `mode` | `"copy"` | Decal roads on the mud: `bake` (roads baked per 20 m region into a layer of the mud material at map load, copies until a region is ready; GUI "Bake roads into the mud"), `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
+| `mode` | `"copy"` | Decal roads on the mud (GUI button "Decal roads on mud"): `vanilla` (the level's own decal roads untouched: not hidden, no copies, do not follow ruts), `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
 | `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
 | `copyCut` | 0 | Mode `copy`: m; > 0 leaves copy quads with a corner dug deeper than this out (plain holes in the road pattern) |
 | `copyFade` | 5 levels, 0.03-0.14 m | Mode `copy`: `{ { m, opacity x }, ... }`; a copy quad whose mean \|surface - rest\| passes a level's m is drawn with a fainter clone of the road material (no vertex alpha in a ProceduralMesh): the road pattern fades into ruts and over berms |
 | `copyLift` / `copyLiftStep` | 0.008 / 0 | Mode `copy`: m over the mud; extra m per renderPriority level (not needed: copy submeshes draw bottom layer first, depth writes off) |
 | `copyMerge` | true | Mode `copy`: the drawn cells of a dug square go into the copies as greedy planar rectangles instead of one quad per cell |
 | `copyMergeFlat` | 0.004 | Mode `copy`: m; largest mud deviation from a merged copy quad (keep it under `copyLift`) |
-| `bakeSize` | 2048 | deepnode_roadBake: texels per region side of the baked road images (regions of 4 x 4 tiles, 20 m: ~1 cm); part of the cache signature |
-| `bakeLoadMax` | 120 | s: every mode bakes all decal roads over soft ground at map load with physics paused (progress in a UI message); after this many seconds physics resumes and the rest bakes in the background |
-| `bakeMaxPerSec` | 1 | Regions started per second after the load phase; each GPU bake costs ~+5 ms a frame while it runs (readback of 5 images), cache hits nothing |
-| `maxMapKm2` | 68 | Maps larger than this (km², 8 x 8 km; hw550 8192 m = 67.1) bake nothing and decal roads on the mud are off (mode treated as `off`) |
-| `bakeCache` | true | Mode `bake`: keep the images on disk (`<user folder>/deepnode_cache/roadbake/<level>/r<rx>_<ry>_<signature>_*.png`, one set per region); a changed road set rebakes only its regions; stale images are removed at the next start |
-| `bakeHighOnTop` | false | Mode `bake`: draw order of stacked roads; true = higher renderPriority on top (set by the calibration against the vanilla decals) |
-| `bakeTangent` | `{1, 1}` | Mode `bake`: sign of the baked normal's x / y in the tile frame (calibration) |
+| `maxMapKm2` | 68 | Maps larger than this (km², 8 x 8 km; hw550 8192 m = 67.1): decal roads on the mud are off (mode treated as `off`) |
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |
 | `overlayOnRuts` | true | Copies also on rut and track cells, clipped to the strip (the pattern drapes over the ruts); false = untouched squares only |
 | `overlayQuiet` | 1.0 | s after a tile's last stamp before its decal copies are built (0 = every build) |

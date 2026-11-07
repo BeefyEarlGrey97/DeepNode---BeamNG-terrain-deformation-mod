@@ -322,12 +322,6 @@ local function refresh(m)
     local inMud = 0
     for _, v in ipairs(m.vehicleStats()) do if v.wheels > 0 then inMud = inMud + 1 end end
     line('txt', sfmt('VEH   %d  (%d in mud)   grass %d', s.vehicles or 0, inMud, s.grassLifted or 0))
-    local rbk = extensions and extensions.deepnode_roadBake
-    if rbk and rbk.isEnabled() then
-      local b = rbk.stats()
-      line(b.failed > 0 and 'warn' or 'txt', sfmt('ROADS baked %d / %d regions (cache %d)  ready %d  copies %d  fail %d',
-        b.baked, b.regions, b.cached, b.ready, b.fallback, b.failed))
-    end
     local cl = s.clods
     if cl then
       line('txt', sfmt('TYRE  %d shown of %d  coat %.2f  chunks %d/%d', cl.visibleWheels or 0, cl.wheels or 0,
@@ -428,29 +422,19 @@ local function tabRun(m)
   im.SeparatorText('Ground look')
   -- experimental: decal roads drawn on the mud (molded into it, left out where tyres
   -- dug); on/off live, off by default
-  ptr.decals = ptr.decals or im.BoolPtr(false)
-  ptr.decals[0] = m.decalRoadsOn and m.decalRoadsOn() or false
-  if check('Decal roads on mud (beta)', ptr.decals) then
-    m.setDecalRoads(ptr.decals[0], ptr.roadBake and ptr.roadBake[0] and 'bake' or 'copy')
+  -- one button cycles the decal road mode: off -> vanilla -> copies
+  local RM = { off = 'off', vanilla = 'vanilla', copy = 'copies (beta)' }
+  local RNEXT = { off = 'vanilla', vanilla = 'copy', copy = 'off' }
+  local rm = m.roadModeName and m.roadModeName() or 'off'
+  if im.Button('Decal roads on mud: ' .. (RM[rm] or rm) .. '###decalroads', im.ImVec2(-1, 0)) then
+    local nx = RNEXT[rm] or 'off'
+    m.setDecalRoads(nx ~= 'off', nx)
     changed()
   end
   if im.IsItemHovered() then
-    im.SetTooltip('On: decal roads (mud furrows, dirt tracks) show on the mud and sand.\n' ..
-      'Off (default): no decal road on the mud or sand, only the terrain material.')
-  end
-  -- the roads baked into the mud material per tile (deepnode_roadBake) instead of copy meshes
-  if ptr.decals[0] then
-    ptr.roadBake = ptr.roadBake or im.BoolPtr(false)
-    ptr.roadBake[0] = m.roadBakeOn and m.roadBakeOn() or false
-    if check('Bake roads into the mud (beta)', ptr.roadBake) then
-      m.setDecalRoads(true, ptr.roadBake[0] and 'bake' or 'copy')
-      changed()
-    end
-    if im.IsItemHovered() then
-      im.SetTooltip('On: the roads over each dug tile are baked once into its mud material\n' ..
-        '(no extra road meshes). Tiles show road copies until their bake is loaded.\n' ..
-        'The first visit of a level bakes the tiles near the vehicles (a few ms a frame).')
-    end
+    im.SetTooltip('off (default): no decal road on the mud or sand, only the terrain material.\n' ..
+      'vanilla: the level\'s own decal roads, untouched (they do not follow ruts).\n' ..
+      'copies: road copies drawn in the mud meshes, follow the ruts.')
   end
   -- experimental: decal roads on soft ground carved in as ruts at start (deepnode_preRut);
   -- off by default, applies on Restart (the terrain under the roads changes)

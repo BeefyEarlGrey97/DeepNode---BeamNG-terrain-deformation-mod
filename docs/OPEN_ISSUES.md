@@ -322,19 +322,11 @@ Next: find why the exemption multiplies uploads (fresh fronts at tileRebuildHz 4
 cap fresh uploads per tile, e.g. 15-20 Hz, and keep the hold for the axles behind), then re-add the
 fast floor for hot clusters only.
 
-## 24. Baked decal road layer (2026-11-07, `roads.mode` 'bake', beta)
+## 24. Baked decal road layer (removed 2026-11-07)
 
-Regions of 4 x 4 tiles baked at map load (physics paused, up to `roads.bakeLoadMax` 120 s), cached
-per level. gridmap_v2: 121 regions, 101 s with an empty cache, 0.55 s from the cache, rig check
-within 2 % of the vanilla decals. Open:
-- Bench (4 trucks, copy / bake interleaved, after a fresh game start) and VRAM per mode not done:
-  an earlier per-tile bench in a long session ran every variant at 17-19 fps with 11 GB VRAM.
-- Load time with the PNG cache but no cooked DDS (cleared `/temp`) not measured: 605 cooks.
-- Cooked DDS 28 MB per region in `/temp`; old per-tile cooks stay there until the user clears
-  `temp/deepnode_cache/roadbake/` with the game closed (deleting while it runs crashes).
-- Far sectors keep plain materials (no roads beyond the tile ring), as with the copies.
-- The first load of a map pauses physics for up to 2 min in every road mode, also when the mode
-  never uses the images (requested: one cache for all modes).
+Removed before release (load-time bake up to 2 min, 28 MB cooked DDS per region, VRAM). The code
+is in git history (last at commit 2012f07). Old images: delete
+`<user folder>/deepnode_cache/roadbake/` and `temp/deepnode_cache/roadbake/` with the game closed.
 
 ## 23. Decal road copies over ruts (2026-11-06)
 

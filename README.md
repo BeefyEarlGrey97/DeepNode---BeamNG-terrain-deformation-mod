@@ -25,7 +25,6 @@ learned by reading the Dynamic Scratch mod; none of its code, shaders or texture
 - Mud and sand buildup on the tyres, built up gradually, with falloff and chunks particles that fly off when driving; the coat colour blends over ~1 s (after a 1 s delay) between mud, sand and clean ground
 - Experimental screen-space ground look (after MudRunner): universal tyre prints, wet churned mud, crumbs on the berms, water pooled in the rut hollows, wet trenches, mud splats from spinning wheels, mud carried onto hard ground, grass / dirt tracks, wet tracks that dry, wet glossy tyres, all drawn by GPU post effects (no mesh uploads), on by default (GUI **Experimental tread prints**)
 - Big maps over 8 x 8 km (BeamNG.earth, huge_desert): the mod works in a 2 km x 2 km region around the player that moves with them, with a short stutter at each move (`region`); 8 km maps like hw550 stay whole
-- Experimental baked decal roads (`roads.mode` 'bake'): the level's decal roads baked into the mud material at map load, so they follow every rut (maps up to 8 x 8 km)
 - Simple UI with live settings and performance stats
   
 ## Benchmarks included
@@ -58,7 +57,6 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 15. Crossing ruts merge on the 1 m terrain grid (ridge between a truck's rut lines is 0.8 m); a ~5 cm settle when a vehicle stops: docs/OPEN_ISSUES.md §17.
 17. Snow: first values (berms, coat, prints) tuned on one map only (polish_roads_winter); automation_test_track snow is fragmented (59 % of snow vertices are interior): docs/OPEN_ISSUES.md §21.
 16. Region mode on big maps: ruts outside the overlap are dropped when the region moves, not yet tried on a BeamNG.earth map: docs/OPEN_ISSUES.md §19.
-19. Baked decal roads: the first map load bakes for up to 2 min (gridmap_v2 101 s); fps and VRAM against the copies not benchmarked yet: docs/OPEN_ISSUES.md §24.
 
 ## Contributing and forking
 

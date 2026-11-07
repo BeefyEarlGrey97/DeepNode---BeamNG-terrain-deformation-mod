@@ -3,17 +3,18 @@
 ## [Unreleased]
 
 ### Added
-- Baked road layer (`roads.mode` 'bake', GUI **Bake roads into the mud (beta)**): every decal
-  road over soft ground is rendered once into five images per 20 m region (colour, opacity,
-  normal, roughness, metallic) that the mud material reads as one detail layer, so the road lies
-  in the dug surface itself, lit like the ground, with no copy submeshes. All regions bake at map
-  load with physics paused and a progress message (`roads.bakeLoadMax` 120 s, the rest in the
-  background), in every mode, and are cached per level (`<user folder>/deepnode_cache/roadbake/`).
-  gridmap_v2: 121 regions in 101 s the first time, 0.55 s from the cache. Maps over 8 x 8 km
-  (`roads.maxMapKm2` 68) bake nothing and keep decal roads off the mud.
+- `roads.mode` 'vanilla' (GUI button "Decal roads on mud" cycles off / vanilla / copies):
+  the level's own decal roads untouched.
 - Print depth shading (`overlay.shade`): rut floors darken with depth (up to 30 % at 0.4 m), berm
   tops above the ground lighten (15 %), and mud prints get a dark wet band where their coverage
   fades out (35 %, not on sand). Overlay shader only, no extra pass.
+
+### Removed
+- Baked road layer (`roads.mode` 'bake', deepnode_roadBake / roadBakeCore, the `roads.bake*`
+  keys, the Debug tab **Clear road bake cache**): up to 2 min map-load bake, 28 MB of cooked DDS
+  per region, VRAM growth. A saved `roads.mode` 'bake' now acts as 'copy'. Old images stay in
+  `<user folder>/deepnode_cache/roadbake/` and `temp/deepnode_cache/roadbake/`: delete them with
+  the game closed.
 
 ## [0.7.0] — 2026-11-07 — ruts keep up with the truck, engine memory returned
 

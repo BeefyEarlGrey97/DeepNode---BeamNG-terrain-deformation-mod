@@ -82,6 +82,18 @@ They explain most design decisions; please extend this file when you measure som
   a 4 x 3 m box 13 m away; with 10 m cells (20 / 9) none; 5-7 m cells changed the look (long
   grass evenly spread instead of patches). `tb:setHeightWs` leaves physics stale like
   `setHeightGrid`; no other update call exists (`updateGridMaterials`, `updateAllTextures`).
+- How long the grass is gone (2026-11-07, gridmap_v2, physics paused, static camera,
+  `$GroundCover::renderedCells` / `renderedBillboards` logged every frame in onPreRender): one
+  `updateGrid` over a 2 x 2 m box dropped 2 cells (784 blades) for 3 frames; a 30 x 30 m box dropped
+  28 cells, the cells came back over ~6 frames and their blades only at frame 7. Any `updateGrid`
+  drops the cells, heights changed or not. The blades lag the cells: GPU placement
+  (`shaders/common/groundCoverPlacement.hlsl`) bakes blade heights from the terrain height texture
+  and counts them with `InterlockedAdd`, so the CPU reads the count back about 3 frames later.
+  `screenshot_image` renders a fresh frame and never shows the gap (use the counters or desktop
+  grabs of the game window).
+- No way around the drop from Lua: `lockFrustum` (debug field) changes nothing with `setField`
+  alone, and covers locked with `postApply` still lose their grass under updates. `postApply()` on
+  a GroundCover and the global `flushGroundCoverGrids()` drop all its cells.
 - The drawn terrain and the physics terrain can stay different for good (2026-11-05): heights
   written and drawn with a real-box `updateGrid`, then written again and refreshed with a far
   1 x 1 dummy box, keep drawing at the first heights while vehicles sink to the second ones,
@@ -179,6 +191,55 @@ They explain most design decisions; please extend this file when you measure som
 - Terrain squares are two triangles split along the (0,0)-(1,1) diagonal (gridmap_v2, both
   square parities); `core_terrain.getTerrainHeight` costs ~0.36 us a call.
 
+### How the engine renders a decal road (reverse engineered 2026-11-06, game 0.40.5)
+
+Sources: the game's shader cache `temp/shaders/shaders.d3d12.db` (msgpack records:
+`[key, key, DXIL]`, key = HLSL path + stage + every define), the shipped HLSL preprocessed with
+exactly those defines (`dxc -P`), exe strings, live probes on gridmap_v2.
+
+- 62 cached permutations carry `GFXVERTEXFORMAT_DECALROAD`, all `defaultMat.hlsl` /
+  `defaultMatV0.hlsl` (old materials, `MFT_MaterialDeprecated`). No special decal shader.
+- Material fields pick the permutation: `translucent` + `translucentZWrite` ->
+  `MFT_IsTranslucentZWrite`; `alphaTest` -> `MFT_AlphaTest0` (clip in every pass, also the
+  G-buffer pass); `translucentRecvShadows` -> PSSM in the forward pass; `dynamicCubemap` ->
+  `MFT_CubeMap` + `MFT_SceneCubeMap`.
+- Pass 1, G-buffer (`MFT_PrePassConditioner`, `permutations.h.hlsl`): RT0 = oct-encoded normal
+  xy, roughness, alpha = opacity; RT1 = specular colour, alpha = opacity; both blended by source
+  alpha, so the road's normal and roughness mix into the terrain's. For one dielectric layer the
+  base colour texture is not even sampled there.
+- The deferred light passes then light those blended normals.
+- Pass 2, colour (`MFT_OutputFinalColor` + `MFT_RTLighting1_5`, not forward): reads the light
+  buffers at its own pixel (`lightInfoBuffer` rgb = diffuse, `lightInfoBuffer1` rgb = specular),
+  adds SH ambient x the AO buffer x material AO, the cube reflection (+ SSR with `MFT_Sssr`), and
+  blends over the scene by opacity. Hence a decal road looks "in" the ground: its lighting is the
+  ground lighting of the blended normals.
+- Other passes: `MFT_ClipPlane0` variants (water reflection, forward lit, PSSM, fog),
+  depth-only variants, an SSR surface-capture path that special-cases decal roads
+  (`materialReflection.hlsl`: decals overlapping within the depth bias are not matched by
+  roughness).
+- Vertex format: 21/21/21-bit position relative to a leaf origin (2048 m range, origin in
+  `cspPrimitive.localTrans`), UV half2, normal RGBA8 with alpha = vertex visibility
+  (`startEndFade`), tangent RGBA8 (w = -1). The instance's `distanceFadeParams` scales
+  visibility by distance (`MaterialFlagInstanceDistFade`). Visibility multiplies opacity.
+- Spline (`getEdgeCount` / `getLeft|Middle|RightEdgePosition`, `Sim.getDecalRoadData()`,
+  `Sim.getVerticesOfDecalRoad(id)`): 11 samples per node segment at `detail` 0.1, position =
+  lerp(linear, smoothstep Hermite, `smoothness`) (measured spacing 0.68...1.36 m on a 12 m
+  segment matches it exactly); edge z = terrain height, no bias. These calls return the spline
+  edges, not the clipped render triangles.
+- Field docs (exe): `decalBias` "the hovering height of the decal over the terrain";
+  `renderPriority` "-1 to top most, 1 for bottom most"; LevelInfo `decalBias` "NearPlane bias
+  used when rendering Decal and DecalRoad" (gridmap_v2: 0.0005, nearClip 0.1). Changing either
+  live (0.5 / 0.3 + `regenerate()`) showed no visible change: read at load or rebuilt elsewhere,
+  not settled.
+- The render pipeline is the C++ `RenderPassPipeline` (no Lua-visible bins). Render instance
+  types named in the exe: MeshFast, MeshDecalFast, TranslucentFast, Terrain, ObjectTranslucent,
+  DecalFast, Water, Foliage, SdfTerrain.
+- `ProceduralMesh:createMesh` reads only `verts`, `uvs`, `normals`, `faces`, `material` (exe
+  strings): no vertex colour, no second UV set, no vertex alpha. A ProceduralMesh has no
+  object-level shadow switch (fields: material, render/selection flags only).
+- `$DecalRoad::wireframe / showBatches / showSpline` draw only in the editor's road mode.
+- `temp/shaders/pipelinecache.d3d12.db` is an opaque driver pipeline library (no states).
+
 ## Custom shaders (2026-10-31, D3D12 backend, gridmap_v2)
 
 Method learned from the Dynamic Dirt mod (technique only, none of its code). Test shaders were
@@ -202,6 +263,32 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
     binding null-descriptor fallback").
   - the shadow pass ignores the custom VS (shadow cast from the uploaded vertices).
   So GPU displacement of static mud meshes (no uploads) is not possible this way.
+- Why it crashed (offline study 2026-11-07, stock shaders + exe strings; not yet retested live):
+  - Meshes draw on the **bindless** path (`MFT_Bindless`): no vertex buffer, no per-draw cbuffer.
+    The vertex, the primitive transform and the material live in one byte arena
+    (`materialsBytes`, t10 space0), found through push constants `pushC` at b3
+    (`shaders/common/material/shadergen/bindlessArena.h.hlsl`). A `cbuffer perDraw : register(b0)`
+    has no counterpart there, so its root CBV stays null.
+  - Our test used `pixVersion 5.0`. The engine derives the `BNG_HLSL_MODEL` define from it
+    (exe string `@BNG_HLSL_MODEL=%g`), and `hlsl.h` drops register spaces below model 6:
+    `REGISTER(b0, sceneSpace)` became `register(b0)` in space0. That is why even the scene
+    cbuffer crashed. Texture reads hit the same space0 mismatch.
+  - Stock working examples: `shaders/common/vehicle/ghost.hlsl` and `highlight.hlsl`, set up in
+    `lua/ge/client/core.lua` `createVehicleData()`: `pixVersion` 6 on D3D12/Vulkan (4 on D3D11),
+    define `BNG_HLSL_MODEL=6`, `#define SHADERGEN_CUSTOM_MATERIAL_CBUFFER`, include
+    `shadergen.h.hlsl` (+ `bindlessArena.h.hlsl` if `MFT_Bindless`), stub `getMaterialData()`,
+    include `materialDrawId.h.hlsl`, VS signature `(vertexIARAW, svInstanceData, SV_VertexID)`,
+    vertex from `getVertexIA()`, transform from `getInstanceTransform()` + `getPrimData()`,
+    camera from the scene cbuffer (`worldToCameraPos0`, `cameraToScreen`, `eyePosWorld`).
+  - Custom constants: `highlight.hlsl` reads `cbuffer cspMaterial : REGISTER(b4, materialSpace)
+    { float highlightAlpha; }`, but `$highlightAlpha` is a name hard-coded in the exe, so the
+    engine probably fills only known names. Generic per-material constants: unknown.
+  - Textures on a bindless CustomMaterial: unknown (no stock custom mesh shader samples one).
+  - `-nogfxbindless` launch flag exists (legacy binding path); not usable for players.
+- GPU work available to Lua: compute PostEffects (`ShaderData.DXComputShaderName`, e.g.
+  `postFx/passthru.cs.hlsl`, writes the `pfxOut` UAV of the target texture). Compute that writes
+  mesh vertices exists only engine-internal (`skinning.cs.hlsl`, `dynamicDecals/processMesh.cs.hlsl`),
+  with no Lua hook. No mesh/amplification/geometry/tessellation stages.
 
 PostEffect details learned building the rut overlay (deepnode_overlay, same day):
 - Shader constants: set `fx:setShaderConst('$name', 'x y z w')` inside the global

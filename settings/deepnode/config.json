@@ -18,12 +18,7 @@
   "roads": {
     "enabled": true,
     "mode": "off",
-    "bakeSize": 2048,
-    "bakeLoadMax": 120,
-    "bakeMaxPerSec": 1,
     "maxMapKm2": 68,
-    "bakeCache": true,
-    "bakeHighOnTop": false,
     "overlayOriginal": true,
     "overlayOnRuts": true,
     "hideOnMud": true,
