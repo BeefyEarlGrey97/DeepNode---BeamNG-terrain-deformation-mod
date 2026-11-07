@@ -328,6 +328,18 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
     `Engine.ParallaxInterior` (`setSet`, `getSets`, `apply`, `getTuning`, sets of 7 texture paths
     + params, per level `art/parallaxMappingTextureSets.json`) applies texture sets to the
     materials in this slot: a possible texture input, binding layout not yet reversed.
+    Texture test (live, same day, `shaders/dntest/dnTex.hlsl`): `uniform_sampler2D(dnTex, 0)` (t0/s0
+    space0, as the water shader) + `material:setField('sampler', 'dnTex', '/art/dntest/dnTex1.png')`
+    + a state block with `samplerStates[0] = SamplerWrapLinear`: our shader ran, but every read
+    returned 0, the PNG was never even loaded (no cooked copy in `temp/`), and the log said
+    "sampler root descriptor table had null gpu handle; binding null-descriptor fallback". This
+    path ignores CustomMaterial `sampler` fields. Every CustomMaterial owns a texture-array holder
+    (`+0xbc8`, built in its constructor with a change callback) that `ParallaxInteriorManager`
+    fills from the set PNGs (`customTextureArray`: Texture2DArray, up to 2048 slices of one size,
+    8-bit PNG, RGBA8 then background BC7); the parallax shader picks its set from the instance's
+    `customData`. Which register it is bound to is not found yet (the parallax shader is not
+    shipped). Even then it is a file-based channel (PNG + `apply()`, BC7 recompress), not a
+    per-frame GPU height map.
     Ghidra project of this exe: `~/beamng-decomp/gproj` (analysed, saved), scripts in
     `~/beamng-decomp/gscripts` (DecompByStrings, DecompCallers, FindDisp), run with
     `run_script.bat`. Registration table `engine::registerCustomMaterialPermutation` (44 slots) is
