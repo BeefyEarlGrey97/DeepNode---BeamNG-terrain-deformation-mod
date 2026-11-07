@@ -309,7 +309,30 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
     returns the stock ghost's VS / PS result. Vehicle and ProceduralMesh draws compile with the
     same `MFT_*` set, so the switch has to be at runtime. Seen in one frame: the marked grid waved,
     the SUV kept its grey x-ray ghost. Compiles against all 12 cached ghost permutations.
-  - Limits of that route: only two slots, both translucent forward passes (no G-buffer, no engine lighting, no shadow:
+  - **Own slot (live, same day): name the ShaderData `ParallaxInteriorShaderData`.** Ghidra on
+    the 0.40.5 exe: a CustomMaterial draws its own shader on the bindless path only when a flag
+    byte on its processed data is set (`[mat+0xb28]+0xf1`, read by a virtual `Material` method).
+    Three writers: the vehicle container (for `VehicleHighlightMat` / `vehicleGhost` only), an
+    unrelated object, and `ParallaxInteriorManager`, which listens to the material manager's
+    `Signal<void(CustomMaterial*)>` and flags every CustomMaterial whose shader name is
+    `ParallaxInteriorShaderData`, also ones registered after the level loaded. No stock Lua or
+    shipped level creates that ShaderData. Test: `createObject('ShaderData')` with our file,
+    pixVersion 6, define `BNG_HLSL_MODEL=6`, registered as `ParallaxInteriorShaderData`; a new
+    CustomMaterial `dnPIMatA` (opaque, `shader` = that name) on the test ProceduralMesh drew our
+    animated wave; the ghost untouched. Cached permutations for it: the bindless translucent set
+    plus an opaque `MFT_OutputFinalColor` + `MFT_RTLighting1_5` colour pass (reads the engine
+    light buffers; no G-buffer variant).
+    Limits: one ShaderData name, so one shader file and define set for all our materials (branch
+    inside it); a future game version or level that ships parallax interiors would own the name
+    (check `scenetree.findObject('ParallaxInteriorShaderData')` first and fall back).
+    `Engine.ParallaxInterior` (`setSet`, `getSets`, `apply`, `getTuning`, sets of 7 texture paths
+    + params, per level `art/parallaxMappingTextureSets.json`) applies texture sets to the
+    materials in this slot: a possible texture input, binding layout not yet reversed.
+    Ghidra project of this exe: `~/beamng-decomp/gproj` (analysed, saved), scripts in
+    `~/beamng-decomp/gscripts` (DecompByStrings, DecompCallers, FindDisp), run with
+    `run_script.bat`. Registration table `engine::registerCustomMaterialPermutation` (44 slots) is
+    for internal render passes (sensor glass depth, radar), not material names.
+  - Limits of the ghost route: only two slots, both translucent forward passes (no G-buffer, no engine lighting, no shadow:
     the shader must light itself), per-draw data only from the scene cbuffer (time, camera) and
     the vertices; custom constants (`highlightAlpha` only, slot 2) and textures not tested.
 - GPU work available to Lua: compute PostEffects (`ShaderData.DXComputShaderName`, e.g.
