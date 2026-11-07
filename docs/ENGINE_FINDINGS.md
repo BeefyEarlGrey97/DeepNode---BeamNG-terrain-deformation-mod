@@ -302,8 +302,14 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
     player vehicle via `setRenderPass(0, 'vehicleGhost', meshes, false, true)`, AND as the
     `material` of a ProceduralMesh submesh: the flat grid was drawn as a moving 1 m sine wave.
     So **GPU vertex displacement of a ProceduralMesh works**, through a hijacked engine slot.
-  - Limits of that route: only two slots (taking `vehicleGhost` breaks the parts-selector x-ray
-    while used), both translucent forward passes (no G-buffer, no engine lighting, no shadow:
+  - Sharing the slot without breaking the x-ray (live, same day): `tools/dev/ghostShared.hlsl`
+    `#include`s the stock `ghost.hlsl` unchanged with its entry renamed (`#define main
+    dn_ghost_main` before the include) and branches per vertex: first UV u < -500 (only DeepNode
+    meshes write that; mesh UVs are full float2) takes the DeepNode path, every other vertex
+    returns the stock ghost's VS / PS result. Vehicle and ProceduralMesh draws compile with the
+    same `MFT_*` set, so the switch has to be at runtime. Seen in one frame: the marked grid waved,
+    the SUV kept its grey x-ray ghost. Compiles against all 12 cached ghost permutations.
+  - Limits of that route: only two slots, both translucent forward passes (no G-buffer, no engine lighting, no shadow:
     the shader must light itself), per-draw data only from the scene cbuffer (time, camera) and
     the vertices; custom constants (`highlightAlpha` only, slot 2) and textures not tested.
 - GPU work available to Lua: compute PostEffects (`ShaderData.DXComputShaderName`, e.g.
