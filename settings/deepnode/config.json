@@ -18,6 +18,7 @@
   "roads": {
     "enabled": true,
     "mode": "off",
+    "maxMapKm2": 68,
     "overlayOriginal": true,
     "overlayOnRuts": true,
     "hideOnMud": true,

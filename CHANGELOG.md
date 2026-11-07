@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- `roads.mode` 'vanilla' (GUI button "Decal roads on mud" cycles off / vanilla / copies):
+  the level's own decal roads untouched.
 - Print depth shading (`overlay.shade`): rut floors darken with depth (up to 30 % at 0.4 m), berm
   tops above the ground lighten (15 %), and mud prints get a dark wet band where their coverage
   fades out (35 %, not on sand). Overlay shader only, no extra pass.

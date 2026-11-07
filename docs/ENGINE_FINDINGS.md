@@ -82,6 +82,18 @@ They explain most design decisions; please extend this file when you measure som
   a 4 x 3 m box 13 m away; with 10 m cells (20 / 9) none; 5-7 m cells changed the look (long
   grass evenly spread instead of patches). `tb:setHeightWs` leaves physics stale like
   `setHeightGrid`; no other update call exists (`updateGridMaterials`, `updateAllTextures`).
+- How long the grass is gone (2026-11-07, gridmap_v2, physics paused, static camera,
+  `$GroundCover::renderedCells` / `renderedBillboards` logged every frame in onPreRender): one
+  `updateGrid` over a 2 x 2 m box dropped 2 cells (784 blades) for 3 frames; a 30 x 30 m box dropped
+  28 cells, the cells came back over ~6 frames and their blades only at frame 7. Any `updateGrid`
+  drops the cells, heights changed or not. The blades lag the cells: GPU placement
+  (`shaders/common/groundCoverPlacement.hlsl`) bakes blade heights from the terrain height texture
+  and counts them with `InterlockedAdd`, so the CPU reads the count back about 3 frames later.
+  `screenshot_image` renders a fresh frame and never shows the gap (use the counters or desktop
+  grabs of the game window).
+- No way around the drop from Lua: `lockFrustum` (debug field) changes nothing with `setField`
+  alone, and covers locked with `postApply` still lose their grass under updates. `postApply()` on
+  a GroundCover and the global `flushGroundCoverGrids()` drop all its cells.
 - The drawn terrain and the physics terrain can stay different for good (2026-11-05): heights
   written and drawn with a real-box `updateGrid`, then written again and refreshed with a far
   1 x 1 dummy box, keep drawing at the first heights while vehicles sink to the second ones,
@@ -179,6 +191,55 @@ They explain most design decisions; please extend this file when you measure som
 - Terrain squares are two triangles split along the (0,0)-(1,1) diagonal (gridmap_v2, both
   square parities); `core_terrain.getTerrainHeight` costs ~0.36 us a call.
 
+### How the engine renders a decal road (reverse engineered 2026-11-06, game 0.40.5)
+
+Sources: the game's shader cache `temp/shaders/shaders.d3d12.db` (msgpack records:
+`[key, key, DXIL]`, key = HLSL path + stage + every define), the shipped HLSL preprocessed with
+exactly those defines (`dxc -P`), exe strings, live probes on gridmap_v2.
+
+- 62 cached permutations carry `GFXVERTEXFORMAT_DECALROAD`, all `defaultMat.hlsl` /
+  `defaultMatV0.hlsl` (old materials, `MFT_MaterialDeprecated`). No special decal shader.
+- Material fields pick the permutation: `translucent` + `translucentZWrite` ->
+  `MFT_IsTranslucentZWrite`; `alphaTest` -> `MFT_AlphaTest0` (clip in every pass, also the
+  G-buffer pass); `translucentRecvShadows` -> PSSM in the forward pass; `dynamicCubemap` ->
+  `MFT_CubeMap` + `MFT_SceneCubeMap`.
+- Pass 1, G-buffer (`MFT_PrePassConditioner`, `permutations.h.hlsl`): RT0 = oct-encoded normal
+  xy, roughness, alpha = opacity; RT1 = specular colour, alpha = opacity; both blended by source
+  alpha, so the road's normal and roughness mix into the terrain's. For one dielectric layer the
+  base colour texture is not even sampled there.
+- The deferred light passes then light those blended normals.
+- Pass 2, colour (`MFT_OutputFinalColor` + `MFT_RTLighting1_5`, not forward): reads the light
+  buffers at its own pixel (`lightInfoBuffer` rgb = diffuse, `lightInfoBuffer1` rgb = specular),
+  adds SH ambient x the AO buffer x material AO, the cube reflection (+ SSR with `MFT_Sssr`), and
+  blends over the scene by opacity. Hence a decal road looks "in" the ground: its lighting is the
+  ground lighting of the blended normals.
+- Other passes: `MFT_ClipPlane0` variants (water reflection, forward lit, PSSM, fog),
+  depth-only variants, an SSR surface-capture path that special-cases decal roads
+  (`materialReflection.hlsl`: decals overlapping within the depth bias are not matched by
+  roughness).
+- Vertex format: 21/21/21-bit position relative to a leaf origin (2048 m range, origin in
+  `cspPrimitive.localTrans`), UV half2, normal RGBA8 with alpha = vertex visibility
+  (`startEndFade`), tangent RGBA8 (w = -1). The instance's `distanceFadeParams` scales
+  visibility by distance (`MaterialFlagInstanceDistFade`). Visibility multiplies opacity.
+- Spline (`getEdgeCount` / `getLeft|Middle|RightEdgePosition`, `Sim.getDecalRoadData()`,
+  `Sim.getVerticesOfDecalRoad(id)`): 11 samples per node segment at `detail` 0.1, position =
+  lerp(linear, smoothstep Hermite, `smoothness`) (measured spacing 0.68...1.36 m on a 12 m
+  segment matches it exactly); edge z = terrain height, no bias. These calls return the spline
+  edges, not the clipped render triangles.
+- Field docs (exe): `decalBias` "the hovering height of the decal over the terrain";
+  `renderPriority` "-1 to top most, 1 for bottom most"; LevelInfo `decalBias` "NearPlane bias
+  used when rendering Decal and DecalRoad" (gridmap_v2: 0.0005, nearClip 0.1). Changing either
+  live (0.5 / 0.3 + `regenerate()`) showed no visible change: read at load or rebuilt elsewhere,
+  not settled.
+- The render pipeline is the C++ `RenderPassPipeline` (no Lua-visible bins). Render instance
+  types named in the exe: MeshFast, MeshDecalFast, TranslucentFast, Terrain, ObjectTranslucent,
+  DecalFast, Water, Foliage, SdfTerrain.
+- `ProceduralMesh:createMesh` reads only `verts`, `uvs`, `normals`, `faces`, `material` (exe
+  strings): no vertex colour, no second UV set, no vertex alpha. A ProceduralMesh has no
+  object-level shadow switch (fields: material, render/selection flags only).
+- `$DecalRoad::wireframe / showBatches / showSpline` draw only in the editor's road mode.
+- `temp/shaders/pipelinecache.d3d12.db` is an opaque driver pipeline library (no states).
+
 ## Custom shaders (2026-10-31, D3D12 backend, gridmap_v2)
 
 Method learned from the Dynamic Dirt mod (technique only, none of its code). Test shaders were
@@ -202,6 +263,94 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
     binding null-descriptor fallback").
   - the shadow pass ignores the custom VS (shadow cast from the uploaded vertices).
   So GPU displacement of static mud meshes (no uploads) is not possible this way.
+- Why it crashed (2026-11-07, stock shaders + exe strings, then live on game 0.40.5, D3D12):
+  - Meshes draw on the **bindless** path (`MFT_Bindless`): no vertex buffer, no per-draw cbuffer.
+    The vertex, the primitive transform and the material live in one byte arena
+    (`materialsBytes`, t10 space0), found through push constants `pushC` at b3
+    (`shaders/common/material/shadergen/bindlessArena.h.hlsl`). A `cbuffer perDraw : register(b0)`
+    has no counterpart there, so its root CBV stays null.
+  - Our test used `pixVersion 5.0`. The engine derives the `BNG_HLSL_MODEL` define from it
+    (exe string `@BNG_HLSL_MODEL=%g`), and `hlsl.h` drops register spaces below model 6:
+    `REGISTER(b0, sceneSpace)` became `register(b0)` in space0. That is why even the scene
+    cbuffer crashed. Texture reads hit the same space0 mismatch.
+  - Stock working examples: `shaders/common/vehicle/ghost.hlsl` and `highlight.hlsl`, set up in
+    `lua/ge/client/core.lua` `createVehicleData()`: `pixVersion` 6 on D3D12/Vulkan (4 on D3D11),
+    define `BNG_HLSL_MODEL=6`, `#define SHADERGEN_CUSTOM_MATERIAL_CBUFFER`, include
+    `shadergen.h.hlsl` (+ `bindlessArena.h.hlsl` if `MFT_Bindless`), stub `getMaterialData()`,
+    include `materialDrawId.h.hlsl`, VS signature `(vertexIARAW, svInstanceData, SV_VertexID)`,
+    vertex from `getVertexIA()`, transform from `getInstanceTransform()` + `getPrimData()`,
+    camera from the scene cbuffer (`worldToCameraPos0`, `cameraToScreen`, `eyePosWorld`).
+  - Custom constants: `highlight.hlsl` reads `cbuffer cspMaterial : REGISTER(b4, materialSpace)
+    { float highlightAlpha; }`, but `$highlightAlpha` is a name hard-coded in the exe, so the
+    engine probably fills only known names. Generic per-material constants: unknown.
+  - Textures on a bindless CustomMaterial: unknown (no stock custom mesh shader samples one).
+  - `-nogfxbindless` launch flag exists (legacy binding path); not usable for players.
+- Live test 2026-11-07 (gridmap_v2, 4 m ProceduralMesh grid, probe shader
+  `tools/dev/bindlessWave.hlsl`: opaque magenta, VS sine wave from `accumTime`):
+  - A CustomMaterial made in Lua (pixVersion 6 or 5, opaque or translucent, `reload()` or not)
+    never runs its own shader, on a ProceduralMesh or in a vehicle `setRenderPass`. No crash: the
+    ProceduralMesh draws flat dark grey (the default shader with empty material data), a
+    translucent one draws nothing. The shader cache (`temp/shaders/shaders.d3d12.db`) holds only
+    one bare compile of the file (no `MFT_*` features), while `vehicle/ghost.hlsl` has full
+    `MFT_Bindless` permutations. The same file compiles offline against all 996 cached
+    `defaultMat` feature sets and the ghost's 12.
+  - Cause: the exe registers custom-material permutations only for the hard-coded names
+    `vehicleGhost` and `VehicleHighlightMat` (`engine::registerCustomMaterialPermutation`, with
+    a capacity limit; also `vehicleOverrideMat` in `VehicleResourceContainer`).
+  - Proof: pointing the stock `VehicleGhostShader` at our file (`DXVertexShaderFile` /
+    `DXPixelShaderFile` + `ShaderData:reload()` + `vehicleGhost:reload()`) made it run: on the
+    player vehicle via `setRenderPass(0, 'vehicleGhost', meshes, false, true)`, AND as the
+    `material` of a ProceduralMesh submesh: the flat grid was drawn as a moving 1 m sine wave.
+    So **GPU vertex displacement of a ProceduralMesh works**, through a hijacked engine slot.
+  - Sharing the slot without breaking the x-ray (live, same day): `tools/dev/ghostShared.hlsl`
+    `#include`s the stock `ghost.hlsl` unchanged with its entry renamed (`#define main
+    dn_ghost_main` before the include) and branches per vertex: first UV u < -500 (only DeepNode
+    meshes write that; mesh UVs are full float2) takes the DeepNode path, every other vertex
+    returns the stock ghost's VS / PS result. Vehicle and ProceduralMesh draws compile with the
+    same `MFT_*` set, so the switch has to be at runtime. Seen in one frame: the marked grid waved,
+    the SUV kept its grey x-ray ghost. Compiles against all 12 cached ghost permutations.
+  - **Own slot (live, same day): name the ShaderData `ParallaxInteriorShaderData`.** Ghidra on
+    the 0.40.5 exe: a CustomMaterial draws its own shader on the bindless path only when a flag
+    byte on its processed data is set (`[mat+0xb28]+0xf1`, read by a virtual `Material` method).
+    Three writers: the vehicle container (for `VehicleHighlightMat` / `vehicleGhost` only), an
+    unrelated object, and `ParallaxInteriorManager`, which listens to the material manager's
+    `Signal<void(CustomMaterial*)>` and flags every CustomMaterial whose shader name is
+    `ParallaxInteriorShaderData`, also ones registered after the level loaded. No stock Lua or
+    shipped level creates that ShaderData. Test: `createObject('ShaderData')` with our file,
+    pixVersion 6, define `BNG_HLSL_MODEL=6`, registered as `ParallaxInteriorShaderData`; a new
+    CustomMaterial `dnPIMatA` (opaque, `shader` = that name) on the test ProceduralMesh drew our
+    animated wave; the ghost untouched. Cached permutations for it: the bindless translucent set
+    plus an opaque `MFT_OutputFinalColor` + `MFT_RTLighting1_5` colour pass (reads the engine
+    light buffers; no G-buffer variant).
+    Limits: one ShaderData name, so one shader file and define set for all our materials (branch
+    inside it); a future game version or level that ships parallax interiors would own the name
+    (check `scenetree.findObject('ParallaxInteriorShaderData')` first and fall back).
+    `Engine.ParallaxInterior` (`setSet`, `getSets`, `apply`, `getTuning`, sets of 7 texture paths
+    + params, per level `art/parallaxMappingTextureSets.json`) applies texture sets to the
+    materials in this slot: a possible texture input, binding layout not yet reversed.
+    Texture test (live, same day, `shaders/dntest/dnTex.hlsl`): `uniform_sampler2D(dnTex, 0)` (t0/s0
+    space0, as the water shader) + `material:setField('sampler', 'dnTex', '/art/dntest/dnTex1.png')`
+    + a state block with `samplerStates[0] = SamplerWrapLinear`: our shader ran, but every read
+    returned 0, the PNG was never even loaded (no cooked copy in `temp/`), and the log said
+    "sampler root descriptor table had null gpu handle; binding null-descriptor fallback". This
+    path ignores CustomMaterial `sampler` fields. Every CustomMaterial owns a texture-array holder
+    (`+0xbc8`, built in its constructor with a change callback) that `ParallaxInteriorManager`
+    fills from the set PNGs (`customTextureArray`: Texture2DArray, up to 2048 slices of one size,
+    8-bit PNG, RGBA8 then background BC7); the parallax shader picks its set from the instance's
+    `customData`. Which register it is bound to is not found yet (the parallax shader is not
+    shipped). Even then it is a file-based channel (PNG + `apply()`, BC7 recompress), not a
+    per-frame GPU height map.
+    Ghidra project of this exe: `~/beamng-decomp/gproj` (analysed, saved), scripts in
+    `~/beamng-decomp/gscripts` (DecompByStrings, DecompCallers, FindDisp), run with
+    `run_script.bat`. Registration table `engine::registerCustomMaterialPermutation` (44 slots) is
+    for internal render passes (sensor glass depth, radar), not material names.
+  - Limits of the ghost route: only two slots, both translucent forward passes (no G-buffer, no engine lighting, no shadow:
+    the shader must light itself), per-draw data only from the scene cbuffer (time, camera) and
+    the vertices; custom constants (`highlightAlpha` only, slot 2) and textures not tested.
+- GPU work available to Lua: compute PostEffects (`ShaderData.DXComputShaderName`, e.g.
+  `postFx/passthru.cs.hlsl`, writes the `pfxOut` UAV of the target texture). Compute that writes
+  mesh vertices exists only engine-internal (`skinning.cs.hlsl`, `dynamicDecals/processMesh.cs.hlsl`),
+  with no Lua hook. No mesh/amplification/geometry/tessellation stages.
 
 PostEffect details learned building the rut overlay (deepnode_overlay, same day):
 - Shader constants: set `fx:setShaderConst('$name', 'x y z w')` inside the global
@@ -357,3 +506,43 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   its own OS window (viewport) unless `SetNextWindowViewport(GetMainViewport().ID)` is set.
 - hw550 region recentre cost vs region size: 1000 m 85-88 ms, 2000 m 188-208 ms, mostly
   `tb:updateGrid` (76-79 ms vs 174-192 ms).
+
+## Baked road layer (roads.mode 'bake', 2026-11-07, gridmap_v2, D3D12)
+
+- A stock Material cannot sample a `#named` render target (`baseColorMap` / `diffuseMap` = '#name':
+  "Failed to load 'diffuse' map"), own PostEffect targets and engine ones alike.
+- A PostEffect target can be saved to PNG: `require('screenshot').createScreenshotTracked{ filename =
+  'path/without/ext', bufferType = '<target name without #>', superSampling = 1 }` (exact pixels at the
+  target size; alpha is written as 255). The screenshot module keeps every job and re-sends the whole
+  list to the UI on each callback: call `clearScreenshotJobs()` after a batch (hundreds of jobs made
+  every frame ~16 ms slower).
+- The screenshot writer creates the file before it finishes it: wait until the size is non-zero and
+  stable, else a cook reads a partial PNG ("TextureCooker: Could not open ..." and a NO TEXTURE layer).
+- The engine cooks a PNG to `/temp/<path>.dds` (`.color` -> BC7 sRGB, `.data` -> BC7, `.normal` -> BC5)
+  only when its texture manager loads it; creating or `reload()`ing a Material does not.
+  `ui_imgui.ImTextureHandler(path)` cooks at once (~10 ms per 512² image).
+- Files created by an outside process are not seen by the game's file system (NO TEXTURE); files the
+  game writes (screenshots, GBitmap:saveFile) are.
+- Deleting a texture file that a live Material uses crashes the game (the file watcher re-cooks it,
+  "Texture[] started importing", C++ crash). Never delete cache images while the level runs.
+- `defaultMat.hlsl` layer maths: a layer with no base maps and detail maps at strength 1 gives
+  colour = saturate(2 detail), opacity = saturate(2 opacityDetail.r), roughness / metallic =
+  factor * saturate(2 x), normal = normalize(flat + detailNormal.xy); layers lerp by opacity. Every
+  channel has a detail slot (`detailMap`, `opacityDetailMap`, `detailNormalMap`, `roughnessDetailMap`,
+  `metallicDetailMap`, `ambientOcclusionDetailMap`) scaled by the layer's `detailScale`; `*MapUseUV`
+  only switches the UV channel.
+- `PostEffect:setTexture(slot, path)` switches a slot live. Several PostEffects must not declare the
+  same `#target` (one effect pair with switched maps instead).
+- Five named-buffer readbacks per tile cost ~+5 ms a frame while baking (GPU sync; the same at 256² and
+  512², invisible in the CPU metrics).
+- Draw order checked against the engine's own decals on an undug pit tile (patch 4 mm over the terrain
+  with the mud material + baked layer): lower renderPriority on top (`bakeHighOnTop = false`) matched
+  within 1.2 % mean / 2.6 % luminance std at 6 m and 0.6 % / 2.5 % at 3 m; higher on top buried the
+  furrows under the water sheet (soft, pale).
+- Revision B (regions of 4 x 4 tiles, 2048² images): gridmap_v2 has 230 roads over soft ground in
+  121 regions; baking all of them at load took 100.9 s (~0.83 s per region, 0 failures), a second
+  load from the cache 0.55 s. A cooked 2048² image is 5.6 MB of DDS (all three kinds), 28 MB per
+  region; only regions whose clone material is drawn load into VRAM. Rig check of one region against
+  the vanilla decals: 0.1-1.9 % mean / 2.5 % std at 6 m, 0.7 % / 1.8 % at 3 m.
+- The mod's sim clock (`deepnode_main.simTime`) advances with `dtSim` only: it stands still while
+  `be:setPhysicsRunning(false)`; timeouts during a physics pause must use real time (`os.clock`).

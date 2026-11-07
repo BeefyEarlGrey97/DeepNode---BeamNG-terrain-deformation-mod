@@ -322,6 +322,12 @@ Next: find why the exemption multiplies uploads (fresh fronts at tileRebuildHz 4
 cap fresh uploads per tile, e.g. 15-20 Hz, and keep the hold for the axles behind), then re-add the
 fast floor for hot clusters only.
 
+## 24. Baked decal road layer (removed 2026-11-07)
+
+Removed before release (load-time bake up to 2 min, 28 MB cooked DDS per region, VRAM). The code
+is in git history (last at commit 2012f07). Old images: delete
+`<user folder>/deepnode_cache/roadbake/` and `temp/deepnode_cache/roadbake/` with the game closed.
+
 ## 23. Decal road copies over ruts (2026-11-06)
 
 Copies drape over ruts and berms and fade by disturbance (`roads.copyFade`); depth writes off,

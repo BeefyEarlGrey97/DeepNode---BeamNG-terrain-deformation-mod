@@ -139,6 +139,7 @@ local defaults = {
     -- (P.coverRoads)
     -- 'copy': the engine's decals stay; the mud meshes around ruts carry copies of the roads
     -- over them (deepnode_roadCopy). 'overlay' = the older copies (deepnode_decals).
+    -- 'vanilla': the engine's decals stay as the level has them, nothing else.
     mode = 'off',
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; the copy layers draw in priority order (roadCopy)
@@ -152,6 +153,7 @@ local defaults = {
     -- time even with castShadows 0 (5 levels -10 fps with 8 trucks, BENCHMARK 15)
     copyFade = {},
     copyMerge = true,       -- drawn cells of a dug square merged into planar rectangles for the copies
+    maxMapKm2 = 68,         -- maps over this (8 x 8 km; hw550 8192 m = 67.1): decal roads on the mud off
     copyMergeFlat = 0.004,  -- m: largest mud deviation from a merged copy quad (under copyLift)
     -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
     -- the level's decal); false = alpha-clipped matte copies (old look)
@@ -1718,9 +1720,16 @@ end
 
 -- 'overlay' (decals drawn into the mud meshes, deepnode_decals), 'drape' (engine decals
 -- switched to overObjects and draped by a collision reload) or 'off'
+-- decal roads on the mud only on maps up to roads.maxMapKm2
+function P.roadsAllowed()
+  return not (ter and (ter.worldSize / 1000) ^ 2 > (cfg.roads.maxMapKm2 or 68))
+end
+
 function P.roadMode()
   local r = cfg.roads
-  if not r or r.enabled == false then return 'off' end
+  -- 'vanilla': the level's own decal roads untouched (not hidden, no copies, any map size)
+  if r and r.enabled ~= false and r.mode == 'vanilla' then return 'vanilla' end
+  if not r or r.enabled == false or not P.roadsAllowed() then return 'off' end
   if r.mode == 'drape' then return r.overObjects ~= false and 'drape' or 'off' end
   if r.mode == 'off' then return 'off' end
   if r.mode == 'overlay' then return 'overlay' end
@@ -2304,16 +2313,18 @@ end
 -- Decal roads on the mud on/off (GUI "Experimental decal road"), live: the overlay module
 -- starts or stops, the road cover above is set or removed and every loaded mesh is rebuilt
 -- (tiles at their rebuild rate, sectors in turn).
-function M.decalRoadsOn() return P.roadMode() == 'copy' or P.roadMode() == 'overlay' end
-function M.setDecalRoads(on)
-  cfg.roads.mode = on and 'copy' or 'off'
+function M.decalRoadsOn() return P.roadMode() ~= 'off' end
+function M.roadModeName() return P.roadMode() end
+-- mode: 'copy' (default) or 'vanilla' when on
+function M.setDecalRoads(on, mode)
+  cfg.roads.mode = on and (mode == 'vanilla' and mode or 'copy') or 'off'
   if not running then return end
   P.coverRoads(not on)
   local dec = P.mod('decals')
   if dec then dec.stop(true) end
   local rcp = P.mod('roadCopy')
   if rcp then
-    if on then
+    if on and cfg.roads.mode ~= 'vanilla' then
       local ok, err = pcall(rcp.start, M)
       if not ok then log('E', logTag, 'road copies failed: ' .. tostring(err)) end
     else
@@ -7198,6 +7209,9 @@ function P.start()
   if rcp and P.roadMode() == 'copy' then
     local okRc, errRc = pcall(rcp.start, M)
     if not okRc then log('E', logTag, 'road copies failed: ' .. tostring(errRc)) end
+  end
+  if not P.roadsAllowed() then
+    log('I', logTag, sfmt('decal roads off: map %.1f km2 over roads.maxMapKm2 %s', (ter.worldSize / 1000) ^ 2, tostring(cfg.roads.maxMapKm2 or 68)))
   end
   local ov = P.mod('overlay')
   if ov then
