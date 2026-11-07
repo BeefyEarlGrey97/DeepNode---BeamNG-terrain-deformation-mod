@@ -390,3 +390,10 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   with the mud material + baked layer): lower renderPriority on top (`bakeHighOnTop = false`) matched
   within 1.2 % mean / 2.6 % luminance std at 6 m and 0.6 % / 2.5 % at 3 m; higher on top buried the
   furrows under the water sheet (soft, pale).
+- Revision B (regions of 4 x 4 tiles, 2048² images): gridmap_v2 has 230 roads over soft ground in
+  121 regions; baking all of them at load took 100.9 s (~0.83 s per region, 0 failures), a second
+  load from the cache 0.55 s. A cooked 2048² image is 5.6 MB of DDS (all three kinds), 28 MB per
+  region; only regions whose clone material is drawn load into VRAM. Rig check of one region against
+  the vanilla decals: 0.1-1.9 % mean / 2.5 % std at 6 m, 0.7 % / 1.8 % at 3 m.
+- The mod's sim clock (`deepnode_main.simTime`) advances with `dtSim` only: it stands still while
+  `be:setPhysicsRunning(false)`; timeouts during a physics pause must use real time (`os.clock`).

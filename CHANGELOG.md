@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- Baked road layer (`roads.mode` 'bake', GUI **Bake roads into the mud (beta)**): every decal
+  road over soft ground is rendered once into five images per 20 m region (colour, opacity,
+  normal, roughness, metallic) that the mud material reads as one detail layer, so the road lies
+  in the dug surface itself, lit like the ground, with no copy submeshes. All regions bake at map
+  load with physics paused and a progress message (`roads.bakeLoadMax` 120 s, the rest in the
+  background), in every mode, and are cached per level (`<user folder>/deepnode_cache/roadbake/`).
+  gridmap_v2: 121 regions in 101 s the first time, 0.55 s from the cache. Maps over 8 x 8 km
+  (`roads.maxMapKm2` 68) bake nothing and keep decal roads off the mud.
 - Print depth shading (`overlay.shade`): rut floors darken with depth (up to 30 % at 0.4 m), berm
   tops above the ground lighten (15 %), and mud prints get a dark wet band where their coverage
   fades out (35 %, not on sand). Overlay shader only, no extra pass.
