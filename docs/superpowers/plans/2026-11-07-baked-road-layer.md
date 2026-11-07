@@ -217,3 +217,38 @@ Run: `luajit tests/roadBake_test.lua` — Expected: error `cannot open lua/ge/ex
 - [ ] **Step 3: Look check at bench camera** — screenshots copy vs bake of the same pit view for the user.
 - [ ] **Step 4: Decision + docs** — if bake beats copy on fps and Task 5 passed, propose switching the default (ask the user; do not switch unasked); write results to BENCHMARK, CHANGELOG (Unreleased), OPEN_ISSUES (what is left: far sectors, startEndFade, VRAM), README.
 - [ ] **Step 5: Commit and push** — `git push origin test` → "Benchmark baked road layer vs copies".
+
+---
+
+## Revision B tasks (spec "Revision B — region bake at map load")
+
+Tasks 1–5 are done (per-tile version, commits 1228d1e..61f541e). Task 6 is replaced by 7–9.
+
+### Task 7: Region core
+
+**Files:** Modify `lua/ge/extensions/deepnode/roadBakeCore.lua`, `tests/roadBake_test.lua`.
+
+**Interfaces — produces:**
+- `C.regionOf(tx, ty, R) -> rx, ry` (floor division by R = 4); `C.regionOrigin(rx, ry, R, tileSize, ox, oy) -> x0, y0`.
+- `C.regionKey(rx, ry) -> string` `'r<rx>_<ry>'`; `C.cachePaths(level, key, sig)` unchanged (key may be the region string).
+- `C.tileMapping(uvOf, e, x0, y0, size)` reused with size = 4 · tileSize.
+
+- [ ] Tests first: `region_of_negative_tiles` (tx -1 → rx -1), `region_origin` (rx 34, R 4, tile 5, ox -1023.5 → x0 -343.5), `region_cache_name` (`/deepnode_cache/roadbake/gridmap_v2/r34_33_<sig>_b.color.png`), `region_mapping_scale` (size 20 on the 2048 m terrain → sx 102.4). Watch them fail, implement, pass, commit "Add region helpers to the road bake core".
+
+### Task 8: Region bake at map load
+
+**Files:** Modify `lua/ge/extensions/deepnode/roadBake.lua`, `lua/ge/extensions/deepnode/main.lua` (start roadBake for every mode; loading phase hooks), `lua/ge/extensions/deepnode/tileMesh.lua` (unchanged API: `rb.ready(t.key)` / `main.tileMatName`), `settings/deepnode/config.json` + `docs/REFERENCE.md` (`bakeSize` 2048, `bakeLoadMax` 60 s, `bakeMaxPerSec` = regions/s).
+
+**Interfaces — produces:** `M.start(main)` always (records `M.bakeOnly = mode ~= 'bake'`); `M.loading() -> bool, done, total`; `M.ready(tileKey)` true when the tile's region is cooked and its clone exists; `M.matFor(tileKey, e)`; `M.stats()` with `regions`, `loadMs`.
+
+- [ ] Region records keyed by region string; byTile → byRegion (roads clipped to the 20 m square + 0.3 m).
+- [ ] Loading phase: physics paused, `ui_message('DeepNode: baking decal roads n / N', ...)`, one bake step per frame for the active region, next region as soon as its five PNGs are complete, cooks one image per frame; stops at all done or `bakeLoadMax` s, then physics resumes; remainder in the background at `bakeMaxPerSec`.
+- [ ] Cook without keeping texture handles alive (local handle, `collectgarbage('step')` after the cook batch).
+- [ ] Clones per (region, layer); never deleted in-session; sweep at start skips regions with a live clone.
+- [ ] Live: fresh gridmap_v2 load with an empty cache — loading phase time, regions baked, failures 0; second load — cache hits, load time; dig test in bake mode (no plain-mud gap, region clone used); VRAM with mode copy vs bake (`deepnode_main.stats().perf.vramMB` after a dig); luacheck + offline tests; commit "Bake decal roads by region at map load".
+
+### Task 9: Calibrate check, bench, docs
+
+- [ ] Rig check of one region at 2048² vs vanilla (same 5 % gates as Task 5).
+- [ ] Bench after a fresh game start: 4 trucks, copy / bake / copy / bake, 2 runs each (`bench2.py`), plus 8 trucks if 4 shows a gain; VRAM per variant.
+- [ ] CHANGELOG (Unreleased), BENCHMARK result log, OPEN_ISSUES, README roads section, ENGINE_FINDINGS; final whole-branch review; push `test`; ask the user before switching the default mode.

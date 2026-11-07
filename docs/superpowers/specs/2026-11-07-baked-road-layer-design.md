@@ -169,3 +169,45 @@ tile counts and bake ms.
   clones and their textures only while the tile has a mesh; `bakeSize` 256 as fallback.
 - Many material clones = many distinct materials in the render; unmeasured.
 - The sheen / draw-order calibration may not converge to vanilla; then the mode stays opt-in.
+
+---
+
+## Revision B (2026-11-07, after the first implementation and bench) — region bake at map load
+
+### Why
+
+Measured on the per-tile implementation (commits 1228d1e..61f541e): gridmap_v2 has 1086 road tiles
+under heavily stacked decal roads (the mud pit: 4–6 road materials, up to ~30 roads per tile). Baking
+per tile ran at ~3 tiles/s with ~+5 ms a frame (5 readbacks per tile), so a first visit kept baking for
+minutes in play; every dug tile kept its own material and 1.75 MB of textures, and the session ended
+at 11 GB VRAM. User decision: bake everything at map load, up to one minute, whether or not the road
+feature is on, and keep the result on disk.
+
+### Decided
+
+- **Unit = region of 4 x 4 tiles (20 m)**, aligned to multiples of 4 tiles from the terrain origin.
+  One bake per region that has road tiles: five images of `roads.bakeSize` = 2048² (~1 cm texels),
+  one material clone per (region, soil layer) `deepnode_rb_r<rx>_<ry>_<layer>`, shared by its 16 tiles.
+  The detail-layer mapping (roadBakeCore.tileMapping) takes the region as the repeat unit.
+- **When:** at map load (mod start), for every road region of the level, regardless of `roads.mode`.
+  Loading phase: physics paused (`be:setPhysicsRunning(false)`, as the road drape does), a progress
+  notice (`ui_message`), bake steps every frame without the play budget, then the five images cooked.
+  Cache hits (current signature on disk, cooked DDS present) cost no GPU work.
+- **One-minute cap:** regions are baked nearest the camera and vehicles first; if the phase reaches
+  60 s, physics resumes and the rest bakes in the background at the old play budget
+  (`roads.bakeMaxPerSec`, regions/s). Huge levels (johnson_valley) are expected to hit the cap.
+- **Play:** in `roads.mode 'bake'` a dug tile uses its region's clone once the region is baked and
+  cooked (materials and textures load on the first dug tile of a region); otherwise copies as before.
+  In other modes the bake only fills the cache.
+- **Cache:** `deepnode_cache/roadbake/<level>/r<rx>_<ry>_<sig>_{b.color,o.data,nm.normal,r.data,m.data}.png`;
+  signature as now (plan geometry to 1 cm, materials, sizes, draw order); never deleted during a
+  session (sweep at start, regions without a live clone).
+- **VRAM:** cooking uses no ImGui texture handle kept alive (handles dropped and collected right
+  after the cook); measured in the bench (VRAM with mode copy vs bake, same session).
+- Calibration, shaders, signature rules, draw order (`bakeHighOnTop = false`) carry over.
+
+### Left to the builder
+
+Exact progress text; whether the cook of a region happens in the loading phase or on its first dug
+tile (decide by measured cook time per 2048² image); quad step splitting for regions with more than
+64 quads per material.
