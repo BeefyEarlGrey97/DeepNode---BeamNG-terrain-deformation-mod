@@ -54,7 +54,8 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 13. Experimental ground look: GPU cost not measured exactly, night/rain unchecked; pooled water only on print texels: see docs/OPEN_ISSUES.md §14.
 14. Heavy mode grass blink fixed in v0.6.0 (`grassLowDraw`); not checked on maps whose grass layer is itself soft (johnson_valley): docs/OPEN_ISSUES.md §15.
 18. Pre-rutted roads cost ~4-5 fps with 2 trucks; with "Experimental decal road" on, flat squares beside a rut can show plain mud: docs/OPEN_ISSUES.md §14, §22.
-15. Crossing ruts merge on the 1 m terrain grid (ridge between a truck's rut lines is 0.8 m); a ~5 cm settle when a vehicle stops: docs/OPEN_ISSUES.md §17.
+15. Crossing ruts merge on the 1 m terrain grid (ridge between a truck's rut lines is 0.8 m); a 2-7 cm settle when a vehicle stops (was up to 19 cm before 2026-11-08): docs/OPEN_ISSUES.md §17, §28.
+19. The game's terrain physics takes a height change ~0.55 s after the last update, so rut walls are felt ~1 s after they are dug (the axles of the same truck ride the soft layer): docs/OPEN_ISSUES.md §28.
 17. Snow: first values (berms, coat, prints) tuned on one map only (polish_roads_winter); automation_test_track snow is fragmented (59 % of snow vertices are interior): docs/OPEN_ISSUES.md §21.
 16. Region mode on big maps: ruts outside the overlap are dropped when the region moves, not yet tried on a BeamNG.earth map: docs/OPEN_ISSUES.md §19.
 

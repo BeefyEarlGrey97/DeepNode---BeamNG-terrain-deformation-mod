@@ -376,7 +376,9 @@ Open:
 - It never ran before 2026-11-08 (scope bug: liqStep threw every frame). Benchmarked since
   (BENCHMARK 19): first -13 fps with 4 trucks, now ~1-2 fps after the write/rebuild fixes.
   Not done: run windows only near the camera / in view (the flow out of view is unseen).
-- 8-truck bench not run with the liquid flow working.
+- 8-truck bench run 2026-11-08 (BENCHMARK 20): liquid ~0.4-0.66 ms/frame with yield 0.6.
+- yield 0.15 (first version) halved the ruts (rut 12-15 cm, berms 3-5 cm vs 20-24 / 10-16 cm
+  without flow); 0.6 keeps 17-19 / 6-12 cm. User found 0.15 "too soft, loses the rut structure".
 - One window per vehicle; two vehicles side by side in the same mud simulate their overlap twice.
 - Tyre obstacles come from the 20 Hz reports (no lead): mud can run into the space ahead of a
   fast tyre for one report.
@@ -438,3 +440,28 @@ beside its print.
   bit crisper); wet glint / sheen against the sun not checked yet.
 - Region mode on big maps (> 8 x 8 km) now keeps decal roads on (map limit removed): not tested
   on a big map.
+
+## 28. Firm mud: bearing ruts, debounced terrain physics (2026-11-08, test e1362a0..)
+
+Engine: the vehicle physics takes `tb:updateGrid` changes only ~0.55 s after the LAST call
+(ENGINE_FINDINGS). The heavy rut floor written at 16-20 Hz never reached moving wheels; it all
+landed when the trucks stopped ("sinks to the bed"). Now: `physics.heavy.floorGap` 0.6 s,
+floor writes outside the upload budget, `lowDrawAll` (floor = drawn rut + soft layer, terrain
+drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
+- The floor reaches the physics 0.55-1.2 s after the stamp: the rear axles of the same truck
+  ride the soft layer, not the front axle's rut floor; only ruts older than ~1 s are walls.
+  A predictive floor (lowered ahead of the wheels, lead 0.4 / 0.8 s) did not help under the
+  debounce (removed).
+- While driving the tyre sits 5-10 cm below the drawn rut surface at the hub (soft layer 0.2 m vs
+  drawn rut ~0.12-0.15 m right under the tyre; deeper after the following axles).
+- `lowDrawAll` meshes all soft ground (as vanilla mode): checked on gridmap_v2 only; holes would
+  show where a mud mesh is missing (sector edges, far mesh range) - check johnson_valley and a
+  region-mode map. Region mode / coarse terrains keep the old path.
+- Bekker kc / kphi are game-soft values fitted to one Percheron (6x6 and 8x8 configs); light
+  cars, wide tyres and snow not checked. Drive torque / spin dig on top: full throttle from
+  standstill dug the front wheels to 0.25-0.27 m (cruise 0.20-0.21).
+- Multi-pass: flowBack 0.12 leaves 12 % per pass, so every following axle carves a little (the
+  slump pass cannot be skipped for them, BENCHMARK 20).
+- Tyre-layer reloads now wait (<= 1 s) for a frame of their own: the coat steps show up to 1 s
+  later with many trucks.
+
