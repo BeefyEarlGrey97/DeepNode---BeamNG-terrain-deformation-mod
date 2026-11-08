@@ -5019,7 +5019,9 @@ local function writeOne(tx, ty, i, j, z, tr)
 end
 
 -- write a vertex into every active tile sharing it (tile borders are duplicated)
+local vWrites = 0 -- vertex writes so far (a stamp that wrote nothing needs no slump pass)
 local function writeVertex(gcx, gcy, z, tr)
+  vWrites = vWrites + 1
   local tx, ty = floor(gcx / N), floor(gcy / N)
   local i, j = gcx - tx * N, gcy - ty * N
   writeOne(tx, ty, i, j, z, tr)
@@ -5086,7 +5088,9 @@ local function carve(gcx, gcy, t, idx, bottom, tr, dig, digFloor, fb)
     if d < bottom then bottom = d end
   end
   local target = bottom > fl and bottom or fl -- never below the floor
-  if target >= cur then return 0 end
+  -- under 2 mm (one rut code step is ~2.7 mm): the flow-back rest of an earlier pass, nothing
+  -- to draw; skipping it lets the slump pass be skipped too
+  if target >= cur - 0.002 then return 0 end
   local nz = target + (fb or cfg.stamp.flowBack) * (cur - target)
   writeVertex(gcx, gcy, nz, tr)
   -- what was really removed (instantSettle stores less than nz, or nothing)
@@ -5450,10 +5454,12 @@ function P.stampWheel(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, fwx, fwy, R, W, tr
   local L = sqrt(dx * dx + dy * dy)
   local n = max(1, min(64, ceil(L / CELL)))
   if includeStart and L < 1e-6 then n = 0 end
+  local w0 = vWrites
   if n >= 2 and cfg.stamp.sweep ~= false then
     local a, b, c, d = stampSwept(p0x, p0y, p0z, dx, dy, dz, L, axx, axy, fwx, fwy, R, W, tr, dig, digMax, n)
     if a then
-      if not P.skipSlump then P.slump(a - 1, b - 1, c + 1, d + 1) end
+      -- rear axles rolling in a finished rut carve nothing: no new wall to slump
+      if not P.skipSlump and vWrites ~= w0 then P.slump(a - 1, b - 1, c + 1, d + 1) end
       P.stats.stamps = P.stats.stamps + 1
       return
     end
@@ -5466,7 +5472,7 @@ function P.stampWheel(p0x, p0y, p0z, p1x, p1y, p1z, axx, axy, fwx, fwy, R, W, tr
       digStep, digMax)
     if a then bx0, by0, bx1, by1 = min(bx0, a), min(by0, b), max(bx1, c), max(by1, d) end
   end
-  if bx0 <= bx1 then P.slump(bx0 - 1, by0 - 1, bx1 + 1, by1 + 1) end
+  if bx0 <= bx1 and vWrites ~= w0 then P.slump(bx0 - 1, by0 - 1, bx1 + 1, by1 + 1) end
   P.stats.stamps = P.stats.stamps + 1
 end
 

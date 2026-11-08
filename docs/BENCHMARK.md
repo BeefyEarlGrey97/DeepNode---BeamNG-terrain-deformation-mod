@@ -483,3 +483,20 @@ budget that follows the limiter (grow after a padded frame) was tried: 45.7-46.8
 Mod GE Lua per frame (profile run): tile rebuilds + uploads 2.4 ms (2849 uploads / run, ~1 ms
 each plus engine draw cost), vehicle reports 0.6, overlay 0.27, liquid 0.22, tyre mud 0.26,
 physics floor 0.24. Tyre-layer material reloads ~8.6 ms each (shared by 4 trucks), ~20 per run.
+
+## 20. Firm mud: bearing ruts + batched physics floor, 8 trucks (2026-11-08, test e42d9ef + slump skip)
+
+gridmap_v2, 8 Percherons (`gridmap_setup.lua`), orbit cam yaw 160 / pitch 14 / 16 m, user GUI
+settings, fps limiter off, `bench2.py <label> 2 clear`, run 2, interleaved B, A, B.
+
+| variant | fps | low1 | run time s (110 m) | notes |
+|---|---|---|---|---|
+| B: bearing ruts, floorGap 0.6, lowDrawAll, liquid yield 0.6 | 33.8 / 37.1 / 36.4 | 21.9 / 25.3 / 24.7 | 18.0 | Lua 10.8-11.3 ms |
+| A: before (4faa09e) | 31.1 / 33.2 | 19.0 / 22.2 | 21-23 | Lua 12.3-15.0 ms |
+
+Absolute fps is lower than section 17 (session drift, same camera); compare within the table.
+Mud meshes cost ~0 in the shadow pass here (216 objects hidden: RenderShadows 4.92 -> 4.80 ms,
+static). Mod GE Lua per frame (profile run, B): tile rebuilds 2.8 ms, uploads (present) 2.1 ms,
+wheel reports 1.5 ms (stampWheel 1.2, slump 0.4, berm 0.2), tyre layers 0.4 ms (max 18 ms:
+shared tyre material reload). Skipping the slump pass for stamps that wrote nothing saves little:
+heavier rear axles carve deeper than the front one under the bearing model, so they still write.
