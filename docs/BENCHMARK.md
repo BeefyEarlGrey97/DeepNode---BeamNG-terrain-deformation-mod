@@ -500,3 +500,6 @@ static). Mod GE Lua per frame (profile run, B): tile rebuilds 2.8 ms, uploads (p
 wheel reports 1.5 ms (stampWheel 1.2, slump 0.4, berm 0.2), tyre layers 0.4 ms (max 18 ms:
 shared tyre material reload). Skipping the slump pass for stamps that wrote nothing saves little:
 heavier rear axles carve deeper than the front one under the bearing model, so they still write.
+Floor writes out of the upload budget + collect only when a write may go (next commit): the
+shared budget had held the floor for whole runs (7 terrain updates per run, 463 holds); now 24
+per run (every ~0.6 s), floor section 0.44 -> 0.09 ms/frame, fps 35.3 / 35.8 (same band).

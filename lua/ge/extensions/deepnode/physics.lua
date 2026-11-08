@@ -561,7 +561,10 @@ local cl, take = {}, {}
 local updEma, lastUpd = nil, -huge
 local function write(h)
   local tm = extensions and extensions.deepnode_tileMesh
-  if tm and tm.canUpload and not tm.canUpload('F', 0) then
+  -- With floorGap the floor is written at most ~1.7 times a second (~1.3 ms each): it no
+  -- longer waits for the shared upload budget, which held it for whole runs with 8 trucks
+  -- digging (7 terrain updates per bench run, 2026-11-08). Its time is still charged.
+  if (h.floorGap or 0.6) <= 0 and tm and tm.canUpload and not tm.canUpload('F', 0) then
     stats.held = stats.held + 1
     return
   end
@@ -750,7 +753,8 @@ function M.update(dt)
   end
   -- coarse terrain (main's virtual grid): no rut floor, one real vertex spans many ruts
   if (ctx.ter.K or 1) > 1 then P.floorTiles = {}; return end
-  if acc >= 1 / max(0.5, h.floorHz or 5) then
+  -- collect only once the next write may go (floorGap): marked tiles wait in P.floorTiles
+  if acc >= 1 / max(0.5, h.floorHz or 5) and clock - lastUpd >= (h.floorGap or 0.6) then
     acc = 0
     collect(h)
   end
