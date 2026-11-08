@@ -26,8 +26,16 @@
 //  * depth shading and a wet rim (dnEdge): rut floors darker with depth, berm tops lighter
 //    (drier crust in the light), a dark wet band where the churned soil meets the ground.
 // Fog and translucent objects draw over it afterwards.
+// Lighting (2026-11-08): with the engine's light pack in slot 5 (#deepnode_roadLit, roadLitP.hlsl:
+// the light pre-pass diffuse light + screen AO) and the engine's own sun direction and sky SH9
+// (filled in every post effect), the relief is relit as the engine lights a material
+// (BNG_COCONUT: light + SH9 x AO): ratio of that light for the relief normal over the ground
+// normal; the sun glint uses the shadowed sun light at the pixel, wet sheen and puddles reflect
+// the sky SH9. Without the pack (dnLit.x 0) the old estimates (dnSun, ambient share, scene
+// brightness / albedo guess, sky from the top of the screen) remain.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
+#include "shaders/common/sh.h.hlsl"
 #include "dnCommon.h.hlsl"
 
 // scene colour ($backBuffer) in slot 0, as in the engine's own post effects
@@ -36,11 +44,15 @@ uniform_sampler2D(prepassTex, 1);
 uniform_sampler2D(prepassDepthTex, 2);
 uniform_sampler2D(rutMap, 3);
 uniform_sampler2D(shadowTex, 4);
+uniform_sampler2D(litTex, 5);
 
 cbuffer perDraw : register(b0)
 {
     uniform float3 eyePosWorld;
     uniform float accumTime;
+    uniform float3 sunDirection;
+    uniform float4 ambientSH9[9];
+    uniform float4 dnLit;     // light pack bound (> 0.5), unused x3
     POSTFX_UNIFORMS
     uniform float4 dnWin;     // x0, y0, span, baseZ
     uniform float4 dnSun;     // direction to the sun (xyz), ambient share (w)
@@ -321,7 +333,22 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float3 nt = normalize(n + float3(-grad.x, -grad.y, 0.0) * saturate(n.z));
     float lit0 = amb + sh * saturate(dot(n, L));
     float lit1 = amb + sh * (1.0 - 0.8 * crumbSh) * saturate(dot(nt, L));
-    float ratio = clamp(lit1 / max(lit0, 1e-3), 0.3, 2.0);
+    float3 ratio = clamp(lit1 / max(lit0, 1e-3), 0.3, 2.0).xxx;
+    // engine light: the diffuse light buffer is the sun (shadowed) and local lights; its sun
+    // part follows N.L of the relief normal, the sky part is SH9 of each normal x screen AO
+    bool engLit = dnLit.x > 0.5;
+    float4 lp = engLit ? tex2Dlod(litTex, float4(IN.uv0, 0, 0)) : float4(0, 0, 0, 1);
+    float aoS = lp.a < 0.0 ? -lp.a - 1.0 : lp.a;
+    ColorSH9 shc = getColorSH9(ambientSH9);
+    float ndl0 = saturate(dot(n, sunDirection));
+    float ndl1 = saturate(dot(nt, sunDirection)) * (1.0 - 0.8 * crumbSh);
+    float3 sunE = lp.rgb / max(ndl0, 0.1); // light on a surface facing the sun, at this pixel
+    if (engLit) {
+        float sr = ndl0 > 0.02 ? clamp(ndl1 / ndl0, 0.0, 3.0) : 1.0;
+        float3 Lg = lp.rgb + evalSHIrradiance(shc, n) * aoS;
+        float3 Lb = lp.rgb * sr + evalSHIrradiance(shc, nt) * aoS;
+        ratio = clamp(Lb / max(Lg, 1e-4), 0.3, 2.0);
+    }
     // grooves (deepest pressed parts) darker: the print reads whatever side the sun is on
     float ao = (carried || splat || wetT) ? 1.0 : 1.0 - dnOpt.z * groove * reliefK;
 
@@ -401,6 +428,9 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float spec = pow(saturate(dot(nt, H)), specP) * (specP + 8.0) / 25.0;
     float sunLight = clamp(dnLum(scene) / max(dnOpt.y, 0.02) / max(lit0, 0.05), 0.0, 8.0);
     float3 specAdd = sunLight * (sh * spec * wet * dnLook.w * 0.04) * float3(1.0, 0.97, 0.92);
+    // engine light: the shadowed sun light at the pixel on the relief normal, wet film F0 0.02,
+    // normalised Blinn-Phong (the scene is albedo / PI x light: same units)
+    if (engLit) specAdd = sunE * ndl1 * (0.02 * (specP + 8.0) / (8.0 * PI) * pow(saturate(dot(nt, H)), specP) * wet * dnLook.w);
 
     float3 outC = C2 * ratio * ao + specAdd;
     // wet sheen from every direction: the wet surface mirrors the sky at grazing angles
@@ -414,8 +444,10 @@ float4 mainP(PFXVertToPix IN) : SV_Target
         // Fresnel spike on every streak and mesh edge (blue speckle); a wet film is smooth
         float fresM = 0.02 + 0.98 * pow(1.0 - saturate(V.z), 5.0);
         fresM = min(fresM, 0.35) * slopeK;
-        float4 skyM = skyColour();
+        float4 skyM = engLit ? float4(0, 0, 0, 0) : skyColour();
         float3 skyC = skyM.w > 0.0 ? skyM.rgb : sunLight * amb * 1.2 * float3(0.7, 0.82, 1.0);
+        // engine sky: SH9 radiance in the mirror direction of a flat wet film, x screen AO
+        if (engLit) skyC = evalSHIrradiance(shc, reflect(-V, float3(0, 0, 1))) / PI * aoS;
         outC = lerp(outC, skyC * 0.8, saturate(fresM * wetS * dnTime.w));
     }
 
@@ -437,14 +469,17 @@ float4 mainP(PFXVertToPix IN) : SV_Target
             float murk = saturate(dnWater.z * (0.5 + depthW * 6.0));
             float3 body = C2 * ratio * lerp(0.75, 0.35, murk) * float3(0.95, 0.9, 0.8);
             float sunW = clamp(dnLum(scene) / max(dnOpt.y, 0.02) / max(lit0, 0.05), 0.0, 8.0);
-            float4 skyS = skyColour();
+            float4 skyS = engLit ? float4(0, 0, 0, 0) : skyColour();
             float3 sky = skyS.w > 0.0 ? skyS.rgb * 0.85 : sunW * (amb * 1.2) * float3(0.7, 0.82, 1.0);
+            if (engLit) sky = evalSHIrradiance(shc, reflect(-Vw, nw)) / PI * aoS;
             // muddy water: the suspended mud tints and dims what it reflects (brown flood
             // water stays brown at grazing views; the clear sky sheen read as blue glass)
             sky = lerp(sky, body * 2.2, 0.55 * murk) * lerp(1.0, 0.6, murk);
             float3 Hw = normalize(L + Vw);
             float glint = pow(saturate(dot(nw, Hw)), 400.0) * 40.0 * sh;
             float3 water = lerp(body, sky, fres) + sunW * glint * float3(1.0, 0.97, 0.9) * 0.05;
+            if (engLit) water = lerp(body, sky, fres)
+                + sunE * saturate(dot(nw, sunDirection)) * (0.02 * 408.0 / (8.0 * PI)) * pow(saturate(dot(nw, Hw)), 400.0);
             outC = lerp(outC, water, wk);
         }
     }

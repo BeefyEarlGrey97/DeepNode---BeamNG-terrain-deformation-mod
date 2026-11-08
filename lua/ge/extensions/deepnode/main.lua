@@ -816,6 +816,11 @@ local defaults = {
     parallax = 6,           -- ray march steps into the print relief (MudRunner track parallax), 0 = off
     parallaxDepth = 1.0,    -- depth of that relief, x pressDepth
     grooveDark = 0.4,       -- darkening of the deepest pressed parts
+    -- engine light (Ghidra: PostEffect::_setupConstants fills $sunDirection / $ambientSH9 in
+    -- every post effect): relief relit as the engine lights a material (light pre-pass
+    -- diffuse + SH9 x AO, packed at ReflectDepthBin), sun glint from the shadowed sun light,
+    -- sheen / puddles reflect the sky SH9. false: the estimates below (ambient, groundAlbedo)
+    engineLight = true,
     ambient = 0.45,         -- ambient share in the relight ratio
     highlight = 1.0,        -- sun highlight on wet ground
     wetSheen = 0.3,         -- sky reflection on wet ground at grazing angles (x Fresnel x smooth wetness)

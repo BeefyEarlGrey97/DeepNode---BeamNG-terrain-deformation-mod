@@ -224,10 +224,10 @@ local function makeEffects()
   makeShader(shOver, OVER_PATH)
   makeShader(shTyre, TYRE_PATH)
   shaderNames = { shStamp, shCopy, shOver, shTyre }
-  -- overlay slots: scene, normals, depth, rut map (linear), shadow mask; tyres: the same
-  -- without the rut map
+  -- overlay slots: scene, normals, depth, rut map (linear), shadow mask, engine light pack
+  -- (#deepnode_roadLit, makeLit); tyres: the first, second, third and fifth
   makeStateBlock(SB_STAMP, 'pppp')
-  makeStateBlock(SB_OVER, 'ppplp')
+  makeStateBlock(SB_OVER, 'ppplpp')
   -- constants are lost when the device resets: push them again
   for _, fx in ipairs({ FX_STAMP, FX_OVER, FX_TYRE }) do
     rawset(_G, fx .. 'Callbacks', { setShaderConsts = function() pushConsts(fx) end,
@@ -248,7 +248,7 @@ local function makeEffects()
   local ov = effect(FX_OVER, {
     { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '50' },
     { 'shader', shOver }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
-    { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', TARGET, '#sunShadowMask' })
+    { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', TARGET, '#sunShadowMask', RLIT })
   local ty = effect(FX_TYRE, {
     { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '49' },
     { 'shader', shTyre }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
@@ -923,6 +923,28 @@ local rclear = 0
 local rmark, rmarkN = {}, 0
 local rpresent = {}      -- key -> true while quads of it lie in the window
 local rstampOn, rlitOn, rdrawOn = nil, nil, {}
+
+-- The engine's light packed into #deepnode_roadLit at ReflectDepthBin (roadLitP.hlsl): read by
+-- the road passes and the rut overlay (#lightinfo reads 0 where they run). Made by whichever
+-- starts first; skipped while nothing reads it (litFrame).
+local function makeLit()
+  if find(FX_RLIT) then return end
+  local shL = SH_RLIT .. '_' .. sourceRev(RLIT_PATH)
+  makeShader(shL, RLIT_PATH)
+  shaderNames[#shaderNames + 1] = shL
+  makeStateBlock(SB_RLIT, 'plp')
+  rawset(_G, FX_RLIT .. 'Callbacks', { setShaderConsts = function() pushConsts(FX_RLIT) end,
+    onEnabled = function() return true end })
+  local lt = effect(FX_RLIT, {
+    { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ReflectDepthBin' }, { 'renderPriority', '50' },
+    { 'shader', shL }, { 'stateBlock', SB_RLIT }, { 'target', RLIT },
+    { 'targetScale', '1 1' }, { 'targetFormat', 'GFXFormatR16G16B16A16F' },
+    { 'targetClear', 'PFXTargetClear_None' } },
+    { '#lightinfo', (not rc or rc.ao ~= false) and '#gtaoOutput' or '', '#prepass[Depth]' })
+  lt:enable()
+  setSkip(lt, true)
+  rlitOn = false
+end
 local rstats = { roads = 0, quads = 0, painted = 0, recentres = 0, keys = 0, skippedKeys = 0 }
 
 local function bucketKey(bx, by) return (by + 32768) * 65536 + (bx + 32768) end
@@ -1138,15 +1160,12 @@ local vbox = {}          -- vehicle id -> { t, px, py, pz, cx, cy, hl, hw, fx, f
 local function makeRoadEffects()
   local shS = SH_RSTAMP .. '_' .. sourceRev(RSTAMP_PATH)
   local shD = SH_RDRAW .. '_' .. sourceRev(RDRAW_PATH)
-  local shL = SH_RLIT .. '_' .. sourceRev(RLIT_PATH)
   local shC = SH_COPY .. '_' .. sourceRev(COPY_PATH)
   makeShader(shS, RSTAMP_PATH)
   makeShader(shD, RDRAW_PATH)
-  makeShader(shL, RLIT_PATH)
   if not find(shC) then makeShader(shC, COPY_PATH) end
-  for _, n in ipairs({ shS, shD, shL }) do shaderNames[#shaderNames + 1] = n end
+  for _, n in ipairs({ shS, shD }) do shaderNames[#shaderNames + 1] = n end
   makeStateBlock(SB_RMAP, 'p')
-  makeStateBlock(SB_RLIT, 'plp')
   -- depth, road map, light (point); material maps (wrapping, mipmapped); colour blended over
   -- the scene by the road's alpha, relight multiplied into it
   makeStateBlock(SB_RDRAW, 'pppwww', 'alpha')
@@ -1164,20 +1183,14 @@ local function makeRoadEffects()
       onEnabled = function() return true end })
   end
   callbacks(FX_RSTAMP)
-  callbacks(FX_RLIT)
   -- higher renderPriority runs first: after the rut map passes (60, 59) paint (map -> tmp), copy
   -- back, then the keys, all before the rut overlay (50)
   local st = mapPass(FX_RSTAMP, shS, '58', RTARGET, RTMP)
   local cp = mapPass(FX_RCOPY, shC, '57', RTMP, RTARGET)
-  local lt = effect(FX_RLIT, {
-    { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ReflectDepthBin' }, { 'renderPriority', '50' },
-    { 'shader', shL }, { 'stateBlock', SB_RLIT }, { 'target', RLIT },
-    { 'targetScale', '1 1' }, { 'targetFormat', 'GFXFormatR16G16B16A16F' },
-    { 'targetClear', 'PFXTargetClear_None' } },
-    { '#lightinfo', rc.ao ~= false and '#gtaoOutput' or '', '#prepass[Depth]' })
-  st:enable(); cp:enable(); lt:enable()
-  setSkip(st, false); setSkip(cp, false); setSkip(lt, true)
-  rstampOn, rlitOn = true, false
+  makeLit()
+  st:enable(); cp:enable()
+  setSkip(st, false); setSkip(cp, false)
+  rstampOn = true
   rdrawOn = {}
   for key, m in ipairs(rkeys) do
     for _, rl in ipairs(m.nrm ~= '' and { false, true } or { false }) do
@@ -1328,8 +1341,32 @@ local function roadFrame()
   local want = n ~= 0 or sh ~= nil
   if want ~= rstampOn then setSkip(st, not want); setSkip(cp, not want); rstampOn = want end
 
-  -- light pass + one draw pass per key with quads in the window
-  local any = next(rpresent) ~= nil
+  local dbg = rc.debug or 0
+  for key, mt in ipairs(rkeys) do
+    for _, rl in ipairs({ false, true }) do
+      local name = drawName(key, rl)
+      local fx = rfx[name]
+      local on = fx ~= nil and rpresent[key] == true and (not rc.debugMat or rc.debugMat == mt.name)
+      if fx and on ~= rdrawOn[name] then setSkip(fx, not on); rdrawOn[name] = on end
+      if on then
+        beginConsts(name)
+        setConst(name, 'dnWin', rwin.x0, rwin.y0, rwin.span, W)
+        setConst(name, 'dnZ', rwin.z, rc.zAbove or 0.12, rc.zBelow or 1.5, L)
+        setConst(name, 'dnPass', key, mt.opa ~= '' and 1 or 0, (rc.normalStrength or 1) * mt.nstr, dbg)
+        local tn = dbg == 3 and rc.debugAlbedo or mt.tint
+        setConst(name, 'dnTint', tn[1], tn[2], tn[3], mt.tint[4])
+        setConst(name, 'dnMat', mt.met, mt.rough, rc.relief or 1, rc.alphaGain or 1)
+        setConst(name, 'dnLook', rc.minNormalZ or 0.5, rc.edgeFade or 12, rl and 1 or 0, (mt.ao ~= '' and rc.materialAO ~= false) and 1 or 0)
+        setConst(name, 'dnPass2', rc.vehicleAbove or 0.1, 0, 0, 0)
+      end
+    end
+  end
+end
+
+-- the light pass: on while road keys are in the window or the overlay draws
+local function litFrame(any)
+  local lt = find(FX_RLIT)
+  if not lt then return end
   if any ~= rlitOn then setSkip(lt, not any); rlitOn = any end
   if any then
     roadVehicles(os.clock())
@@ -1353,26 +1390,6 @@ local function roadFrame()
       setConst(FX_RLIT, 'dnVehZ' .. k, z[1], z[2], z[3], z[4])
     end
   end
-  local dbg = rc.debug or 0
-  for key, mt in ipairs(rkeys) do
-    for _, rl in ipairs({ false, true }) do
-      local name = drawName(key, rl)
-      local fx = rfx[name]
-      local on = fx ~= nil and rpresent[key] == true and (not rc.debugMat or rc.debugMat == mt.name)
-      if fx and on ~= rdrawOn[name] then setSkip(fx, not on); rdrawOn[name] = on end
-      if on then
-        beginConsts(name)
-        setConst(name, 'dnWin', rwin.x0, rwin.y0, rwin.span, W)
-        setConst(name, 'dnZ', rwin.z, rc.zAbove or 0.12, rc.zBelow or 1.5, L)
-        setConst(name, 'dnPass', key, mt.opa ~= '' and 1 or 0, (rc.normalStrength or 1) * mt.nstr, dbg)
-        local tn = dbg == 3 and rc.debugAlbedo or mt.tint
-        setConst(name, 'dnTint', tn[1], tn[2], tn[3], mt.tint[4])
-        setConst(name, 'dnMat', mt.met, mt.rough, rc.relief or 1, rc.alphaGain or 1)
-        setConst(name, 'dnLook', rc.minNormalZ or 0.5, rc.edgeFade or 12, rl and 1 or 0, (mt.ao ~= '' and rc.materialAO ~= false) and 1 or 0)
-        setConst(name, 'dnPass2', rc.vehicleAbove or 0.1, 0, 0, 0)
-      end
-    end
-  end
 end
 
 function M.roadStats()
@@ -1392,6 +1409,7 @@ function M.restartRoads()
   if not P then return false end
   local ok, err = pcall(startRoads)
   if not ok then log('E', 'deepnode', 'road shader failed: ' .. tostring(err)) end
+  if active then pcall(makeLit) end
   return roadOn
 end
 
@@ -1434,6 +1452,9 @@ function M.start(main)
   active = true
   local okR, errR = pcall(startRoads)
   if not okR then log('E', 'deepnode', 'road shader failed: ' .. tostring(errR)) end
+  -- the prints read the engine's light pack too, with or without roads
+  local okL, errL = pcall(makeLit)
+  if not okL then log('E', 'deepnode', 'light pack failed: ' .. tostring(errL)) end
   log('I', 'deepnode', sfmt('rut overlay on: %d^2 map over %d m', floor(oc.mapSize), floor(oc.span)))
   return true
 end
@@ -1488,7 +1509,7 @@ end
 
 -- per frame, from deepnode_main after wheelMud read the wheel frames
 function M.frame()
-  if not active then roadFrame(); return end
+  if not active then roadFrame(); litFrame(roadOn and next(rpresent) ~= nil); return end
   local st, cp, ov, ty = find(FX_STAMP), find(FX_COPY), find(FX_OVER), find(FX_TYRE)
   if not (st and cp and ov and ty) then active = false; return end
   stats.frames = stats.frames + 1
@@ -1588,7 +1609,10 @@ function M.frame()
   -- overlay pass: only while the map holds prints (or a debug view is on)
   local wantOver = anyPrint or (dbg > 0 and dbg ~= 5)
   if wantOver ~= overOn then setSkip(ov, not wantOver); overOn = wantOver end
+  litFrame(wantOver or (roadOn and next(rpresent) ~= nil))
   if not wantOver then return end
+  -- engine light pack for the relight (oc.engineLight false: the old estimates)
+  setConst(FX_OVER, 'dnLit', (oc.engineLight ~= false and rlitOn) and 1 or 0, 0, 0, 0)
   setConst(FX_OVER, 'dnWin', win.x0, win.y0, win.span, win.z)
   setConst(FX_OVER, 'dnSun', sun.x, sun.y, sun.z, oc.ambient)
   setConst(FX_OVER, 'dnTread', oc.phasePerMetre, oc.streaks, oc.pressDepth, oc.lip)
