@@ -433,9 +433,9 @@ local function tabRun(m)
     changed()
   end
   if im.IsItemHovered() then
-    im.SetTooltip('off (default): no decal road on the mud or sand, only the terrain material.\n' ..
+    im.SetTooltip('off: no decal road on the mud or sand, only the terrain material.\n' ..
       'vanilla: the level\'s own decal roads, untouched (they do not follow ruts).\n' ..
-      'shader: the decal roads drawn by a shader on the mud as dug, follow the ruts.')
+      'shader (default): the decal roads drawn by a shader on the mud as dug, follow the ruts.')
   end
   -- experimental: decal roads on soft ground carved in as ruts at start (deepnode_preRut);
   -- off by default, applies on Restart (the terrain under the roads changes)

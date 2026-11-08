@@ -64,7 +64,7 @@ out of the soft mask. Roads whose material contains a `roads.skipMatch` text (`i
 dirt decals belong to the mud.
 
 Those decals on the mud are switched by the GUI Run tab checkbox **"Experimental decal
-road"** (`roads.mode`, off by default, switches live and is saved):
+road"** (`roads.mode`, default `shader` since 2026-11-08, switches live and is saved):
 
 * Off (`"off"`): no decal road shows on the mud or sand. Every decal road with any part
   over soft ground is hidden whole (`roads.hideOnMud`), also its stretch over hard ground
@@ -591,7 +591,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `preCellStride` | 1 | Sector cell stride for undug pinned tiles (4 = 0.8 m lost the 0.3 m grooves) |
 | `preTileMax` | 4000 | Pre-rutted tiles kept as frozen tile data (sectors draw them at full resolution) |
 | `preSkipMatch` | `["line", "asphalt", "invisible", "skidmark"]` | Road materials never pre-rutted |
-| `mode` | `"off"` | Decal roads on the mud (GUI button "Decal roads on mud"): `vanilla` (the level's own decal roads untouched: not hidden, no copies, do not follow ruts), `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground; with the experimental ground look on, redrawn in screen space) |
+| `mode` | `"shader"` | Decal roads on the mud (GUI button "Decal roads on mud"): `vanilla` (the level's own decal roads untouched: not hidden, no copies, do not follow ruts), `copy` (the engine's decals stay; deepnode_roadCopy copies in the mud meshes around ruts on every build), `overlay` (older copies, deepnode_decals), `drape` (engine decals laid once), `off` (no decal road on soft ground), `shader` (hidden and drawn by the road shader on the dug surface, `overlay.roads`) |
 | `copyFlat` | 0.01 | Mode `copy`: m; a dug square still this planar gets one quad in the road copies |
 | `copyCut` | 0 | Mode `copy`: m; > 0 leaves copy quads with a corner dug deeper than this out (plain holes in the road pattern) |
 | `copyFade` | 5 levels, 0.03-0.14 m | Mode `copy`: `{ { m, opacity x }, ... }`; a copy quad whose mean \|surface - rest\| passes a level's m is drawn with a fainter clone of the road material (no vertex alpha in a ProceduralMesh): the road pattern fades into ruts and over berms |

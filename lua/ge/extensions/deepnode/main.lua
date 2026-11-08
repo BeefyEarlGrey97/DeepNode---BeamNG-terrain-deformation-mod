@@ -142,7 +142,7 @@ local defaults = {
     -- 'vanilla': the engine's decals stay as the level has them, nothing else.
     -- 'shader': the decal roads over soft ground are hidden and drawn by a post effect on
     -- whatever surface is there (overlay.roads): no mesh copies, any number of overlaps.
-    mode = 'off',
+    mode = 'shader',
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; the copy layers draw in priority order (roadCopy)
     copyLiftStep = 0,       -- m more per renderPriority level (not needed for the order)

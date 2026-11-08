@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+- Defaults: decal roads on mud `roads.mode` 'shader' (was 'off'), pre-rutted roads off,
+  physics heavy (unchanged).
+
 ### Added
 - Road shader (`roads.mode` 'shader', GUI "Decal roads on mud" cycles off / vanilla / shader;
   replaces the copies in the GUI, 'copy' stays in the config): the decal roads over soft

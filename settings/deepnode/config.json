@@ -17,7 +17,7 @@
   },
   "roads": {
     "enabled": true,
-    "mode": "off",
+    "mode": "shader",
     "maxMapKm2": 68,
     "overlayOriginal": true,
     "overlayOnRuts": true,
