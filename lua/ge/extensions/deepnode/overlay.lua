@@ -1158,7 +1158,6 @@ end
 -- per key a colour pass and a relight pass (roadDrawP.hlsl)
 local function drawName(key, relight) return FX_RDRAW .. key .. (relight and 'r' or '') end
 local rfx = {}           -- draw pass name -> PostEffect (cached: scenetree lookups every frame)
-local vbox = {}          -- vehicle id -> { t, px, py, pz, cx, cy, hl, hw, fx, fy, zmin } (roadVehicles)
 
 local function makeRoadEffects()
   local shS = SH_RSTAMP .. '_' .. sourceRev(RSTAMP_PATH)
@@ -1225,7 +1224,7 @@ local function killRoadEffects()
     end
   end
   vals[FX_RSTAMP], vals[FX_RLIT] = {}, {}
-  rfx, vbox = {}, {}
+  rfx = {}
   roadOn = false
 end
 
@@ -1253,85 +1252,29 @@ local function startRoads()
   return true
 end
 
--- vehicle footprints near the camera for the road light pass (no road painted on a vehicle).
--- The box (getSpawnWorldOOBB + its 8 corners) is measured every 0.5 s per vehicle and moved
--- with the vehicle position in between (measured: the per-frame boxes of 8 trucks, formatted
--- for every pass, cost ~0.5 ms of Lua a frame)
-local rveh = { n = 0 }
-local rwh = { n = 0 } -- tyres near the camera: hub xyz, radius, unit axle xyz, half width
-local function roadVehicles(now)
-  local n = 0
+-- tyres near the camera for the road light pass (no road painted on them): a cylinder per
+-- reported wheel (hub, radius, axle, half width; main onMudReport), moved on with the wheel's
+-- speed since its report. A footprint box per vehicle (2026-11-08, first with a height cap over
+-- the road, then a plane under the hubs) cut the road out in a rectangle wherever the ground
+-- in the box stood higher (berms, dunes); vehicle bodies are left to roadDrawP's face tests.
+local rwh = { n = 0 } -- hub xyz, radius, unit axle xyz, half width
+local pbox = {}       -- vehicle id -> footprint box for the puddle mask (overlay frame)
+local function roadVehicles()
   rwh.n = 0
   local sim = ctx.simTime and ctx.simTime() or 0
-  for i = 0, be:getObjectCount() - 1 do
-    if n >= 8 then break end
-    local veh = be:getObject(i)
-    local p = veh and veh:getPosition()
-    if p and (p.x - camX) ^ 2 + (p.y - camY) ^ 2 < 10000 then
-      local id = veh:getId()
-      local b = vbox[id]
-      if not b or now - b[1] > 0.5 or now < b[1] then
-        local bb = veh.getSpawnWorldOOBB and veh:getSpawnWorldOOBB()
-        local d = veh:getDirectionVector()
-        local dl = sqrt(d.x * d.x + d.y * d.y)
-        if bb and bb.getCenter and bb.getPoint and dl > 0.1 then
-          local c = bb:getCenter()
-          local fx, fy = d.x / dl, d.y / dl
-          local hl, hw, zmin = 0, 0, math.huge
-          for k = 0, 7 do
-            local q = bb:getPoint(k)
-            local rx, ry = q.x - c.x, q.y - c.y
-            hl = max(hl, abs(rx * fx + ry * fy))
-            hw = max(hw, abs(-rx * fy + ry * fx))
-            zmin = min(zmin, q.z)
-          end
-          -- body cut without wheel reports: 0.3 m over the lowest point
-          b = { now, p.x, p.y, p.z, c.x, c.y, hl + 0.3, hw + 0.3, fx, fy, zmin + 0.3 }
-          vbox[id] = b
-        else
-          b = nil
-        end
-      end
-      if b then
-        n = n + 1
-        local e = rveh[n] or {}
-        rveh[n] = e
-        local dx, dy, dz = p.x - b[2], p.y - b[3], p.z - b[4]
-        e[1], e[2], e[3], e[4], e[5], e[6], e[7] = b[5] + dx, b[6] + dy, b[7], b[8], b[9], b[10], b[11] + dz
-        -- its tyres go to the tyre list (roadLitP: no road on them)
-        -- body cut plane: the vehicle's up through 0.1 wheel radius under its lowest reported
-        -- hub (berms beside a sunk tyre reached half a radius under it; else 0.3 m over the box's
-        -- lowest point); body faces under it are vertical or turned down (roadDrawP drops those)
-        local up = veh:getDirectionVectorUp()
-        local ux, uy, uz = up.x, up.y, up.z
-        local ul = sqrt(ux * ux + uy * uy + uz * uz)
-        if ul > 1e-3 then ux, uy, uz = ux / ul, uy / ul, uz / ul else ux, uy, uz = 0, 0, 1 end
-        e[8], e[9], e[10], e[11], e[12], e[13] = e[1], e[2], e[7], ux, uy, uz
-        local vs = P.vehs and P.vehs[id]
-        if vs and vs.lastWheel then
-          local zc, best = math.huge, nil
-          for _, w in pairs(vs.lastWheel) do
-            if w.hz and sim - (w.at or -math.huge) < 0.5 then
-              local h = w.ax * ux + w.ay * uy + w.hz * uz - 0.1 * w.R
-              if h < zc then zc, best = h, w end
-              if rwh.n < 24 then
-                rwh.n = rwh.n + 1
-                local q = rwh[rwh.n] or {}
-                rwh[rwh.n] = q
-                local lag = sim - w.at
-                q[1], q[2], q[3], q[4] = w.ax + (w.vx or 0) * lag, w.ay + (w.vy or 0) * lag, w.hz, w.R
-                q[5], q[6], q[7], q[8] = w.nx, w.ny, w.nz, w.hw
-              end
-            end
-          end
-          if best then
-            e[8], e[9], e[10] = best.ax - 0.1 * best.R * ux, best.ay - 0.1 * best.R * uy, best.hz - 0.1 * best.R * uz
-          end
-        end
+  for _, vs in pairs(P.vehs or {}) do
+    for _, w in pairs(vs.lastWheel or {}) do
+      if rwh.n < 24 and w.hz and sim - (w.at or -math.huge) < 0.5
+          and (w.ax - camX) ^ 2 + (w.ay - camY) ^ 2 < 10000 then
+        rwh.n = rwh.n + 1
+        local q = rwh[rwh.n] or {}
+        rwh[rwh.n] = q
+        local lag = sim - w.at
+        q[1], q[2], q[3], q[4] = w.ax + (w.vx or 0) * lag, w.ay + (w.vy or 0) * lag, w.hz, w.R
+        q[5], q[6], q[7], q[8] = w.nx, w.ny, w.nz, w.hw
       end
     end
   end
-  rveh.n = n
 end
 
 local function roadFrame()
@@ -1405,27 +1348,13 @@ local function litFrame(any)
   if not lt then return end
   if any ~= rlitOn then setSkip(lt, not any); rlitOn = any end
   if any then
-    roadVehicles(os.clock())
+    roadVehicles()
     beginConsts(FX_RLIT)
-    setConst(FX_RLIT, 'dnVehN', rveh.n, rc.ao ~= false and 1 or 0, rwh.n, 0)
+    setConst(FX_RLIT, 'dnVehN', 0, rc.ao ~= false and 1 or 0, rwh.n, 0)
     for k = 1, rwh.n do
       local q = rwh[k]
       setConst(FX_RLIT, 'dnWh' .. (k - 1), q[1], q[2], q[3], q[4])
       setConst(FX_RLIT, 'dnWa' .. (k - 1), q[5], q[6], q[7], q[8])
-    end
-    for k = 1, rveh.n do
-      local e = rveh[k]
-      setConst(FX_RLIT, 'dnVeh' .. (k - 1), e[1], e[2], e[3], e[4])
-    end
-    for k = 0, 3 do
-      local a = k * 2 + 1 <= rveh.n and rveh[k * 2 + 1] or nil
-      local b = k * 2 + 2 <= rveh.n and rveh[k * 2 + 2] or nil
-      setConst(FX_RLIT, 'dnVehD' .. k, a and a[5] or 1, a and a[6] or 0, b and b[5] or 1, b and b[6] or 0)
-    end
-    for k = 1, rveh.n do
-      local e = rveh[k]
-      setConst(FX_RLIT, 'dnVb' .. (k - 1), e[8], e[9], e[10], 0)
-      setConst(FX_RLIT, 'dnVu' .. (k - 1), e[11], e[12], e[13], 0)
     end
   end
 end
@@ -1673,16 +1602,41 @@ function M.frame()
   -- vehicle footprints near the camera (no puddles under them): bounding box from the vehicle
   local nv = 0
   if (oc.puddles or 0) > 0 then
-    -- the road pass's cached vehicle boxes (measured every 0.5 s, moved with the vehicle)
-    if not roadOn then roadVehicles(os.clock()) end
+    -- footprint boxes (getSpawnWorldOOBB) measured every 0.5 s and moved with the vehicle in
+    -- between (per-frame boxes of 8 trucks cost ~0.5 ms of Lua a frame)
+    local now = os.clock()
     local dirs = {}
-    for k = 1, rveh.n do
-      local e = rveh[k]
-      if (e[1] - camX) ^ 2 + (e[2] - camY) ^ 2 < 3600 then
-        setConst(FX_OVER, 'dnVeh' .. nv, e[1], e[2], e[3] - 0.3, e[4] - 0.3)
-        dirs[#dirs + 1] = e[5]
-        dirs[#dirs + 1] = e[6]
-        nv = nv + 1
+    for i = 0, be:getObjectCount() - 1 do
+      local veh = be:getObject(i)
+      local p = veh and veh:getPosition()
+      if nv < 8 and p and (p.x - camX) ^ 2 + (p.y - camY) ^ 2 < 3600 then
+        local id = veh:getId()
+        local b = pbox[id]
+        if not b or now - b[1] > 0.5 or now < b[1] then
+          b = nil
+          local bb = veh.getSpawnWorldOOBB and veh:getSpawnWorldOOBB()
+          local d = veh:getDirectionVector()
+          local dl = sqrt(d.x * d.x + d.y * d.y)
+          if bb and bb.getCenter and bb.getPoint and dl > 0.1 then
+            local c = bb:getCenter()
+            local fx, fy = d.x / dl, d.y / dl
+            local hl, hw = 0, 0
+            for k = 0, 7 do
+              local q = bb:getPoint(k)
+              local rx, ry = q.x - c.x, q.y - c.y
+              hl = max(hl, abs(rx * fx + ry * fy))
+              hw = max(hw, abs(-rx * fy + ry * fx))
+            end
+            b = { now, p.x, p.y, c.x, c.y, hl, hw, fx, fy }
+          end
+          pbox[id] = b
+        end
+        if b then
+          setConst(FX_OVER, 'dnVeh' .. nv, b[4] + p.x - b[2], b[5] + p.y - b[3], b[6], b[7])
+          dirs[#dirs + 1] = b[8]
+          dirs[#dirs + 1] = b[9]
+          nv = nv + 1
+        end
       end
     end
     for k = 0, 3 do

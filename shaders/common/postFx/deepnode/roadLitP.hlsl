@@ -6,14 +6,10 @@
 // slots in every road pass (a post effect has six).
 // Runs at PFXBeforeBin ReflectDepthBin: #lightinfo holds there (it reads 0 by ObjTranslucentBin,
 // where the road passes run, measured 2026-11-08).
-// Vehicles (2026-11-08b): a pixel is the vehicle, not the ground, inside one of its tyres (a
-// cylinder round the hub along the axle, from the wheel reports) or inside its footprint box
-// (centre xy, half length, half width; forward xy in dnVehD) above its body cut plane (dnVb /
-// dnVu: the vehicle's up through 0.1 wheel radius under its lowest hub: berms beside a sunk
-// tyre reached half a radius under it; a flat cut height
-// cut the road on the uphill side of a car on a slope). The old test (inside the box: the road only up to
-// 0.1 m over its own height) cut a rectangle out of the road where the ground stood higher,
-// and still painted sunk tyres.
+// Vehicles (2026-11-08b): a pixel inside a tyre (a cylinder round the hub along the axle, from
+// the wheel reports) is marked (a = -1 - AO) and gets no road. Footprint boxes (first with a
+// height cap over the road, then a plane under the hubs) cut the road out in a rectangle where
+// the ground in the box stood higher; vehicle bodies are left to roadDrawP's face tests.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
 
@@ -26,18 +22,7 @@ cbuffer perDraw : register(b0)
     uniform float3 eyePosWorld;
     uniform float accumTime;
     POSTFX_UNIFORMS
-    uniform float4 dnVehN;   // vehicle count, AO bound (> 0.5), tyre count
-    uniform float4 dnVeh0; uniform float4 dnVeh1; uniform float4 dnVeh2; uniform float4 dnVeh3;
-    uniform float4 dnVeh4; uniform float4 dnVeh5; uniform float4 dnVeh6; uniform float4 dnVeh7;
-    uniform float4 dnVehD0; uniform float4 dnVehD1; uniform float4 dnVehD2; uniform float4 dnVehD3;
-    uniform float4 dnVb0; uniform float4 dnVu0;
-    uniform float4 dnVb1; uniform float4 dnVu1;
-    uniform float4 dnVb2; uniform float4 dnVu2;
-    uniform float4 dnVb3; uniform float4 dnVu3;
-    uniform float4 dnVb4; uniform float4 dnVu4;
-    uniform float4 dnVb5; uniform float4 dnVu5;
-    uniform float4 dnVb6; uniform float4 dnVu6;
-    uniform float4 dnVb7; uniform float4 dnVu7;   // body cut plane per vehicle: a point (dnVb) and the vehicle's up (dnVu)
+    uniform float4 dnVehN;   // unused, AO bound (> 0.5), tyre count
     // tyres near the camera: hub xyz + radius (dnWh), unit axle xyz + half width (dnWa)
     uniform float4 dnWh0; uniform float4 dnWa0;
     uniform float4 dnWh1; uniform float4 dnWa1;
@@ -73,14 +58,6 @@ cbuffer perDraw : register(b0)
     #define mainP main
 #endif
 
-#define VEH(i, D)                                                                         \
-    if (i < nv) {                                                                       \
-        float2 c = wp.xy - dnVeh##i.xy;                                                 \
-        float2 f = D;                                                                   \
-        float2 q = float2(abs(dot(c, f)), abs(dot(c, float2(-f.y, f.x))));              \
-        if (q.x < dnVeh##i.z && q.y < dnVeh##i.w && dot(wp - dnVb##i.xyz, dnVu##i.xyz) > 0.0) on = 1.0;\
-    }
-
 #define WHL(i)                                                                        \
     if (i < nw) {                                                                 \
         float3 c = wp - dnWh##i.xyz;                                                  \
@@ -97,11 +74,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float d = tex2Dlod(depthTex, float4(IN.uv2, 0, 0)).r;
     float lin = realToEyeLinearDepth(ndcToRealDepth(d, projParams.zw), projParams);
     float3 wp = eyePosWorld + IN.wsEyeRay * lin;
-    int nv = (int)dnVehN.x;
     float on = 0.0;
-    VEH(0, dnVehD0.xy) VEH(1, dnVehD0.zw) VEH(2, dnVehD1.xy)
-    VEH(3, dnVehD1.zw) VEH(4, dnVehD2.xy) VEH(5, dnVehD2.zw)
-    VEH(6, dnVehD3.xy) VEH(7, dnVehD3.zw)
     int nw = (int)dnVehN.z;
     WHL(0) WHL(1) WHL(2) WHL(3) WHL(4) WHL(5)
     WHL(6) WHL(7) WHL(8) WHL(9) WHL(10) WHL(11)

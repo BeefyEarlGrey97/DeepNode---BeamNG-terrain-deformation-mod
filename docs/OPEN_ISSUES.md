@@ -365,10 +365,10 @@ Open:
   frame with a sunk SUV, GPU cost not re-measured (the stamp pass reads 16 texels a texel; the
   draw passes stop at the first empty entry).
 - Not in the GPU-bound 8-truck bench yet; GPU cost measured by utilisation only.
-- 2026-11-08b: vehicle mask = tyre cylinders (24 nearest reported tyres) + body plane in the
-  footprint box + down-facing faces dropped. Not covered: a vehicle without wheel reports on
-  hard ground beside the road (box with a plane 0.3 m over its lowest point), bodies sunk below
-  hub level, more than 8 vehicles / 24 tyres near the camera. Road map now 32-bit float
+- 2026-11-08b: vehicle mask = tyre cylinders (24 reported tyres within 100 m) + down-facing
+  faces dropped; no footprint box (it cut the road in rectangles). Not covered: tyres without
+  wheel reports (vehicle off soft ground), upward-facing body parts within `zAbove` of the road
+  height (running boards, a deeply sunk body), more than 24 tyres near the camera. Road map now 32-bit float
   (2 x 64 MB at 512 x 8 layers): GPU cost not re-measured; johnson_valley not re-checked in game.
 - Sky reflection of metallic roads uses the SH9 sky, roughness factor only (no roughness map:
   no texture slot left); no sun specular.
