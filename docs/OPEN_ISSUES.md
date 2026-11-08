@@ -373,8 +373,10 @@ Open:
 ## 25. Liquid mud (2026-11-08, first version)
 
 `stamp.liquid` (CHANGELOG Unreleased). Open:
-- Not benchmarked: a 1-truck A/B was inside the noise (another session ran in the same game).
-  ~7000 vertex writes/s with one truck; each write can rebuild a tile. Needs the 4/8-truck bench.
+- It never ran before 2026-11-08 (scope bug: liqStep threw every frame). Benchmarked since
+  (BENCHMARK 19): first -13 fps with 4 trucks, now ~1-2 fps after the write/rebuild fixes.
+  Not done: run windows only near the camera / in view (the flow out of view is unseen).
+- 8-truck bench not run with the liquid flow working.
 - One window per vehicle; two vehicles side by side in the same mud simulate their overlap twice.
 - Tyre obstacles come from the 20 Hz reports (no lead): mud can run into the space ahead of a
   fast tyre for one report.
@@ -418,3 +420,21 @@ beside its print.
 - Tick list: a tick toggled back to its default before Restart still shows "changes apply on
   Restart". Row areas (km2) shown in the design preview are not drawn yet.
 - polish_roads_winter is 3.8 km2 of SNOW_DEEP: region mode; fps with several trucks not measured.
+
+## 27. SnowRunner look: tyre layer, berms, frame limiter (2026-11-08)
+
+- Tyre layer (`clods.tyreLayer`): one material per tyre name, so every vehicle with that tyre
+  shows the muddiest one (vehicle materials cannot be instanced, see 5b). Masks assume the
+  common strip UV layout (U around, V across); tyres with other layouts get blotches in odd
+  places. A reload costs ~8.6 ms with 4 trucks sharing it (~20 per bench run): rare spikes.
+  Colour still from the ground pipeline; not compared side by side with the terrain yet.
+- Berms / bow wave: tuned on gridmap_v2 mud only; sand and snow values are first guesses.
+  The bow wave is a shape (not volume): the tyre carves it into the side berms as it rolls.
+- Frame limiter: a cap pads short frames and cannot shorten long ones; uploads (~1 ms each +
+  engine draw cost) and dig bursts make frames uneven. digMaxPerFrame 6 helped low1; a
+  limiter-aware budget did not (dropped). Next lever: fewer uploads per visible change
+  (user GUI tileRebuildHz 60 / maxMeshBuildsPerSec 400 are far above the defaults 5 / 33).
+- Overlay engine light: checked at one sun angle on gridmap_v2 only (looks as before, relief a
+  bit crisper); wet glint / sheen against the sun not checked yet.
+- Region mode on big maps (> 8 x 8 km) now keeps decal roads on (map limit removed): not tested
+  on a big map.

@@ -473,6 +473,7 @@ settings (tileRebuildHz 60, maxMeshBuildsPerSec 400, uploadMsMax 6, overlay on, 
 | no limiter, digMaxPerFrame 6 (new default) | 51.5 / 53.5 | 32.2 | 0.072 | |
 | same, road shader passes off | 52.6 / 54.2 | 32.9 | 0.068 | road shader ~1 fps, Render -0.2 ms |
 | mod off (trucks do not sink: 12 m/s instead of 3.5) | 112.7 | 102.0 | - | Lua 0.63 ms |
+| final (1ec9cb2: + overlay engine light) | 52.5 / 51.2 | 32.9 / 27.8 | 0.058 / 0.062 | |
 
 Frame times while driving (no limiter, digMaxPerFrame 16): 30 % of frames under 16.7 ms with
 ~0.5 ms of mod work, 41 % at 20-50 ms with 4-10 ms (uploads 2.6-6.7 ms in the frame). A
