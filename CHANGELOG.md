@@ -17,6 +17,13 @@
 - Liquid mud more liquid (yield 0.15, damping 1.0, depthRef 0.15, life 3 s): the rut refills
   behind the tyre from its berms (gridmap_v2: -18 cm at 1.5 m behind the front axle, -5 cm at
   3.5 m).
+- Tyre prints (rut overlay) lit with the engine's own light (`overlay.engineLight`): the
+  relief ratio uses the light pre-pass diffuse light and the sky SH9 the engine fills in every
+  post effect (as the road shader; the light pack now runs for the prints with or without
+  roads), the wet glint the shadowed sun light, sheen and puddles reflect the sky SH9 instead
+  of guessed sun/ambient shares, scene-brightness estimates and sky samples from the top of the
+  screen.
+
 - Performance (4 Percherons, gridmap_v2, BENCHMARK 19): liquid mud writes no longer count as
   tyre stamps (dig-rate rebuilds, big-change, under-body wait); tiles changed only by the flow
   rebuild at `liquid.rebuildHz` 1; flow minStep 1 cm, damping 2, life 1.2 s: 42.6 -> 50 fps.

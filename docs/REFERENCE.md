@@ -914,6 +914,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.parallax` | 6 | Ray march steps into the print relief (MudRunner's track parallax: grooves look sunk in at low camera angles), 0 = off, max 12 |
 | `overlay.parallaxDepth` | 1.0 | Depth of the marched relief, x pressDepth |
 | `overlay.grooveDark` | 0.4 | Darkening of the deepest pressed parts (reads whatever side the sun is on) |
+| `overlay.engineLight` | true | Tyre prints lit with the engine's own light: light pre-pass diffuse + sky SH9 x screen AO (packed at ReflectDepthBin, shared with the road shader), sun glint from the shadowed sun light, sky SH9 in wet sheen and puddles; false = the estimates (`ambient`, `groundAlbedo`, sky from the screen top) |
 | `overlay.ambient` | 0.45 | Ambient share in the relight ratio |
 | `overlay.highlight` | 1.0 | Sun highlight on wet ground |
 | `overlay.wetSheen` | 0.3 | Sky reflection on wet ground at grazing angles (flat-water Fresnel x a smooth wetness: kind wetness x print strength; sky sampled from the top of the screen). The per-groove wetness made it streaky |
