@@ -464,4 +464,10 @@ drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
   slump pass cannot be skipped for them, BENCHMARK 20).
 - Tyre-layer reloads now wait (<= 1 s) for a frame of their own: the coat steps show up to 1 s
   later with many trucks.
+- Perf at 8 trucks (BENCHMARK 20): mod Lua ~8.8 ms (tile rebuild + upload 2.3-2.9, wheel reports
+  1.5, liquid 0.4, tyre layers 0.3-0.45, overlay 0.35) and ~6 ms of extra render while driving,
+  which is the engine's first-draw cost of fresh meshes (static, the mud meshes, overlay and tyre
+  layer cost ~0). Since `lowDrawAll` every soft cell is meshed (avg 2300 face corners per tile
+  upload). Next lever, not done: merge flat 2x2 / 4x4 cell blocks in `emitTileCells` (corners
+  dominate createMesh), keeping size classes, road-copy quads and decals intact.
 
