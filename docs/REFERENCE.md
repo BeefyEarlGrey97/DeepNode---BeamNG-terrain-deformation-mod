@@ -565,21 +565,20 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `enabled` | true | Keep terrain under hard decal roads free of mud |
 | `margin` | 0.5 | Extra width (m) kept free of mud on each side of a road |
 | `skipMatch` | `["invisible", "dirt"]` | Roads with a material containing one of these texts (or a `softMatch` text) are not carved |
-| `preRut` | false | Decal roads on soft ground become ruts at start: their normal map is integrated to a height field (deepnode_preRut) and carved into the rest surface. GUI "Experimental pre-rutted roads" (applies on Restart) |
-| `preDepth` | mud 0.3, sand 0.17, snow 0.1 | Depth (m) of the height field's 5th percentile per ground kind |
+| `preRut` | false | Decal roads on soft ground become ruts at start: a procedural rut field per road (deepnode_preRut; the road material is not used) is carved into the rest surface. GUI "Experimental pre-rutted roads" (applies on Restart) |
+| `preDepth` | mud 0.3, sand 0.17, snow 0.1 | Depth (m) of a road's first-pass ruts per ground kind |
 | `preDepthScale` | 1 | Factor on `preDepth` |
-| `preTexWidth` | 64 | Smallest normal-map mip at least this wide is decoded (BC5 / BC4 in Lua) |
-| `preHighPass` | 0.1667 | High-pass box radius as a share of the texture width (removes the integration bowl) |
-| `preSmoothRows`, `preSmoothCols` | 1, 1 | Light box smoothing along / across the road (texels) |
-| `preFlatRelief` | 0.1 | Height fields with less relief are basins instead (water puddles: flat normals) |
-| `preBasin` | 0.6 | Basin depth (x `preDepth`) where the decal is opaque |
-| `preClampLow`, `preClampHigh` | 1.5, 0.4 | Height field clamp (x `preDepth`): deepest dip, highest ridge |
-| `preTrackMin` | 0.3 | Across-road profile std / height std below this: the decal has no tracks (mud_large 0.16, mud_furrows 0.55) and keeps only `preLumpShare` of its relief |
-| `preTrackLen` | 0.06 | Track decals: shape held over this share of the texture length is kept in full |
-| `preLumpShare` | 0.3 | Share of the clod detail kept (track decals: what varies faster along the road; lumpy decals: all of it) |
-| `preTrackWidth` | 0.08 | Track decals: grooves widened across the road by a box of this share of the width (radius), then rescaled to p5 = -1 |
-| `preGrooveMin` | 0.4 | Track decals: across-road minima of the height profile deeper than this (x `preDepth`) are wheel lines, painted dark and wet by the overlay |
-| `preOpBlur` | 0.25 | Opacity used to blend stacked roads is blurred by this share of the width (coverage, not detail) |
+| `preBasin` | 0.6 | Puddle roads: dish depth (x `preDepth`) |
+| `preBasinMatch` | `["water", "puddle"]` | Road materials made a dish instead of ruts |
+| `preTyreWidth` | [0.28, 0.48] | Rut width range (m, one tyre); each pass of a road picks one from its seed |
+| `preTrackHalf` | [0.75, 1.0] | Half wheel gauge range (m) |
+| `prePasses` | [1, 3] | Passes (vehicles) per road; passes after the first are shallower and fade in and out along the road over `preFadeLen` m (7) |
+| `preRutFlat` | 0.3 | Share of a rut's half width that is flat bottom |
+| `preBerm`, `preBermWidth` | 0.3, 0.18 | Torn berm height (x rut depth) and width (m), both broken up along the rut |
+| `preWander`, `preWanderLen` | 0.25, [6, 14] | Lateral wander (m) of a pass and its wavelength range (m) |
+| `preDepthVar` | 0.35 | Rut depth varies by +- this share along the road |
+| `preLumps`, `preLumpSize` | 0.15, 0.25 | Clumpy mud (x depth, size m) along the ruts, a fifth of it elsewhere |
+| `preSingleMax` | 1.4 | Roads narrower than this (m) carry one wheel line |
 | `preEndFade`, `preEdgeFade` | 1.5, 0.1 | Fade (m) at the road ends, (share of width) at its sides |
 | `preSoftShare` | 0.3 | Share of a road's centre points on soft ground needed to use it |
 | `preReach`, `preMargin` | 0.6, 0.03 | Terrain vertices within `preReach` m of a dip go down by the dip + `preMargin` (mesh shows, physics floor follows) |
@@ -689,11 +688,20 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | Key | Default | Meaning |
 |---|---|---|
 | `flowBack` | 0.22 | Share of a fresh rut that flows straight back |
+| `liquid` | see below | Liquid mud: pipe-model flow of the rut surface round the tyres (main P.liquidStep) |
+| `liquid.kinds` | `{ "mud": 1.0 }` | Flow factor per ground kind; kinds not listed stay solid |
+| `liquid.margin`, `liquid.maxSize` | 1.0, 12 | One window per vehicle: its tyres' box plus margin (m), at most maxSize m a side; it follows the vehicle cell by cell |
+| `liquid.hz` | 20 | Simulation steps per second |
+| `liquid.gravity`, `liquid.depthRef` | 9.81, 0.12 | Flux acceleration: gravity x the mud depth the flux moves through (wave speed) |
+| `liquid.yield` | 0.3 | Slope the mud holds without flowing (Bingham yield): ruts keep a wall up to this |
+| `liquid.damping` | 1.4 | 1/s viscous damping of the flux (lower: more slosh) |
+| `liquid.life` | 2.0 | s a window keeps flowing after its vehicle left the mud |
+| `liquid.minStep` | 0.004 | m of change before a vertex is rewritten (each write can rebuild a tile) |
 | `bermFraction` | 0.4 | Share of displaced mud that ends in the berms |
 | `bermWidthFactor` | 0.6 | Berm width as a share of the tyre width |
 | `bermMax` | 0.1 | Highest berm above the undisturbed surface |
 | `rimCells` | 1 | Width of the soft rim beside the tyre, in cells |
-| `rimDepth` | 0.45 | How far the rim sags towards the tyre edge (0..1) |
+| `rimDepth` | 0.45 | How far the rim sags towards the tyre edge (0..1); per kind in `kinds` (mud 0: the pushed mud stays against the tyre and the liquid flow takes it round) |
 | `maxSlope` | 1.2 | Steepest wall the mud holds (rise over run; 1.2 is about 50°) |
 | `slumpRate` | 0.35 | Share of the too-steep part removed per pass |
 | `slumpPasses` | 1 | Slope passes over each stamped area |

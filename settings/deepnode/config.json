@@ -55,19 +55,41 @@
       "snow": 0.1
     },
     "preDepthScale": 1.0,
-    "preTexWidth": 64,
-    "preSmoothRows": 1,
-    "preHighPass": 0.1667,
-    "preFlatRelief": 0.1,
     "preBasin": 0.6,
+    "preBasinMatch": [
+      "water",
+      "puddle"
+    ],
+    "preTyreWidth": [
+      0.28,
+      0.48
+    ],
+    "preTrackHalf": [
+      0.75,
+      1.0
+    ],
+    "prePasses": [
+      1,
+      3
+    ],
+    "preRutFlat": 0.3,
+    "preBerm": 0.3,
+    "preBermWidth": 0.18,
+    "preWander": 0.25,
+    "preWanderLen": [
+      6,
+      14
+    ],
+    "preDepthVar": 0.35,
+    "preFadeLen": 7,
+    "preLumps": 0.15,
+    "preLumpSize": 0.25,
+    "preSingleMax": 1.4,
     "preEndFade": 1.5,
     "preEdgeFade": 0.1,
-    "preSmoothCols": 1,
     "preSoftShare": 0.3,
     "preMargin": 0.03,
     "preReach": 0.6,
-    "preClampLow": 1.5,
-    "preClampHigh": 0.4,
     "preTileMax": 4000,
     "preCellStride": 1,
     "preSkipMatch": [
@@ -119,7 +141,7 @@
     "digMaxPerFrame": 16,
     "digEvery": 1,
     "deepenRebuildHz": 20,
-"outViewMaxDefer": 1,
+    "outViewMaxDefer": 1,
     "freshWindow": 0.5,
     "meshRange": 70
   },
@@ -141,6 +163,21 @@
   },
   "stamp": {
     "flowBack": 0.22,
+    "liquid": {
+      "enabled": true,
+      "kinds": {
+        "mud": 1.0
+      },
+      "margin": 1.0,
+      "maxSize": 12,
+      "hz": 20,
+      "gravity": 9.81,
+      "depthRef": 0.12,
+      "yield": 0.3,
+      "damping": 1.4,
+      "life": 2.0,
+      "minStep": 0.004
+    },
     "bermFraction": 0.4,
     "bermWidthFactor": 0.6,
     "bermMax": 0.1,

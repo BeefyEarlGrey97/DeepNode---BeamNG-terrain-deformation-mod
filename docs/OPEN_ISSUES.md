@@ -343,7 +343,22 @@ mud_large drawn as if water were on top). Suspect: `mud_large` has `alphaTest` 1
 render in an earlier bin than the other translucent copies; alphaTest 1 on every clone fixed the
 centre but not all stripes (unfinished). Fade default must change (cost) once the stack is right.
 
+## 25. Liquid mud (2026-11-08, first version)
+
+`stamp.liquid` (CHANGELOG Unreleased). Open:
+- Not benchmarked: a 1-truck A/B was inside the noise (another session ran in the same game).
+  ~7000 vertex writes/s with one truck; each write can rebuild a tile. Needs the 4/8-truck bench.
+- One window per vehicle; two vehicles side by side in the same mud simulate their overlap twice.
+- Tyre obstacles come from the 20 Hz reports (no lead): mud can run into the space ahead of a
+  fast tyre for one report.
+- The liquid state lives only on active tiles; it stops when a tile freezes.
+- The colour / wetness of the SnowRunner reference (dark glossy mud, water in the ruts) is not
+  done: the mud mesh keeps the terrain material.
+
 ## 22. Pre-rutted decal roads (2026-11-04, first version)
+
+2026-11-08: procedural ruts (no road material); the "lighter rectangle beside a driving truck"
+was the own-mesh plain-square merge (fixed, see CHANGELOG).
 
 2026-11-05: deeper (mud 0.3 m), wider grooves, dark wet wheel lines + pools through the overlay.
 Open: ~4.5 fps with 2 trucks (Lua +0.35 ms: print feeding, pools; shadows +0.3 ms: full-res

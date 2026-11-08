@@ -986,9 +986,11 @@ function M.emitTileCells(b, t, zOff, rule, stride)
   if (stride == 1 and main.cfg.tiles.mergePlain ~= false) or flush then
     plain = sqPlain
     if not plain or #plain < ts * ts then plain = {}; sqPlain = plain end
+    local preSq = t.preSq
     for sj = 0, ts - 1 do
       for si = 0, ts - 1 do
-        local ok = true
+        -- a pre-rutted road square is shaped inside (main.prepareTile): never one quad
+        local ok = not (preSq and preSq[sj * ts + si] ~= 0)
         for j = sj * cps, sj * cps + cps do
           local row = j * W
           for i = si * cps, si * cps + cps do

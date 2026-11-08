@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+- Liquid mud (`stamp.liquid`, mud only): the rut surface round every vehicle in mud flows. A
+  shallow-water pipe model on the 0.2 m rut grid (gravity on the height step beyond a yield
+  slope, viscous damping) with the tyres as solid obstacles: the mud the tyres push aside
+  piles against them, runs round them and closes in behind, the rut walls slump into a smooth
+  trough and slosh before they settle. Only dug mud gives mud away (pre-rutted and untouched mud
+  only receives). gridmap_v2, Ural 6x6 at 2 m/s: the front axle's rut refills ~17 cm and its
+  berms drop ~11 cm within 0.6 s. Mud kind `rimDepth` 0 (the pushed mud stays at the tyre).
+
+### Changed
+- Pre-rutted roads are procedural: the road material (normal map integration, DDS decode, FFT)
+  is no longer used. Every road gets 1-3 passes of tyre-wide ruts (0.28-0.48 m) with their own
+  gauge, offset, depth and wander from the road's seed, torn berms, and clumpy mud along the
+  ruts; further passes fade in and out along the road. No seams between segments, no repeat.
+  Obsolete keys removed: `preTexWidth`, `preHighPass`, `preSmooth*`, `preFlatRelief`,
+  `preClamp*`, `preTrack*`, `preLumpShare`, `preGrooveMin`, `preOpBlur`.
+
+### Fixed
+- Pre-rutted roads lost their shape round a vehicle: a tile that got its own mesh drew its
+  untouched squares as one quad from the corners (`tiles.mergePlain`) or left them to the
+  terrain (terrain-first flush), both without the road's ruts. Squares carrying a pre-rut
+  offset (`t.preSq`) are now never merged nor flush.
+
 ## [0.7.1] — 2026-11-07 — hotfix: safer defaults
 
 ### Changed

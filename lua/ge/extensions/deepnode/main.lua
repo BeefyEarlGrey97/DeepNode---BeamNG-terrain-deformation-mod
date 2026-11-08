@@ -316,6 +316,14 @@ local defaults = {
     flowBack = 0.22,        -- share of a carved rut that flows straight back
     bermFraction = 0.4,     -- share of displaced mud that ends in the berms (rest compacts)
     bermWidthFactor = 0.6,  -- berm band width as a fraction of tyre width
+    -- liquid mud (P.liquidStep): pipe-model flow round the tyres in a window per wheel.
+    -- kinds: flow factor per ground kind (missing = solid); margin m round a vehicle's
+    -- tyres (one window per vehicle, at most maxSize m a side); hz sub-steps;
+    -- depthRef m of mud the flux moves through (wave speed); yield: slope the mud holds;
+    -- damping 1/s (viscosity: slosh dies out); life s it flows after the wheel left;
+    -- minStep m of change before a vertex is rewritten (each write can rebuild a tile)
+    liquid = { enabled = true, kinds = { mud = 1.0 }, margin = 1.0, maxSize = 12, hz = 20, gravity = 9.81,
+               depthRef = 0.12, yield = 0.3, damping = 1.4, life = 2.0, minStep = 0.004 },
     bermMax = 0.1,          -- berm cap above the rest surface (m)
     rimCells = 1,           -- soft rim width in cells beside the tyre (cosine falloff)
     rimDepth = 0.45,        -- how far the rim sags towards the tyre edge (0..1)
@@ -370,7 +378,8 @@ local defaults = {
     --    (s = slip ratio; Reece 1965: strong in sand, weak in clay; values to tune)
     --  spinDig: factor on spinDigRate / spinDigMax
     kinds = {
-      mud = { bermFraction = 0.45, maxSlope = 2.2, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8 },
+      mud = { bermFraction = 0.45, maxSlope = 2.2, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8,
+              rimDepth = 0 },
       sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4 },
       -- snow compacts under the tyre more than it is pushed aside (small berms), the walls
       -- of a packed rut stand steep; Bekker n for snow ~1.0-1.6 (Wong, Terramechanics);
@@ -3135,7 +3144,8 @@ function P.tileFlush(t)
   for sj = 0, TS - 1 do
     for si = 0, TS - 1 do
       local q = sj * TS + si
-      local v = (t.sqPatched[q] ~= 0 and P.squareFlush(t.gx0 + si, t.gy0 + sj)) and 1 or 0
+      local v = (t.sqPatched[q] ~= 0 and not (t.preSq and t.preSq[q] ~= 0)
+        and P.squareFlush(t.gx0 + si, t.gy0 + sj)) and 1 or 0
       f[q] = v
       if v == 1 then any = true end
     end
@@ -4324,6 +4334,22 @@ function P.prepareTile(tx, ty)
         local c00 = sj * CPS * NW + si * CPS
         local c01 = c00 + CPS * NW
         local vb = po[c00] * w00 + po[c00 + CPS] * w10 + po[c01] * w01 + po[c01 + CPS] * w11
+  -- squares carrying a pre-rut offset: never merged to one quad nor left to the terrain
+  -- (both lost the road's ruts the moment the tile got its own mesh)
+  local preSq = nil
+  if po then
+    preSq = ffi.new('uint8_t[?]', TS * TS)
+    for j = 0, N do
+      for i = 0, N do
+        local o = po[j * NW + i]
+        if o > 0.002 or o < -0.002 then
+          for sj = max(0, floor((j - 1) / CPS)), min(TS - 1, floor(j / CPS)) do
+            for si = max(0, floor((i - 1) / CPS)), min(TS - 1, floor(i / CPS)) do preSq[sj * TS + si] = 1 end
+          end
+        end
+      end
+    end
+  end
         rest[idx] = rest[idx] + po[idx] - vb
       end
     end
@@ -4344,7 +4370,7 @@ function P.prepareTile(tx, ty)
     key = key, tx = tx, ty = ty, gx0 = tx * TS, gy0 = ty * TS,
     x0 = ter.ox + tx * TILE, y0 = ter.oy + ty * TILE,
     ts = TS, cps = CPS, N = N, cell = CELL,
-    vRest = vRest, vFloor = vFloor, vMem = vMem, sqPatched = sqPatched, sqMat = sqMat,
+    vRest = vRest, vFloor = vFloor, vMem = vMem, sqPatched = sqPatched, sqMat = sqMat, preSq = preSq,
     rest = rest, floor = flo, rut = rut, track = track, soft = soft,
     peakLo = peakLo, peakHi = peakHi, relaxing = false,
     passN = passN, passKey = passKey, passT = passT, z1 = z1,
@@ -5147,7 +5173,7 @@ local function stampFootprint(cx, cy, cz, axx, axy, fwx, fwy, R, tyres, tr, dig,
               local edge = bottom0 + rs
               local cur = decodeZ(t, idx)
               if edge < cur then
-                local w = 0.5 * (1 + math.cos(math.pi * aa / rimW)) * st.rimDepth
+                local w = 0.5 * (1 + math.cos(math.pi * aa / rimW)) * (P.kRim or st.rimDepth)
                 local fl = min(t.floor[idx], t.rest[idx])
                 local target = cur + (max(fl, edge) - cur) * w
                 if target < cur then
@@ -5206,7 +5232,7 @@ local function stampSwept(p0x, p0y, p0z, dx, dy, dz, L, axx, axy, fwx, fwy, R, t
   if gx1 - gx0 > 300 or gy1 - gy0 > 300 then return nil end
   local sLo, sHi = lo - rimW - bw, hi + rimW + bw
   local fb0 = st.flowBack
-  local rimDepth = st.rimDepth
+  local rimDepth = P.kRim or st.rimDepth
   local removed, nB, wsum = 0, 0, 0
   local R2 = R * R
   local invD = 1 / dfw
@@ -5300,6 +5326,7 @@ function P.setStampKind(kind, depth, key)
   else
     P.soil = nil
   end
+  P.kRim = K and K.rimDepth or st.rimDepth
   return K
 end
 
@@ -5603,6 +5630,232 @@ function P.configureVehicle(vid)
   local veh = getObjectByID(vid)
   if not veh then return end
   local vs = P.vehs[vid] or P.newVehState(vid)
+-------------------------------------------------------------------------------
+-- liquid mud (stamp.liquid)
+-------------------------------------------------------------------------------
+-- Wet mud flows. Round every vehicle in a liquid kind a window of the rut grid runs a
+-- shallow-water pipe model (O'Brien & Hodgins 1995): every grid edge carries a flux that
+-- the height difference accelerates (gravity) and viscosity damps, so the mud the tyre
+-- pushes aside runs back round it, piles against it and sloshes before it settles. The
+-- tyre is a solid obstacle (no flux into or out of the cells it fills): mud never sticks
+-- to it, it flows round it and closes in behind it. Bingham yield: below `yield` slope
+-- the mud holds (ruts stay ruts); only disturbed mud (dug, berm, tyre track) gives mud
+-- away, undisturbed mud (pre-rutted roads included) only receives. The window follows
+-- the vehicle cell by cell (flow state carried) and keeps flowing `life` s after it left. Writes go through writeVertex (tile copies,
+-- physics floor, rebuild flags), only once a change passes minStep; the rest is carried.
+P.liqWin = {}     -- vehicle id -> its window
+P.liqTyres = {}   -- wheel key -> its tyre at the last report (obstacle while fresh)
+
+function P.liquidKind(x, y)
+  local lc = cfg.stamp.liquid
+  if not lc or lc.enabled == false then return nil end
+  local f = lc.kinds and lc.kinds[P.kindAtWorld(x, y) or 'mud']
+  return (f and f > 0) and f or nil
+end
+
+-- a wheel report: the tyre is an obstacle until the next one
+function P.liquidTyre(vid, wi, px, py, pz, axx, axy, fwx, fwy, R, Wt)
+  local kf = P.liquidKind(px, py)
+  if not kf then return end
+  local lo, hi
+  if type(Wt) == 'table' then
+    lo, hi = huge, -huge
+    for _, ty in ipairs(Wt) do lo, hi = min(lo, ty.o - ty.w * 0.5), max(hi, ty.o + ty.w * 0.5) end
+  else
+    lo, hi = -0.5 * (Wt or 0.3), 0.5 * (Wt or 0.3)
+  end
+  P.liqTyres[vid * 64 + wi] = { px, py, pz, axx, axy, fwx, fwy, R, lo, hi, simTime, vid, kf }
+end
+
+-- window over [gx0, gx0 + Gx) x [gy0, gy0 + Gy); flow state of the old one carried over
+local function liqWindow(old, gx0, gy0, Gx, Gy)
+  local n = Gx * Gy
+  local w = {
+    gx0 = gx0, gy0 = gy0, Gx = Gx, Gy = Gy, kf = old and old.kf or 1, last = old and old.last or simTime,
+    h = ffi.new('float[?]', n), fl = ffi.new('float[?]', n), res = ffi.new('float[?]', n),
+    qx = ffi.new('float[?]', n), qy = ffi.new('float[?]', n), out = ffi.new('float[?]', n),
+    ok = ffi.new('uint8_t[?]', n), obs = ffi.new('uint8_t[?]', n), dist = ffi.new('uint8_t[?]', n),
+  }
+  if old then
+    for j = max(gy0, old.gy0), min(gy0 + Gy, old.gy0 + old.Gy) - 1 do
+      for i = max(gx0, old.gx0), min(gx0 + Gx, old.gx0 + old.Gx) - 1 do
+        local k, ko = (j - gy0) * Gx + (i - gx0), (j - old.gy0) * old.Gx + (i - old.gx0)
+        w.res[k], w.qx[k], w.qy[k] = old.res[ko], old.qx[ko], old.qy[ko]
+      end
+    end
+  end
+  return w
+end
+
+local function liqStep(w, dt, lc)
+  local Gx, Gy, h, fl, res, ok, obs, dist = w.Gx, w.Gy, w.h, w.fl, w.res, w.ok, w.obs, w.dist
+  local qx, qy, out = w.qx, w.qy, w.out
+  local gx0, gy0 = w.gx0, w.gy0
+  local n = Gx * Gy
+  local any = false
+  -- sync from the tiles (the stamps wrote since the last step)
+  for j = 0, Gy - 1 do
+    for i = 0, Gx - 1 do
+      local k = j * Gx + i
+      local t, idx = vertexRef(gx0 + i, gy0 + j)
+      if t and t.state == 'active' and t.rest[idx] - t.floor[idx] > 0.002 then
+        h[k] = decodeZ(t, idx) + res[k]
+        fl[k] = min(t.floor[idx], t.rest[idx])
+        ok[k] = 1
+        dist[k] = (t.rut[idx] ~= 128 or t.track[idx] > 0) and 1 or 0
+        any = true
+      else
+        ok[k], res[k], qx[k], qy[k] = 0, 0, 0, 0
+      end
+      obs[k] = 0
+    end
+  end
+  if not any then return false end
+  -- obstacles: grid vertices inside a tyre
+  for _, ty in pairs(P.liqTyres) do
+    local px, py, pz, axx, axy, fwx, fwy, R, lo, hi = ty[1], ty[2], ty[3], ty[4], ty[5], ty[6], ty[7], ty[8], ty[9], ty[10]
+    local ext = max(abs(lo), abs(hi)) + R
+    local i0 = max(0, floor((px - ext - ter.ox) / CELL) - gx0)
+    local i1 = min(Gx - 1, ceil((px + ext - ter.ox) / CELL) - gx0)
+    local j0 = max(0, floor((py - ext - ter.oy) / CELL) - gy0)
+    local j1 = min(Gy - 1, ceil((py + ext - ter.oy) / CELL) - gy0)
+    for j = j0, j1 do
+      for i = i0, i1 do
+        local k = j * Gx + i
+        if ok[k] == 1 then
+          local rx, ry = ter.ox + (gx0 + i) * CELL - px, ter.oy + (gy0 + j) * CELL - py
+          local s = rx * axx + ry * axy
+          local f = rx * fwx + ry * fwy
+          if s > lo - 0.03 and s < hi + 0.03 and f * f < R * R and h[k] > pz - sqrt(R * R - f * f) - 0.03 then
+            obs[k] = 1
+          end
+        end
+      end
+    end
+  end
+  -- fluxes: gravity on the height step beyond the yield step, viscous damping
+  local g = (lc.gravity or 9.81) * (lc.depthRef or 0.12) * w.kf / CELL
+  local yStep = (lc.yield or 0.45) * CELL
+  local damp = max(0, 1 - (lc.damping or 2.5) * dt)
+  local stop = max(0, 1 - 12 * dt)
+  for j = 0, Gy - 1 do
+    for i = 0, Gx - 1 do
+      local k = j * Gx + i
+      for e = 1, 2 do
+        local k2 = e == 1 and k + 1 or k + Gx
+        local q = e == 1 and qx or qy
+        local inside = (e == 1 and i < Gx - 1) or (e == 2 and j < Gy - 1)
+        if inside and ok[k] == 1 and ok[k2] == 1 and obs[k] == 0 and obs[k2] == 0 and (dist[k] == 1 or dist[k2] == 1) then
+          local d = h[k] - h[k2]
+          local v = q[k]
+          if d > yStep then v = v * damp + dt * g * (d - yStep)
+          elseif d < -yStep then v = v * damp + dt * g * (d + yStep)
+          else v = v * stop end
+          -- undisturbed mud only receives
+          if (v > 0 and dist[k] == 0) or (v < 0 and dist[k2] == 0) then v = 0 end
+          q[k] = v
+        else
+          q[k] = 0
+        end
+      end
+    end
+  end
+  -- outflow per vertex at most its mud above the floor
+  for k = 0, n - 1 do
+    local o = 0
+    if ok[k] == 1 then
+      if qx[k] > 0 then o = o + qx[k] end
+      if qy[k] > 0 then o = o + qy[k] end
+      if k % Gx > 0 and qx[k - 1] < 0 then o = o - qx[k - 1] end
+      if k >= Gx and qy[k - Gx] < 0 then o = o - qy[k - Gx] end
+    end
+    out[k] = o
+  end
+  for k = 0, n - 1 do
+    local o = out[k] * dt
+    local avail = h[k] - fl[k]
+    if o > 0 and o > avail then
+      local s = max(0, avail) / o
+      if qx[k] > 0 then qx[k] = qx[k] * s end
+      if qy[k] > 0 then qy[k] = qy[k] * s end
+      if k % Gx > 0 and qx[k - 1] < 0 then qx[k - 1] = qx[k - 1] * s end
+      if k >= Gx and qy[k - Gx] < 0 then qy[k - Gx] = qy[k - Gx] * s end
+    end
+  end
+  -- heights; a vertex is rewritten once its change passes minStep (the rest is carried)
+  local minStep = lc.minStep or 0.004
+  local moving = false
+  for j = 0, Gy - 1 do
+    for i = 0, Gx - 1 do
+      local k = j * Gx + i
+      if ok[k] == 1 and obs[k] == 0 then
+        local dh = -qx[k] - qy[k]
+        if i > 0 then dh = dh + qx[k - 1] end
+        if j > 0 then dh = dh + qy[k - Gx] end
+        dh = dh * dt
+        local r = res[k] + dh
+        if r > minStep or r < -minStep then
+          local nh = h[k] + dh
+          writeVertex(gx0 + i, gy0 + j, nh, 0)
+          P.stats.liqWrites = (P.stats.liqWrites or 0) + 1
+          local t, idx = vertexRef(gx0 + i, gy0 + j)
+          res[k] = t and (nh - decodeZ(t, idx)) or 0
+        else
+          res[k] = r
+        end
+        if dh > 2e-4 or dh < -2e-4 then moving = true end
+      end
+    end
+  end
+  return moving
+end
+
+function P.liquidStep(dt)
+  local lc = cfg.stamp.liquid
+  if not lc or lc.enabled == false or dt <= 0 then return end
+  -- per vehicle: the box round its fresh tyres plus margin; the window follows it
+  local box = {}
+  for key, ty in pairs(P.liqTyres) do
+    if simTime - ty[11] > 0.25 then
+      P.liqTyres[key] = nil
+    else
+      local ext = max(abs(ty[9]), abs(ty[10])) + ty[8] + (lc.margin or 1.0)
+      local b = box[ty[12]]
+      if not b then b = { huge, huge, -huge, -huge, ty[13] }; box[ty[12]] = b end
+      b[1], b[2] = min(b[1], ty[1] - ext), min(b[2], ty[2] - ext)
+      b[3], b[4] = max(b[3], ty[1] + ext), max(b[4], ty[2] + ext)
+    end
+  end
+  local maxG = max(10, floor((lc.maxSize or 12) / CELL))
+  for vid, b in pairs(box) do
+    local gx0, gy0 = floor((b[1] - ter.ox) / CELL), floor((b[2] - ter.oy) / CELL)
+    local Gx = min(maxG, ceil((b[3] - ter.ox) / CELL) - gx0 + 1)
+    local Gy = min(maxG, ceil((b[4] - ter.oy) / CELL) - gy0 + 1)
+    local w = P.liqWin[vid]
+    if w then
+      -- keep the size unless it must grow or can shrink a lot (fewer reallocations)
+      if Gx <= w.Gx and Gx > w.Gx - 8 then gx0 = gx0 - floor((w.Gx - Gx) / 2); Gx = w.Gx end
+      if Gy <= w.Gy and Gy > w.Gy - 8 then gy0 = gy0 - floor((w.Gy - Gy) / 2); Gy = w.Gy end
+    end
+    if not w or w.gx0 ~= gx0 or w.gy0 ~= gy0 or w.Gx ~= Gx or w.Gy ~= Gy then
+      w = liqWindow(w, gx0, gy0, Gx, Gy)
+      P.liqWin[vid] = w
+    end
+    w.last, w.kf = simTime, b[5]
+  end
+  -- fixed sub-steps (stable for the wave speed on a 0.2 m grid)
+  P.liqAcc = min(0.1, (P.liqAcc or 0) + dt)
+  local h = 1 / max(10, lc.hz or 20)
+  local life = lc.life or 1.5
+  while P.liqAcc >= h do
+    P.liqAcc = P.liqAcc - h
+    for vid, w in pairs(P.liqWin) do
+      -- a window whose vehicle left flows until it settles or its life ends
+      if simTime - w.last > life or not liqStep(w, h, lc) and not box[vid] then P.liqWin[vid] = nil end
+    end
+  end
+end
+
   P.vehs[vid] = vs
   local payload = {
     ter = { ox = ter.ox, oy = ter.oy, sq = ter.sq, ts = TS, key = KEY },
@@ -5910,6 +6163,7 @@ function M.onMudReport(vid, w, nodes, tris)
           prev.cx, prev.cy = px, py
         end
         prev.ax, prev.ay, prev.at = px, py, simTime
+          if phys then P.liquidTyre(vid, wi, px, py, pz, axx, axy, fwx, fwy, R, Wt) end
         prev.t = simTime
         vs.lastWheel[wi] = prev
       end
@@ -5946,7 +6200,7 @@ function M.onMudReport(vid, w, nodes, tris)
     P.stampHull(vs, tris)
   end
   -- later stamps (relax, other callers) use the global rules
-  P.soil, P.kBerm, P.kSlope = nil, nil, nil
+  P.soil, P.kBerm, P.kSlope, P.kRim = nil, nil, nil, nil
   P.printOnly = false
 end
 
@@ -7541,6 +7795,7 @@ function P.onUpdate(dtReal, dtSim, dtRaw)
   if cfg.memory and (cfg.memory.gcStepKB or 0) > 0 then P.timed('gc', P.gcStep) end
 
   P.stats.lastFrameMs = frame:stop()
+  P.timed('liquid', P.liquidStep, dt)
   P.stats.maxFrameAge = P.stats.maxFrameAge + (dtReal or 0)
   if P.stats.lastFrameMs > P.stats.maxFrameMs or P.stats.maxFrameAge > 5 then
     P.stats.maxFrameMs = P.stats.lastFrameMs
