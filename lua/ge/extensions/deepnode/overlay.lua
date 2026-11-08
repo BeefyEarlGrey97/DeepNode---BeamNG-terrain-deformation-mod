@@ -1215,8 +1215,8 @@ local function startRoads()
   roadOn = false
   rc = oc.roads or {}
   if not (P.roadMode and P.roadMode() == 'shader') or not P.roadsHidden or #P.roadsHidden == 0 then return false end
-  rwin.span, rwin.size, rwin.set = rc.span or 192, floor(rc.mapSize or 768), false
-  rwin.layers = max(1, min(8, floor(rc.layers or 4)))
+  rwin.span, rwin.size, rwin.set = rc.span or 192, floor(rc.mapSize or 512), false
+  rwin.layers = max(1, min(8, floor(rc.layers or 8)))
   local tex = rwin.span / rwin.size
   rwin.snap = tex * max(1, floor(16 / tex + 0.5))
   rq, rqh, rqt, rshift, rclear, rmark, rmarkN = {}, 1, 0, nil, 0, {}, 0
@@ -1367,6 +1367,7 @@ local function roadFrame()
         setConst(name, 'dnTint', tn[1], tn[2], tn[3], mt.tint[4])
         setConst(name, 'dnMat', mt.met, mt.rough, rc.relief or 1, rc.alphaGain or 1)
         setConst(name, 'dnLook', rc.minNormalZ or 0.5, rc.edgeFade or 12, rl and 1 or 0, (mt.ao ~= '' and rc.materialAO ~= false) and 1 or 0)
+        setConst(name, 'dnPass2', rc.vehicleAbove or 0.1, 0, 0, 0)
       end
     end
   end

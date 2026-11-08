@@ -358,7 +358,10 @@ Open:
 - `relief` 0.5 from one contrast measurement (mud_large spread: 1.0 = 26.6, engine 22.4, none 21.1).
 - Light triangular wedges seen in the full stack (top of the pit view), not explained; not layer
   overflow (same with `layers` 8).
-- Road ends clip at the map texels (25 cm) where a road has no `startEndFade`.
+- Road ends clip at the map texels (37.5 cm) where a road has no `startEndFade`.
+- 8 layers at 512 texels (fix for missing layers and the vehicle box, same day): look checked on one
+  frame with a sunk SUV, GPU cost not re-measured (the stamp pass reads 16 texels a texel; the
+  draw passes stop at the first empty entry).
 - Not in the GPU-bound 8-truck bench yet; GPU cost measured by utilisation only.
 - Sky reflection of metallic roads uses the SH9 sky, roughness factor only (no roughness map:
   no texture slot left); no sun specular.

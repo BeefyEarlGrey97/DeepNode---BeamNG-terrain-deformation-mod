@@ -745,12 +745,14 @@ local defaults = {
     -- material, any number of overlapping roads (up to `layers` per map texel).
     roads = {
       -- the map holds `layers` entries per texel, two RGBA16F texels each (2 x layers x
-      -- mapSize by mapSize, plus a copy of it): 768 x 4 layers = 2 x 37.7 MB of video memory,
-      -- 25 cm texels over 192 m (u, v are extrapolated from the texel centre: texel size does
+      -- mapSize by mapSize, plus a copy of it): 512 x 8 layers = 2 x 33.6 MB of video memory,
+      -- 37.5 cm texels over 192 m (u, v are extrapolated from the texel centre: texel size does
       -- not blur the road)
-      mapSize = 768,        -- texels per side
+      mapSize = 512,        -- texels per side
       span = 192,           -- m covered by the road map around the camera
-      layers = 4,           -- road entries per texel (1..8): more overlapping roads drop the lowest
+      -- road entries per texel (1..8): more overlapping roads drop the lowest (gridmap_v2's pit
+      -- stacks up to 7; 4 dropped the water under the mud)
+      layers = 8,
       recentreMargin = 48,  -- m: the road map follows the camera this close to an edge
       quadsPerFrame = 32,   -- road quads painted per frame (shader limit 32)
       margin = 0,           -- m beyond the road edges a texel still takes a road (at least 0.75 texel)
@@ -766,6 +768,9 @@ local defaults = {
       minNormalZ = 0.15,    -- no road on faces steeper than this
       zAbove = 0.4,         -- m: drawn on surfaces up to this far above the road's own height (berms)
       zBelow = 1.5,         -- m: and down to this far below it (ruts)
+      -- m: inside a vehicle's footprint box the road only up to this over its own surface (the
+      -- ground a sunk vehicle stands in keeps the road, the body does not get it)
+      vehicleAbove = 0.1,
       skipMatch = { 'invisible' },
       -- engine draw order: lower renderPriority numbers on top (rig check 2026-11-07)
       lowPriorityOnTop = true,

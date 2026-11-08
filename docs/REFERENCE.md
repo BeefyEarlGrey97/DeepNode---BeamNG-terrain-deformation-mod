@@ -910,9 +910,10 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.wetSheen` | 0.3 | Sky reflection on wet ground at grazing angles (flat-water Fresnel x a smooth wetness: kind wetness x print strength; sky sampled from the top of the screen). The per-groove wetness made it streaky |
 | `overlay.useShadowMask` | true | Use the engine screen shadow mask (no relief / highlight in shadow) |
 | `overlay.groundAlbedo` | 0.3 | Ground albedo guess: light level for the highlight = scene / this |
-| `overlay.roads.mapSize` | 768 | Texels per side of the road map (target 2 x `layers` x this by this, RGBA16F, plus a copy: 75 MB at 768 x 4) |
-| `overlay.roads.span` | 192 | Metres covered around the camera (25 cm texels; u, v are extrapolated, texel size does not blur the road) |
-| `overlay.roads.layers` | 4 | Road entries per texel (1..8); more overlapping roads drop the lowest |
+| `overlay.roads.mapSize` | 512 | Texels per side of the road map (target 2 x `layers` x this by this, RGBA16F, plus a copy: 67 MB at 512 x 8) |
+| `overlay.roads.span` | 192 | Metres covered around the camera (37.5 cm texels; u, v are extrapolated, texel size does not blur the road) |
+| `overlay.roads.layers` | 8 | Road entries per texel (1..8); more overlapping roads drop the lowest (gridmap_v2's pit stacks up to 7) |
+| `overlay.roads.vehicleAbove` | 0.1 | Inside a vehicle's footprint box the road only up to this many metres over its own surface (the ground a sunk vehicle stands in keeps it) |
 | `overlay.roads.recentreMargin` | 48 | The road map moves (~16 m steps, content shifted, only the newly covered quads painted, nearest first) when the camera is this close to its edge |
 | `overlay.roads.quadsPerFrame` | 32 | Road quads painted per frame (shader limit 32) |
 | `overlay.roads.margin` | 0 | Metres beyond the road edges a texel still takes a road (at least 0.75 texel) |

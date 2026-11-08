@@ -8,7 +8,7 @@
 //    permutations, BNG_COCONUT):
 //      colour = albedo / PI x (diffuse light buffer + SH9 ambient x screen AO x material AO)
 //    with the engine's own diffuse light buffer and screen AO (packed into #deepnode_roadLit by
-//    roadLitP.hlsl, a < 0 = vehicle) and its sky SH9 (ambientSH9, set by the engine for every
+//    roadLitP.hlsl, a < 0 = inside a vehicle box) and its sky SH9 (ambientSH9, set by the engine for every
 //    post effect). Measured: the material AO maps matter (mud_water's averages 0.21).
 //  * relight (dnLook.z 1): normal and opacity maps in slots 3-4; multiplies the scene (the road
 //    and everything under it) by the light of the normal blended towards the road's normal by
@@ -16,7 +16,9 @@
 //    G-buffer before lighting, so a decal's relief shows on the ground under it as well.
 // A post effect has six texture slots: colour, opacity, normal and AO maps do not fit one pass.
 // Only on surfaces at or below the road's own height (the ground before the ruts) plus a
-// tolerance (not on kerbs or vehicles standing over the road), not on steep faces.
+// tolerance (not on kerbs), not on steep faces; inside a vehicle's footprint box only up to
+// dnPass2.x over the road's own height: the ground a sunk vehicle stands in keeps its road,
+// the body does not get it.
 // Runs at PFXBeforeBin ObjTranslucentBin before the rut overlay (tyre prints, glass, particles
 // and water draw over it); the light comes packed from ReflectDepthBin (roadLitP.hlsl).
 #include "../postFx.h.hlsl"
@@ -46,6 +48,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnTint;   // material colour factor (rgb), opacity (colour factor alpha x opacityFactor)
     uniform float4 dnMat;    // metallic, roughness, relief (relight) strength, alpha gain
     uniform float4 dnLook;   // min ground normal z, window edge fade (m), pass (0 colour, 1 relight), AO map bound
+    uniform float4 dnPass2;  // inside a vehicle box: max height over the road surface (m), unused x3
 };
 
 #include "../postFx.hlsl"
@@ -75,18 +78,24 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     int dbg = (int)(dnPass.w + 0.5);
 
     // entries of this pass's key at the texel
+    // (entries fill from slot 0 without gaps, roadStampP.hlsl: stop at the first empty one)
     int hit[DN_MAXL];
     int nh = 0;
+    bool more = true;
     [unroll] for (int j = 0; j < DN_MAXL; j++) {
         hit[j] = -1;
-        if (j < L) {
+        if (more && j < L) {
             float a = roadMapTex.Load(int3(ti.x + 2 * j * W, ti.y, 0)).a;
-            if (a > 0.5 && abs(floor(a + 0.01) - key) < 0.5) { hit[nh] = j; nh++; }
+            more = a > 0.5;
+            if (more && abs(floor(a + 0.01) - key) < 0.5) { hit[nh] = j; nh++; }
         }
     }
     if (nh == 0) discard;
     float4 lit = tex2Dlod(litTex, float4(IN.uv2, 0, 0));
-    if (lit.a < 0.0) discard;
+    // inside a vehicle footprint box: the road only up to vehAbove over its own surface
+    bool inVeh = lit.a < 0.0;
+    if (inVeh) lit.a = -lit.a - 1.0;
+    float zTop = inVeh ? min(dnZ.y, dnPass2.x) : dnZ.y;
 
     float3 ng = normalize(cross(dpx, dpy));
     if (ng.z < 0.0) ng = -ng;
@@ -110,7 +119,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
             float u = t0.g + dot(t1.rg, dc);
             float v = t0.r + dot(t1.ba, dc);
             float dz = wp.z - (dnZ.x + t0.b);
-            if (u >= 0.0 && u <= 1.0 && dz <= dnZ.y && dz >= -dnZ.z) {
+            if (u >= 0.0 && u <= 1.0 && dz <= zTop && dz >= -dnZ.z) {
                 float fade = saturate((t0.a - floor(t0.a + 0.01)) / 0.49);
                 // texture coordinates and their screen derivatives (analytic: no seams where v wraps)
                 float2 tc = float2(u, v);
@@ -118,7 +127,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
                 float2 gy = float2(dot(t1.rg, dpy.xy), dot(t1.ba, dpy.xy));
                 float4 m3 = mapTex3Tex.SampleGrad(mapTex3_sampler_, tc, gx, gy);
                 float op = dnPass.y > 0.5 ? opaTexTex.SampleGrad(opaTex_sampler_, tc, gx, gy).r : (relight ? 1.0 : m3.a);
-                float zK = 1.0 - smoothstep(dnZ.y * 0.6, dnZ.y, dz);
+                float zK = 1.0 - smoothstep(zTop * 0.6, zTop, dz);
                 float alpha = saturate(op * dnTint.a * dnMat.w) * fade * slopeK * edgeK * zK;
                 // 3: the light on an albedo of dnTint.rgb, opaque (light scale check against the terrain)
                 if (dbg == 3) alpha = 1.0;

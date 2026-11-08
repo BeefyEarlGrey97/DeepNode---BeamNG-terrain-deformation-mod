@@ -1,13 +1,14 @@
 // DeepNode road light: packs the engine's lighting at each pixel for the road passes
 // (roadDrawP.hlsl, roads.mode 'shader') into #deepnode_roadLit: rgb = diffuse light
 // (#lightinfo, the light pre-pass buffer every lit material reads), a = ambient occlusion
-// (#gtaoOutput), or -1 on a vehicle (no road drawn there). One pass instead of three texture
+// (#gtaoOutput), as -1 - AO inside a vehicle footprint box (roadDrawP.hlsl leaves the road out
+// there only above the road's own surface: the vehicle, not the ground it sank into). One pass instead of three texture
 // slots in every road pass (a post effect has six).
 // Runs at PFXBeforeBin ReflectDepthBin: #lightinfo holds there (it reads 0 by ObjTranslucentBin,
 // where the road passes run, measured 2026-11-08).
 // Vehicles: footprint boxes (centre xy, half length, half width; forward xy in dnVehD, two
-// per register; lowest point z in dnVehZ, four per register): a pixel inside one and higher
-// than 0.15 m over its lowest point is the vehicle (the ground under a sunk tyre stays road).
+// per register; lowest point z in dnVehZ, four per register, unused). Testing the height
+// against the lowest tyre point cut a box out of the road round a sunk vehicle (2026-11-08).
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
 
@@ -40,7 +41,7 @@ cbuffer perDraw : register(b0)
         float2 c = wp.xy - dnVeh##i.xy;                                                 \
         float2 f = D;                                                                   \
         float2 q = float2(abs(dot(c, f)), abs(dot(c, float2(-f.y, f.x))));              \
-        if (q.x < dnVeh##i.z && q.y < dnVeh##i.w && wp.z > Z + 0.15) on = 1.0;           \
+        if (q.x < dnVeh##i.z && q.y < dnVeh##i.w) on = 1.0;                              \
     }
 
 float4 mainP(PFXVertToPix IN) : SV_Target
@@ -56,7 +57,8 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     VEH(0, dnVehD0.xy, dnVehZ0.x) VEH(1, dnVehD0.zw, dnVehZ0.y) VEH(2, dnVehD1.xy, dnVehZ0.z)
     VEH(3, dnVehD1.zw, dnVehZ0.w) VEH(4, dnVehD2.xy, dnVehZ1.x) VEH(5, dnVehD2.zw, dnVehZ1.y)
     VEH(6, dnVehD3.xy, dnVehZ1.z) VEH(7, dnVehD3.zw, dnVehZ1.w)
-    return float4(light, on > 0.5 ? -1.0 : saturate(ao));
+    ao = saturate(ao);
+    return float4(light, on > 0.5 ? -1.0 - ao : ao);
 }
 
 PFXVertToPix mainV(PFXVert IN)

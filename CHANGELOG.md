@@ -17,6 +17,12 @@
   vanilla, mud_water +12.6 vs +16.7, mud_large darker than vanilla (-26 vs -12, open). Replaces
   the old two-layer `overlay.roads` (keys `enabled`, `srgb`, `swapUV`, `flipU`, `flipV`,
   `groundAlbedo`, `wetMatch`, `wetGloss` removed).
+  Fixes the same day (user screenshot): a box without road round a sunk vehicle (the mask cut
+  everything above the tyre bottom + 0.15 m; now only above the road's own surface +
+  `vehicleAbove` 0.1 m inside the box), and missing road layers (4 entries dropped the bottom
+  ones of the pit's 7-road stack, and different roads of one material merged: `layers` 8 at
+  512 texels, the duplicate test also compares the gradient directions; the draw passes stop at
+  the first empty entry).
 - Liquid mud (`stamp.liquid`, mud only): the rut surface round every vehicle in mud flows. A
   shallow-water pipe model on the 0.2 m rut grid (gravity on the height step beyond a yield
   slope, viscous damping) with the tyres as solid obstacles: the mud the tyres push aside
