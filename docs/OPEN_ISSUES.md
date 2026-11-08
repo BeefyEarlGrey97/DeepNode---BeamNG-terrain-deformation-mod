@@ -343,6 +343,28 @@ mud_large drawn as if water were on top). Suspect: `mud_large` has `alphaTest` 1
 render in an earlier bin than the other translucent copies; alphaTest 1 on every clone fixed the
 centre but not all stripes (unfinished). Fade default must change (cost) once the stack is right.
 
+## 26. Road shader (`roads.mode` 'shader', 2026-11-08, first version)
+
+Replaces the copies in the GUI (OPEN_ISSUES 14 / 23 hold their history). Measured on gridmap_v2
+(static pit view, 1 parked truck, RTX 5070, uncapped): off 189.9 fps, shader 162.3 (+0.89 ms),
+vanilla decals 149.3 (+1.43 ms), copies 146.3 (+1.57 ms, before any digging; copies add uploads
+and submeshes per dug tile, the shader costs the same dug or not). Lua +0.07 ms.
+Open:
+- Look against the engine (pre-rut off, one material at a time, mean 8-bit level change vs no
+  road): mud_furrows +1.9 vs -0.8 (match), mud_water +12.6 vs +16.7, mud_large -26 vs -12 (too
+  dark; -17 without the relight pass, so both the colour and the relight overshoot). The engine's
+  full stack shows crisp holes in the mud layers where the cream water shows through; the shader
+  draws the layers softer. Not found why (alphaTest clips at opacity - alphaRef, ref 0 there).
+- `relief` 0.5 from one contrast measurement (mud_large spread: 1.0 = 26.6, engine 22.4, none 21.1).
+- Light triangular wedges seen in the full stack (top of the pit view), not explained; not layer
+  overflow (same with `layers` 8).
+- Road ends clip at the map texels (25 cm) where a road has no `startEndFade`.
+- Not in the GPU-bound 8-truck bench yet; GPU cost measured by utilisation only.
+- Sky reflection of metallic roads uses the SH9 sky, roughness factor only (no roughness map:
+  no texture slot left); no sun specular.
+- Engine decal reference with pre-rutted roads on is impossible in the pit (the engine decals
+  lie under the pre-rut meshes).
+
 ## 25. Liquid mud (2026-11-08, first version)
 
 `stamp.liquid` (CHANGELOG Unreleased). Open:

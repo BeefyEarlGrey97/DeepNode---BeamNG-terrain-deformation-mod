@@ -44,7 +44,7 @@ Details and measurements: [docs/OPEN_ISSUES.md](docs/OPEN_ISSUES.md). Contributi
 3. Rut updates are 30–40 Hz for fresh ruts in view, not for every wheel.
 4. Sand: terrain-first in heavy mode since 2026-10-31; vanilla physics mode still meshes all sand.
 5. Vanilla physics mode: full mud mesh, high memory growth; the experimental decal overlay looks duller than the engine decals (alpha clip).
-6. Decal roads over ruts are copies drawn forward-lit with the road's own material; the end fades (`startEndFade`) are approximated by narrowing the strip.
+6. Decal roads over ruts: the road shader (`roads.mode` 'shader', beta) draws them on the dug surface lit with the engine's light; mud_large draws darker than the engine's decal and road ends clip at 25 cm map texels (see docs/OPEN_ISSUES.md 26).
 7. Tyre mud costs ~1.6 ms per frame with 8 trucks.
 8. Heavy physics slows Percherons to ~3–4 m/s in deep mud.
 9. johnson_valley benchmark not yet achieve internal goals.

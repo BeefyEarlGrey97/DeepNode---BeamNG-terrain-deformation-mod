@@ -100,20 +100,25 @@ road"** (`roads.mode`, off by default, switches live and is saved):
   physics world on a full `be:reloadCollision()` (~380 ms), and translucent copies of
   decal materials cost ~2.8 ms of GPU time and sort badly.
 
-With the screen-space overlay on (GUI "Experimental tread prints", `overlay.enabled`) and
-`roads.mode` off, the hidden roads are drawn again by `overlay.roads` (2026-10-31): the decal
-roads are cut into quads at start and painted into a world-space road map around the camera
-(`#deepnode_road`, two road layers per texel: the top road and the one under it, as the engine
-stacks translucent decals); one post effect pass per road material samples the road's colour,
-opacity and normal maps at the stored (u, v) on whatever surface the depth buffer shows. So
-the road lies in the ruts, on the berms and on the undug mud alike, and tyre prints draw over
-it. Only surfaces up to `zAbove` over the road's own height (berms) and down to `zBelow` under
-it (ruts) take it: not kerbs, walkways or vehicles. Light comes from the scene colour over the
-ground albedo under the roads (soft layer colours), relit with the road normal map; metallic
-roads (the wet `mud_water`) lose diffuse and reflect the sky; mud materials get a slight wet
-gloss. Higher `renderPriority` numbers draw on top (checked against the engine's drawing on
-gridmap_v2). Cost: render thread +0.1-0.17 ms (vsync 60, so GPU time not measured); video memory
-2 x 2W x W RGBA16F (W = `mapSize` 1024: 34 MB).
+Road shader (`roads.mode = "shader"`, GUI "Decal roads on mud: shader", 2026-11-08): the decal
+roads over soft ground are hidden as in mode off and drawn again by post effects
+(`deepnode_overlay`, `overlay.roads`, shaders `roadStampP` / `roadLitP` / `roadDrawP.hlsl`). At
+start they are cut into quads (left / right edge points of neighbouring spline samples, as the
+engine's strip) and painted into a world-space road map around the camera (`#deepnode_road`,
+`layers` entries per texel; each entry holds the road key, u and v at the texel centre and their
+world gradients, so a pixel extrapolates exact u, v with smooth texture derivatives). Every
+(renderPriority, material) key gets two passes in the engine's draw order (lower numbers on top):
+a colour pass (colour, opacity, AO maps) blended over the scene and a relight pass (normal map)
+that multiplies the scene by the light of the normal blended towards the road's, as the
+engine's G-buffer blend relights the ground under a decal. Light is the engine's own: the
+diffuse light buffer `#lightinfo` and screen AO `#gtaoOutput` (packed once a frame into
+`#deepnode_roadLit`) and the sky SH9 (`ambientSH9`, set by the engine for every post effect).
+So any number of roads may overlap, and the road lies in the ruts, on the berms and on undug
+ground alike; tyre prints draw over it. Only surfaces from `zBelow` under to `zAbove` over the
+road's own height take it, not vehicles (footprint boxes). The light is packed at `PFXBeforeBin
+ReflectDepthBin` (the light buffer reads 0 by `ObjTranslucentBin`); the map and road passes run
+at `PFXBeforeBin ObjTranslucentBin` before the rut overlay, so tyre prints, glass and particles
+draw over the roads.
 
 `roads.mode = "drape"` is the old method: the engine decals are laid once at start onto
 temporary collision meshes at the mud surface (one ~1 s pause with physics stopped);
@@ -905,22 +910,22 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.wetSheen` | 0.3 | Sky reflection on wet ground at grazing angles (flat-water Fresnel x a smooth wetness: kind wetness x print strength; sky sampled from the top of the screen). The per-groove wetness made it streaky |
 | `overlay.useShadowMask` | true | Use the engine screen shadow mask (no relief / highlight in shadow) |
 | `overlay.groundAlbedo` | 0.3 | Ground albedo guess: light level for the highlight = scene / this |
-| `overlay.roads.enabled` | false | Draw the decal roads hidden over soft ground from the road map (needs the overlay on and `roads.mode` off); off by default since v0.3.0 |
-| `overlay.roads.mapSize` | 1024 | Texels per side and layer of the road map (the target is 2 x this by this) |
-| `overlay.roads.span` | 192 | Metres covered around the camera (18.75 cm texels) |
-| `overlay.roads.recentreMargin` | 48 | The road map moves (16 m steps, content shifted, only the newly covered quads painted) when the camera is this close to its edge |
-| `overlay.roads.quadsPerFrame` | 24 | Road quads painted per frame (shader limit 24) |
-| `overlay.roads.margin` | 0.25 | Metres painted beyond the road edges (the filtered values run on); a margin never displaces another road's inside |
+| `overlay.roads.mapSize` | 768 | Texels per side of the road map (target 2 x `layers` x this by this, RGBA16F, plus a copy: 75 MB at 768 x 4) |
+| `overlay.roads.span` | 192 | Metres covered around the camera (25 cm texels; u, v are extrapolated, texel size does not blur the road) |
+| `overlay.roads.layers` | 4 | Road entries per texel (1..8); more overlapping roads drop the lowest |
+| `overlay.roads.recentreMargin` | 48 | The road map moves (~16 m steps, content shifted, only the newly covered quads painted, nearest first) when the camera is this close to its edge |
+| `overlay.roads.quadsPerFrame` | 32 | Road quads painted per frame (shader limit 32) |
+| `overlay.roads.margin` | 0 | Metres beyond the road edges a texel still takes a road (at least 0.75 texel) |
 | `overlay.roads.edgeFade` | 12 | Roads fade out over this many metres towards the map edge |
-| `overlay.roads.zAbove` / `zBelow` | 0.12 / 1.5 | Height band around the road's own surface that takes the road (berms above, ruts below) |
-| `overlay.roads.minNormalZ` | 0.5 | No road on faces steeper than this |
-| `overlay.roads.normalStrength` / `relief` | 1 / 1 | Road normal map tilt / strength of the relight from it |
+| `overlay.roads.ao` | true | Engine screen AO (`#gtaoOutput`) on the road's ambient light |
+| `overlay.roads.materialAO` | true | The road material's AO map on its ambient light |
+| `overlay.roads.zAbove` / `zBelow` | 0.4 / 1.5 | Height band around the road's own surface that takes the road (berms above, ruts below) |
+| `overlay.roads.minNormalZ` | 0.15 | No road on faces steeper than this |
+| `overlay.roads.normalStrength` / `relief` | 1 / 0.5 | Road normal map tilt / strength of the relight pass |
 | `overlay.roads.alphaGain` | 1 | Opacity multiplier |
-| `overlay.roads.wetMatch` / `wetGloss` | `mud` / 0.08 | Materials with a wet sky reflection on top of their metallic one |
-| `overlay.roads.lowPriorityOnTop` | false | Draw order flip (engine: higher `renderPriority` on top) |
-| `overlay.roads.srgb` | false | Decode the colour maps in the shader (the shipped ones are BC7 sRGB DDS: the GPU decodes them) |
+| `overlay.roads.lowPriorityOnTop` | true | Engine draw order: lower `renderPriority` numbers on top |
 | `overlay.roads.skipMatch` | `invisible` | Road materials left out |
-| `overlay.roads.debug` | 0 | 1 u / v / slot of the top road, 2 alpha (red top, green lower layer), 3 height over the road surface |
+| `overlay.roads.debug` | 0 | 1 u / v, 2 light only, 3 light on `debugAlbedo` (light scale check against the terrain); `debugMat` draws one material only |
 | `overlay.fadeStart` / `fadeLength` | 35 / 25 | Prints fade out between these distances from the camera (m) |
 | `overlay.zTolerance` | 0.35 | Pixels this far above the undisturbed ground are left alone (vehicles over the ruts) |
 | `overlay.bermZTolerance` | 0.5 | Same over a berm (berms stand above the ground) |

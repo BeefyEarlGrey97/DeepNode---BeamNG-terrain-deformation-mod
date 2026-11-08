@@ -411,6 +411,39 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
 - `mud_water` is a metallic (0.49) light-grey decal at 0.5 x 0.93 opacity: a wet, darker,
   reflective film, not a light colour.
 
+### Engine lighting in a post effect (2026-11-08, game 0.40.5, D3D12, gridmap_v2)
+
+- `PostEffect::_setupConstants` (FUN_14087e2f0, Ghidra) looks up a fixed list of names in
+  every post effect shader and the engine fills them: `$ambientSH9` (sky SH9, float4[9]),
+  `$sunDirection` (towards the sun), `$sunRadiance`, `$sunIrradiance`, `$exposure`,
+  `$fogScatterParams`, `$ambientColor`, `$sunColor`, `$matWorldToScreen`, `$matScreenToWorld`,
+  `$camForward`, `$texSize0-5`, `$rtParams0-5`, ... Probe (values written to a 16 x 8 target,
+  read back with a named-buffer screenshot): SH9, sun direction (-0.54, 0.40, 0.75), sun
+  radiance (~15, 14, 12) and irradiance (>100) arrive; `$exposure` ~1.6e-4; `lastFrameExposure`
+  reads 0 in a post effect.
+- The light pre-pass buffer is the named target `lightinfo` (`#lightinfo` = `[RT0]` diffuse
+  light, `#lightinfo[RT1]` specular light). It reads 0 at `PFXBeforeBin ObjTranslucentBin` and at
+  `PFXAfterDiffuse`, valid at `PFXBeforeBin ReflectDepthBin` and `PFXBeforeBin RenderBinWater`.
+  Also valid at `PFXBeforeBin CloudComposeBin`. Order: `ObjTranslucentBin` passes run BEFORE
+  `CloudComposeBin` and `RenderBinWater` ones (a road pass at either covered the rut overlay's
+  prints); so pack the light into an own target at `ReflectDepthBin` and use it later.
+- Screen AO: `#gtaoOutput` (r).
+- `BNG_COCONUT` is defined globally: a lit material's colour is
+  `diffColor / PI x (lightinfo + SH9(normal) x screenAO x materialAO) + specular (+ cube / SSR)`
+  with `diffColor = baseColor x (1 - metallic)` (`permutations.h.hlsl`
+  `calculateDeferredRTLighting`). A post effect computing `albedo / PI x (#lightinfo + SH9 x AO)`
+  with the terrain's albedo rendered seamlessly into the real terrain (debug view 3).
+- `baseColorFactor` alpha is not the opacity (layer opacity = `opacityFactor` x opacity map);
+  `alphaTest` clips at `opacity - alphaRef` (mud_large: ref 0, no cut-out).
+- Decal road material AO maps are strong (mud_water mean 0.21, mud_furrows 0.69, mud_large
+  0.64) and every one has a normal map; the engine blends decal normals into the G-buffer before
+  lighting, so the relief shows on the ground under a decal too.
+- gridmap_v2 mud pit: up to 7 decal roads overlap at one point (>= 5 on 2 % of road cells),
+  12 visible (renderPriority, material) keys, 7 materials.
+- `distanceFade` of the pit roads is "150 50", `startEndFade` "5 5".
+- With pre-rutted roads on, the engine's decals in the pit lie under the pre-rut meshes: mode
+  'vanilla' then looks like plain terrain (no reference for road look tests).
+
 ## Other
 
 - `Engine.Render.DynamicDecalMgr.addDecals` (box-projected colour decals, one frame) projects onto

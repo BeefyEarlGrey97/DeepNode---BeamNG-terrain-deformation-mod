@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### Added
+- Road shader (`roads.mode` 'shader', GUI "Decal roads on mud" cycles off / vanilla / shader;
+  replaces the copies in the GUI, 'copy' stays in the config): the decal roads over soft
+  ground are drawn by post effects on whatever surface is there, so they follow ruts and berms
+  with no mesh copies, uploads or submeshes. Any number of overlapping roads: a world-space map
+  keeps up to `overlay.roads.layers` (4) entries per texel (gridmap_v2's pit stacks up to 7),
+  and every (renderPriority, material) key draws in the engine's order (lower numbers on top).
+  Each entry stores u, v and their world gradients: exact strip edges and texture derivatives,
+  no filter seams. Lit with the engine's own light: the diffuse light buffer (`#lightinfo`),
+  screen AO, the sky SH9 and the material's AO map, plus a relight pass from the normal map
+  over the road and the ground under it (as the engine's G-buffer blend). Rig on gridmap_v2:
+  albedo x this light renders seamlessly into the terrain; mud_furrows within 3 levels of
+  vanilla, mud_water +12.6 vs +16.7, mud_large darker than vanilla (-26 vs -12, open). Replaces
+  the old two-layer `overlay.roads` (keys `enabled`, `srgb`, `swapUV`, `flipU`, `flipV`,
+  `groundAlbedo`, `wetMatch`, `wetGloss` removed).
 - Liquid mud (`stamp.liquid`, mud only): the rut surface round every vehicle in mud flows. A
   shallow-water pipe model on the 0.2 m rut grid (gravity on the height step beyond a yield
   slope, viscous damping) with the tyres as solid obstacles: the mud the tyres push aside

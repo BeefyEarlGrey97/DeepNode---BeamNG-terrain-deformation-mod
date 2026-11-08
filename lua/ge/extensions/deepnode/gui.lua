@@ -422,9 +422,10 @@ local function tabRun(m)
   im.SeparatorText('Ground look')
   -- experimental: decal roads drawn on the mud (molded into it, left out where tyres
   -- dug); on/off live, off by default
-  -- one button cycles the decal road mode: off -> vanilla -> copies
-  local RM = { off = 'off', vanilla = 'vanilla', copy = 'copies (beta)' }
-  local RNEXT = { off = 'vanilla', vanilla = 'copy', copy = 'off' }
+  -- one button cycles the decal road mode: off -> vanilla -> shader ('copy' stays reachable
+  -- through the config only)
+  local RM = { off = 'off', vanilla = 'vanilla', shader = 'shader (beta)', copy = 'copies' }
+  local RNEXT = { off = 'vanilla', vanilla = 'shader', shader = 'off', copy = 'off' }
   local rm = m.roadModeName and m.roadModeName() or 'off'
   if im.Button('Decal roads on mud: ' .. (RM[rm] or rm) .. '###decalroads', im.ImVec2(-1, 0)) then
     local nx = RNEXT[rm] or 'off'
@@ -434,7 +435,7 @@ local function tabRun(m)
   if im.IsItemHovered() then
     im.SetTooltip('off (default): no decal road on the mud or sand, only the terrain material.\n' ..
       'vanilla: the level\'s own decal roads, untouched (they do not follow ruts).\n' ..
-      'copies: road copies drawn in the mud meshes, follow the ruts.')
+      'shader: the decal roads drawn by a shader on the mud as dug, follow the ruts.')
   end
   -- experimental: decal roads on soft ground carved in as ruts at start (deepnode_preRut);
   -- off by default, applies on Restart (the terrain under the roads changes)

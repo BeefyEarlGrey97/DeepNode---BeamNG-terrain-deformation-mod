@@ -140,6 +140,8 @@ local defaults = {
     -- 'copy': the engine's decals stay; the mud meshes around ruts carry copies of the roads
     -- over them (deepnode_roadCopy). 'overlay' = the older copies (deepnode_decals).
     -- 'vanilla': the engine's decals stay as the level has them, nothing else.
+    -- 'shader': the decal roads over soft ground are hidden and drawn by a post effect on
+    -- whatever surface is there (overlay.roads): no mesh copies, any number of overlaps.
     mode = 'off',
     copyFlat = 0.01,        -- m: a dug square still this planar gets one quad in the copies
     copyLift = 0.008,       -- m over the mud; the copy layers draw in priority order (roadCopy)
@@ -736,33 +738,38 @@ local defaults = {
   -- rut shape still comes from the mud meshes.
   overlay = {
     enabled = true,         -- GUI "Experimental tread prints", on by default since v0.3.0
-    -- Decal roads DeepNode hides over soft ground (roads.mode 'off', hideOnMud) drawn again in
-    -- screen space from a world-space road map: on whatever surface is there, so they sink
-    -- into the ruts (deepnode_overlay, roadStampP / roadDrawP.hlsl). One pass per material
-    -- (at most 8 materials).
+    -- Road shader (roads.mode 'shader'): the decal roads DeepNode hides over soft ground drawn
+    -- again in screen space from a world-space road map, on whatever surface is there, so they
+    -- sink into the ruts; lit with the engine's own light buffer, SH ambient and AO
+    -- (deepnode_overlay, roadStampP / roadLitP / roadDrawP.hlsl). One pass per renderPriority +
+    -- material, any number of overlapping roads (up to `layers` per map texel).
     roads = {
-      enabled = false,      -- off by default since v0.3.0 (decal roads stay off on the mud)
-      -- the map holds two road layers side by side (2 x mapSize by mapSize, RGBA16F, plus a
-      -- copy of it): 1024 = 2 x 16.8 MB of video memory, 18.75 cm texels over 192 m
-      mapSize = 1024,       -- texels per side and layer
+      -- the map holds `layers` entries per texel, two RGBA16F texels each (2 x layers x
+      -- mapSize by mapSize, plus a copy of it): 768 x 4 layers = 2 x 37.7 MB of video memory,
+      -- 25 cm texels over 192 m (u, v are extrapolated from the texel centre: texel size does
+      -- not blur the road)
+      mapSize = 768,        -- texels per side
       span = 192,           -- m covered by the road map around the camera
+      layers = 4,           -- road entries per texel (1..8): more overlapping roads drop the lowest
       recentreMargin = 48,  -- m: the road map follows the camera this close to an edge
-      quadsPerFrame = 24,   -- road quads painted per frame (shader limit 24)
-      margin = 0.25,        -- m painted beyond the road edges (filtered values run on)
+      quadsPerFrame = 32,   -- road quads painted per frame (shader limit 32)
+      margin = 0,           -- m beyond the road edges a texel still takes a road (at least 0.75 texel)
       edgeFade = 12,        -- m: roads fade out towards the map edge
-      srgb = false,         -- decode sRGB in the shader (the shipped colour maps are BC7 sRGB DDS: the GPU decodes them)
-      swapUV = false, flipU = false, flipV = false,
+      ao = true,            -- engine ambient occlusion (#gtaoOutput) on the road's ambient light
       normalStrength = 1.0, -- road normal map tilt
-      relief = 1.0,
+      -- relight by the road normal (0: ground lighting only); 1 overshot the engine's relief
+      -- contrast on gridmap_v2 mud_large (spread 26.6 vs 22.4, none 21.1, 2026-11-08)
+      relief = 0.5,
       alphaGain = 1.0,
-      minNormalZ = 0.5,     -- no road on faces steeper than this
-      zAbove = 0.12,        -- m: drawn on surfaces up to this far above the road's own height (berms)
+      -- the road follows ruts and berms like the engine's decal over deformed terrain: steep
+      -- rut walls and berms well above the road keep it (vehicles are masked separately)
+      minNormalZ = 0.15,    -- no road on faces steeper than this
+      zAbove = 0.4,         -- m: drawn on surfaces up to this far above the road's own height (berms)
       zBelow = 1.5,         -- m: and down to this far below it (ruts)
-      groundAlbedo = { 0.2, 0.17, 0.13 }, -- light level under the roads where no soft ground colour is known
       skipMatch = { 'invisible' },
-      wetMatch = { 'mud' }, -- materials with a wet sky reflection (wetGloss) on top of their metallic one
-      wetGloss = 0.08,
-      lowPriorityOnTop = false, -- engine order: higher renderPriority numbers draw over lower ones
+      -- engine draw order: lower renderPriority numbers on top (rig check 2026-11-07)
+      lowPriorityOnTop = true,
+      debug = 0,            -- 1: u / v, 2: light only
     },
     mapSize = 2048,         -- texels per side of the rut map
     span = 128,             -- m covered by the map (6.25 cm texels at 2048)
@@ -1742,6 +1749,7 @@ function P.roadMode()
   if r.mode == 'drape' then return r.overObjects ~= false and 'drape' or 'off' end
   if r.mode == 'off' then return 'off' end
   if r.mode == 'overlay' then return 'overlay' end
+  if r.mode == 'shader' then return 'shader' end
   -- 'copy' (default): the engine's decals stay, copies in the mud meshes (deepnode_roadCopy)
   return 'copy'
 end
@@ -2324,11 +2332,13 @@ end
 -- (tiles at their rebuild rate, sectors in turn).
 function M.decalRoadsOn() return P.roadMode() ~= 'off' end
 function M.roadModeName() return P.roadMode() end
--- mode: 'copy' (default) or 'vanilla' when on
+-- mode: 'copy' (default), 'vanilla' or 'shader' when on
 function M.setDecalRoads(on, mode)
-  cfg.roads.mode = on and (mode == 'vanilla' and mode or 'copy') or 'off'
+  cfg.roads.mode = on and ((mode == 'vanilla' or mode == 'shader') and mode or 'copy') or 'off'
   if not running then return end
-  P.coverRoads(not on)
+  P.coverRoads(not on or cfg.roads.mode == 'shader')
+  local ovr = P.mod('overlay')
+  if ovr and ovr.restartRoads then ovr.restartRoads() end
   local dec = P.mod('decals')
   if dec then dec.stop(true) end
   local rcp = P.mod('roadCopy')
@@ -3549,7 +3559,9 @@ function P.shiftTail(fx, fy, ob, nb, extra, t0, loadMs, sinkMs, gridMs, what)
 
   -- roads: soft ground moved with the region
   local mode = P.roadMode()
-  if mode == 'off' then P.coverRoads(true, true) end
+  if mode == 'off' or mode == 'shader' then P.coverRoads(true, true) end
+  local ovr = P.mod('overlay')
+  if ovr and mode == 'shader' and ovr.restartRoads then ovr.restartRoads() end
   local rcp = P.mod('roadCopy')
   if rcp and mode == 'copy' and rcp.isEnabled and rcp.isEnabled() then rcp.stop(); pcall(rcp.start, M) end
   local dec = P.mod('decals')
@@ -7452,8 +7464,9 @@ function P.start()
   -- after the sink pass: the lifted copies build their cells on the lowered terrain
   if cfg.grass and cfg.grass.lift ~= false then P.liftGroundCover() end
   P.shrinkCoverCells()
-  -- decal roads drawn into the mud meshes, or kept off the mud
-  P.coverRoads(P.roadMode() == 'off')
+  -- decal roads drawn into the mud meshes, or kept off the mud (the road shader draws the
+  -- hidden ones, deepnode_overlay)
+  P.coverRoads(P.roadMode() == 'off' or P.roadMode() == 'shader')
   local dec = P.mod('decals')
   if dec and P.roadMode() == 'overlay' then
     local okDec, errDec = pcall(dec.start, M)
