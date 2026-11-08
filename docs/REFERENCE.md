@@ -252,6 +252,11 @@ BeamNG's own physics:
   redraw, so the grass beside them never blinks. gridmap_v2, one 2-Percheron run: terrain
   redraws near grass 10 -> 0 (262 physics-only writes), fps in the noise (127.7 / 131.3 off /
   138.9, BENCHMARK 13). Region mode and coarse terrains skip it.
+  Since 2026-11-08 (`lowDrawAll`, default on): every soft cluster is drawn low, so the floor is
+  physics only everywhere and sits `floorSoftShare` (1) x the kind's ground-model `defaultDepth`
+  ABOVE the drawn rut (minus `floorMargin`): a tyre sinks the soft layer and rests on the drawn rut
+  bottom. `floorGap` (0.6 s): floor writes at least this far apart, because the vehicle physics
+  takes a terrain change only ~0.55 s after the last `updateGrid` (ENGINE_FINDINGS).
   Floor heights are written absolute (full sink level from the sink pass + lift): the height grid
   rounds every write to maxHeight / 65536, and the old relative writes drifted (ENGINE_FINDINGS).
   The heavy ground-model values are checked once a second and applied again when the game reloads
@@ -1028,3 +1033,15 @@ effect shader fails to compile; it keeps drawing the old one).
 ## Sector auto size (2026-10-27)
 
 - `sectors.autoSize` (true): choose the sector size at start from the map's meshed soft area (soft kinds whose heavy floor lift is below their sink depth, plus zones in vanilla mode), so that a camera in the biggest region sees at most `sectors.autoMaxObjects` (200) sectors within `sectors.loadRadius`. Clamped between `sectors.tiles` (minimum, GUI "Sector size") and `sectors.autoMaxTiles` (8). The choice is logged (`sector size: ...`).
+
+## Bearing sinkage (`stamp.bearing`, 2026-11-08)
+
+Rut depth of a rolling tyre comes from the Bekker rigid-wheel sinkage, not from where the tyre
+bottom is: z = (3 W / ((3 - n)(kc + b kphi) sqrt(D)))^(2 / (2n + 1)) with W the wheel's load
+(vehicle report `downForce`), b tyre width, D diameter, n `kinds.<kind>.soilN`, kc / kphi
+`kinds.<kind>.kc` / `kphi` (game-soft values: mud 2000 / 250000, sand 30000 / 2600000; Percheron
+wheel 18 kN, 0.39 m, R 0.6: ~0.2 m in mud, ~0.1 m in sand), times (1 + slip sinkage). Heavier
+vehicles and narrower or smaller tyres dig deeper; spinning and drive torque still dig on top
+(`spinDig*`, `torqueDig*`). Off (`bearing = false`) the stamp carves to the tyre bottom, which in
+heavy mode compounded with the soft layer (floor follows rut, tyre sinks again).
+

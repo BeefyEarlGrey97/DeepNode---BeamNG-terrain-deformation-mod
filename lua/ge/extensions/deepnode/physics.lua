@@ -180,6 +180,25 @@ local function terrainZ(gx, gy)
   return hgt
 end
 
+-- How far the floor stays under the rut surface. Drawn low everywhere (lowDrawAll) the
+-- terrain is never seen, so the floor sits the kind's soft-layer depth ABOVE the rut: a tyre
+-- sinks that deep into the ground model's soft layer and comes to rest on the drawn rut
+-- bottom instead of one soft layer below it (parked Percheron 0.25 -> 0.45 m, 2026-11-08).
+-- Drawn at the floor, the terrain must stay floorMargin under the rut (hidden by the mesh).
+local softDepth = {}
+local function floorMarginAt(gx, gy, h)
+  local m = h.floorMargin or 0.03
+  if not h.lowDrawAll then return m end
+  local kind = ctx.layerKindAt(gx, gy)
+  local d = softDepth[kind]
+  if d == nil then
+    local gm = h.groundModels and h.groundModels[kind]
+    d = gm and tonumber(gm.defaultDepth) or 0
+    softDepth[kind] = d
+  end
+  return m - d * (h.floorSoftShare or 1)
+end
+
 -- lift a vertex should have now: up to its rut surface (deepest rut cell within reach)
 local function wantedLift(gx, gy, k, h)
   local lift0 = P.sinkLift0[k]
@@ -210,7 +229,7 @@ local function wantedLift(gx, gy, k, h)
   if zmin == huge then return lift0 end
   local ter = ctx.ter
   local V = P.sinkBase[k] + (ter.localZ and ter.oz or 0) -- full sink level (absolute)
-  local l = zmin - (h.floorMargin or 0.03) - V
+  local l = zmin - floorMarginAt(gx, gy, h) - V
   if l < 0 then return 0 end
   if l > lift0 then return lift0 end
   return l
@@ -422,6 +441,8 @@ local lowZone = {}     -- cluster key -> true
 function M.lowDrawCluster(gx, gy)
   local h = heavy()
   if not h or h.grassLowDraw == false or h.grassSplit == false then return false end
+  -- every soft cluster drawn low: floor writes never redraw the terrain (lowDrawAll)
+  if h.lowDrawAll then return true end
   local cs = max(2, floor(h.floorCluster or 16))
   local bx, by = floor(gx / cs), floor(gy / cs)
   local key = by * CKEY + bx
@@ -542,6 +563,14 @@ local function write(h)
   local tm = extensions and extensions.deepnode_tileMesh
   if tm and tm.canUpload and not tm.canUpload('F', 0) then
     stats.held = stats.held + 1
+    return
+  end
+  -- The vehicle physics takes a terrain change only ~0.55 s after the LAST tb:updateGrid
+  -- (measured 2026-11-08, gridmap_v2: updates every 70 ms for 2 s, the parked truck dropped
+  -- 0.55 s after the last one; one update alone: 0.55 s too). Written every frame the floor
+  -- never reached the wheels while trucks dug and all of it landed once they stopped.
+  if clock - lastUpd < (h.floorGap or 0.6) then
+    stats.gapHeld = (stats.gapHeld or 0) + 1
     return
   end
   local slow = updEma ~= nil and updEma > (h.slowUpdateMs or 8)

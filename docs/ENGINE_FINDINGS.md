@@ -55,8 +55,16 @@ They explain most design decisions; please extend this file when you measure som
 
 ## Terrain
 
-- `tb:setHeightGrid` + `tb:updateGrid` take effect for physics at once; `updateGrid` costs 1–2.5 ms
-  whatever the box size: merge all writes of a frame into one call.
+- `tb:setHeightGrid` + `tb:updateGrid` reach the VEHICLE physics only ~0.55 s after the LAST
+  `updateGrid` (debounced; measured 2026-11-08, gridmap_v2, parked Percheron: one update 0.55 s; an
+  update every 70 ms for 2 s: no movement until 0.55 s after the last one; real or far 1x1 box
+  alike). `castRayStatic` sees the new height at once, which is why the old note said "at once".
+  Writing the terrain every frame or at 20 Hz means the physics never gets it while writes go
+  on. `updateGrid` costs 1–2.5 ms whatever the box size: merge all writes into one call, and keep
+  writes >= 0.6 s apart (deepnode `physics.heavy.floorGap`).
+- Mud ProceduralMeshes are not vehicle collision (2026-11-08, 0.40.5): a truck dropped from 0.6 m
+  above a mesh lying 0.24 m over the terrain fell through it to the terrain. `castRayStatic` DOES hit
+  them (per-object ray structure built in createMesh), so it is no proof of physics contact.
 - Heights are stored rounded to `maxHeight / 65536` (gridmap_v2: maxHeight 100, step 1.5 mm).
   Read-modify-write drifts downwards: 20 cycles of `h - 0.13` then `h + 0.13` ended 3.4 cm low;
   10 x `-0.004` gave -4.6 cm. Write absolute heights from a saved reference.

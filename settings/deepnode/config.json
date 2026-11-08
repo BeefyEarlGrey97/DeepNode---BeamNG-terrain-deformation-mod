@@ -161,7 +161,7 @@
     "autoMaxTiles": 8
   },
   "stamp": {
-    "flowBack": 0.22,
+    "flowBack": 0.12,
     "liquid": {
       "enabled": true,
       "kinds": {
@@ -172,7 +172,7 @@
       "hz": 20,
       "gravity": 9.81,
       "depthRef": 0.15,
-      "yield": 0.15,
+      "yield": 0.6,
       "damping": 2.0,
       "life": 1.2,
       "minStep": 0.01,
@@ -193,8 +193,8 @@
     "relaxHz": 5,
     "relaxTime": 3,
     "relaxWindow": 0.3,
-    "relaxKeep": 0.75,
-    "relaxKeepBerm": 0.8,
+    "relaxKeep": 0.9,
+    "relaxKeepBerm": 0.9,
     "shoulderFactor": 0.25,
     "maxSweep": 3,
     "bodyRadius": 0.16,
@@ -416,14 +416,14 @@
     "heavy": {
       "groundModels": {
         "mud": {
-          "defaultDepth": 0.25,
+          "defaultDepth": 0.2,
           "flowConsistencyIndex": 17000,
           "fluidDensity": 20000,
           "staticFrictionCoefficient": 0.35,
           "slidingFrictionCoefficient": 0.32
         },
         "sand": {
-          "defaultDepth": 0.14,
+          "defaultDepth": 0.1,
           "flowConsistencyIndex": 7500,
           "fluidDensity": 30000
         }

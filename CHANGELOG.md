@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Changed
+- Heavy physics firmer and stable when stopping (one Percheron, gridmap_v2 mud, 20 km/h then
+  park): rut depth from Bekker bearing sinkage (`stamp.bearing`, load / width / diameter / slip)
+  instead of the tyre bottom; floor written at most every 0.6 s (`physics.heavy.floorGap`: the
+  vehicle physics took no terrain change while the floor was written every frame and all of it
+  landed when the trucks stopped); terrain drawn low under all soft ground (`lowDrawAll`) with the
+  floor one soft layer above the drawn rut; mud soft layer 0.25 -> 0.2 m, sand 0.14 -> 0.1 m.
+  Mud: sink while driving 0.26 m, then +0.19 m after stopping -> 0.21 m, +0.03 m. Sand: 0.11-0.14
+  m, +0.03 m. Rut cross-section 12-15 cm deep with 3-5 cm berms -> 17-19 cm with 6-12 cm berms
+  (liquid yield 0.15 -> 0.6, flowBack 0.22 -> 0.12, relaxKeep 0.75 -> 0.9).
 - Tyre mud is drawn as one more layer of the vehicle's own tyre material (`clods.tyreLayer`,
   SnowRunner-style layer of dirt) instead of the skin mesh round the tyre: coverage masks
   (tread first, then shoulders and sidewall blotches; `t_tyrelayer_*`, bake_tyrelayer.py)

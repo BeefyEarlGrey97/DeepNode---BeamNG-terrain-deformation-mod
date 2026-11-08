@@ -376,6 +376,7 @@ local defaults = {
     torqueDigRate = 0.08,
     torqueDigStart = 0.25,
     refWheelLoad = 3500,    -- N per wheel (about a 1400 kg car on 4 wheels)
+    bearing = true,         -- rut depth from Bekker bearing sinkage (kinds.*.kc/kphi), not the tyre bottom
     jitterZ = 0.015,        -- clumpy vertical jitter at full track intensity (m)
     jitterXY = 0.03,        -- horizontal jitter at full track intensity (m)
     -- Per soft-ground kind (the kind of the terrain square under the hub; values missing
@@ -391,10 +392,14 @@ local defaults = {
     --  slipBeta: slip sinkage, the tyre carves beta x s / (s + 0.2) x its immersion deeper
     --    (s = slip ratio; Reece 1965: strong in sand, weak in clay; values to tune)
     --  spinDig: factor on spinDigRate / spinDigMax
+    --  kc, kphi: Bekker moduli (N/m^(n+1), N/m^(n+2)) for the bearing sinkage (stamp.bearing):
+    --    game-soft values, Percheron wheel (18 kN, 0.39 m wide, R 0.6) ~0.2 m in mud, ~0.1 m in sand
     kinds = {
       mud = { bermFraction = 0.85, maxSlope = 1.0, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8,
+              kc = 2000, kphi = 250000,
               rimDepth = 0, bermCap = 0.2, bermPeak = 0.4, bermWidthFactor = 1.0, bow = 0.45, bowLen = 0.75 },
       sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4,
+               kc = 30000, kphi = 2600000,
                bermCap = 0.16, bermPeak = 0.35, bow = 0.4, bowLen = 0.45 },
       -- snow compacts under the tyre more than it is pushed aside (small berms), the walls
       -- of a packed rut stand steep; Bekker n for snow ~1.0-1.6 (Wong, Terramechanics);
@@ -678,6 +683,11 @@ local defaults = {
       floorReach = 0.3,    -- squares round a terrain vertex whose ruts lower it
       floorMargin = 0.03,  -- m the terrain stays under the rut surface (hidden by the mesh)
       floorHz = 5,         -- rut floor recomputes per second
+      floorGap = 0.6,      -- s between floor writes: the physics takes a terrain change only
+                           -- ~0.55 s after the last tb:updateGrid (deepnode_physics write)
+      lowDrawAll = true,   -- terrain drawn at the full sink level under all soft ground: the
+                           -- floor is physics only and sits the soft-layer depth above the rut
+      floorSoftShare = 1,  -- share of the kind's ground-model defaultDepth the floor stays above the rut
       floorMaxVerts = 600, -- terrain vertices written per frame at most
       -- every terrain update rebuilds the grass (GroundCover) over its box, missing for a
       -- frame (deepnode_physics): writes are grouped in clusters of floorCluster squares,
@@ -6231,8 +6241,21 @@ function M.onMudReport(vid, w, nodes, tris)
             dig, digMax = dig * sd, digMax * sd
             -- slip sinkage: s = slip ratio, saturating (Reece 1965, Baek et al. 2020)
             local sr = spin / max(0.5, om * R)
-            if (K.slipBeta or 0) > 0 and sr > 0.02 and d > 0 then
-              pzs = pz - K.slipBeta * sr / (sr + 0.2) * min(d, R * 0.5)
+            local slipF = (K.slipBeta or 0) > 0 and sr > 0.02 and K.slipBeta * sr / (sr + 0.2) or 0
+            local rest = st.bearing ~= false and K.kphi and d > 0 and P.restAt(px, py)
+            if rest then
+              -- Bearing sinkage (Bekker rigid wheel, Wong "Theory of Ground Vehicles"):
+              -- z = (3 W / ((3 - n) (kc + b kphi) sqrt(D)))^(2 / (2n + 1)) from the wheel's
+              -- load W, width b and diameter D, deeper with slip. The rut is carved to that
+              -- depth below the undisturbed surface, not to the tyre bottom: the tyre also
+              -- sinks into the engine's soft layer, so carving to it compounded (floor
+              -- lowered, tyre sank again: a parked Percheron went 0.25 -> 0.45 m, 2026-11-08).
+              local n = K.soilN or 0.5
+              local zb = (3 * (isFinite(load) and load > 0 and load or ref)
+                / ((3 - n) * ((K.kc or 0) + W * K.kphi) * sqrt(2 * R))) ^ (2 / (2 * n + 1))
+              pzs = rest - zb * (1 + slipF) + R
+            elseif slipF > 0 and d > 0 then
+              pzs = pz - slipF * min(d, R * 0.5)
             end
           end
           if prev then prev.still, prev.spin, prev.R = still, spin, R end
