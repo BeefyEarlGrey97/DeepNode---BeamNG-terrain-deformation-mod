@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Changed
+- Road shader: no more rectangle cut out of the road round a vehicle and no road painted on
+  sunk tyres. A vehicle pixel is now one inside a tyre (cylinder from the wheel reports, moved
+  with the wheel's speed) or inside the footprint box above the vehicle's own plane just under
+  its lowest hub; faces turned down (bumper / sill undersides) never get the road. The old box
+  kept the road only 0.1 m over the road's own height, so higher ground (berms, a car on a
+  slope, motorsports_playground beach) lost it in a rectangle. `overlay.roads.vehicleAbove`
+  removed.
+- Road shader keys 60 -> 240 (road map 32-bit float): johnson_valley has 137 material /
+  priority keys over soft ground, the roads of 77 were hidden and never drawn.
 - Heavy physics firmer and stable when stopping (one Percheron, gridmap_v2 mud, 20 km/h then
   park): rut depth from Bekker bearing sinkage (`stamp.bearing`, load / width / diameter / slip)
   instead of the tyre bottom; floor written at most every 0.6 s (`physics.heavy.floorGap`: the

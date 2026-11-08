@@ -801,9 +801,6 @@ local defaults = {
       minNormalZ = 0.15,    -- no road on faces steeper than this
       zAbove = 0.4,         -- m: drawn on surfaces up to this far above the road's own height (berms)
       zBelow = 1.5,         -- m: and down to this far below it (ruts)
-      -- m: inside a vehicle's footprint box the road only up to this over its own surface (the
-      -- ground a sunk vehicle stands in keeps the road, the body does not get it)
-      vehicleAbove = 0.1,
       skipMatch = { 'invisible' },
       -- engine draw order: lower renderPriority numbers on top (rig check 2026-11-07)
       lowPriorityOnTop = true,
@@ -6291,6 +6288,18 @@ function M.onMudReport(vid, w, nodes, tris)
           prev.cx, prev.cy = px, py
         end
         prev.ax, prev.ay, prev.at = px, py, simTime
+        -- the tyre as a cylinder for the road shader (overlay roadVehicles: no road on it)
+        local al = sqrt(ax * ax + ay * ay + az * az)
+        if al > 1e-3 then
+          local hwt = W * 0.5
+          local Wt = vs.tyres[wi]
+          if type(Wt) == 'table' then
+            hwt = 0
+            for _, ty in ipairs(Wt) do hwt = max(hwt, abs(ty.o) + ty.w * 0.5) end
+          end
+          prev.hz, prev.R, prev.hw = pz, R, hwt
+          prev.nx, prev.ny, prev.nz = ax / al, ay / al, az / al
+        end
         prev.t = simTime
         vs.lastWheel[wi] = prev
       end

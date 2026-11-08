@@ -16,9 +16,8 @@
 //    G-buffer before lighting, so a decal's relief shows on the ground under it as well.
 // A post effect has six texture slots: colour, opacity, normal and AO maps do not fit one pass.
 // Only on surfaces at or below the road's own height (the ground before the ruts) plus a
-// tolerance (not on kerbs), not on steep faces; inside a vehicle's footprint box only up to
-// dnPass2.x over the road's own height: the ground a sunk vehicle stands in keeps its road,
-// the body does not get it.
+// tolerance (not on kerbs), not on steep faces, not on vehicles (tyres and bodies marked by
+// roadLitP.hlsl).
 // Runs at PFXBeforeBin ObjTranslucentBin before the rut overlay (tyre prints, glass, particles
 // and water draw over it); the light comes packed from ReflectDepthBin (roadLitP.hlsl).
 #include "../postFx.h.hlsl"
@@ -48,7 +47,6 @@ cbuffer perDraw : register(b0)
     uniform float4 dnTint;   // material colour factor (rgb), opacity (colour factor alpha x opacityFactor)
     uniform float4 dnMat;    // metallic, roughness, relief (relight) strength, alpha gain
     uniform float4 dnLook;   // min ground normal z, window edge fade (m), pass (0 colour, 1 relight), AO map bound
-    uniform float4 dnPass2;  // inside a vehicle box: max height over the road surface (m), unused x3
 };
 
 #include "../postFx.hlsl"
@@ -111,17 +109,19 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     }
     if (nh == 0) discard;
     float4 lit = tex2Dlod(litTex, float4(IN.uv2, 0, 0));
-    // inside a vehicle footprint box: the road only up to vehAbove over its own surface
-    bool inVeh = lit.a < 0.0;
-    if (inVeh) lit.a = -lit.a - 1.0;
-    float zTop = inVeh ? min(dnZ.y, dnPass2.x) : dnZ.y;
+    // a vehicle pixel (tyre, or body above its cut height; roadLitP.hlsl): no road on it
+    if (lit.a < 0.0) discard;
+    float zTop = dnZ.y;
 
+    float3 V = normalize(eyePosWorld - wp);
+    // the face as seen (towards the camera): a face turned down (a bumper or sill underside
+    // seen from low) is no ground, whatever its height
     float3 ng = normalize(cross(dpx, dpy));
-    if (ng.z < 0.0) ng = -ng;
+    if (dot(ng, V) < 0.0) ng = -ng;
+    if (ng.z < 0.0) discard;
     float slopeK = smoothstep(dnLook.x - 0.1, dnLook.x + 0.1, ng.z);
     float2 dEdge = min(muv, 1.0 - muv) * dnWin.z;
     float edgeK = saturate(min(dEdge.x, dEdge.y) / max(dnLook.y, 1e-3));
-    float3 V = normalize(eyePosWorld - wp);
     ColorSH9 sh = getColorSH9(ambientSH9);
 
     bool relight = dnLook.z > 0.5;

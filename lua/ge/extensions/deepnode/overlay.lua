@@ -53,7 +53,10 @@ local SB_RDRAW, SB_RMAP, SB_RLIT, SB_RMUL = 'deepnode_roadDrawSB', 'deepnode_roa
   'deepnode_roadRelightSB'
 local RTARGET, RTMP, RLIT = '#deepnode_road', '#deepnode_roadTmp', '#deepnode_roadLit'
 local MAX_QUADS = 32     -- roadStampP.hlsl
-local MAX_KEYS = 60      -- road keys (renderPriority + material); ids keep the fade in half floats
+-- road keys (renderPriority + material): johnson_valley has 137 over its soft ground; at 60 the
+-- roads of the other 77 stayed hidden and were never drawn (2026-11-08). The map is 32-bit
+-- float so the id and the fade stay exact.
+local MAX_KEYS = 240
 local COMMON_PATH = SHADER_DIR .. 'dnCommon.h.hlsl'
 local MAX_SEG = 16
 local MAX_WHEELS = 16
@@ -1013,7 +1016,7 @@ local function buildRoads()
   end
   -- keys in the engine's draw order, first drawn first: higher renderPriority numbers first,
   -- lower ones on top (rig check against the engine's own decals 2026-11-07, ENGINE_FINDINGS
-  -- "Baked road layer"); at most MAX_KEYS (ids up to 60 keep the fade in half floats)
+  -- "Baked road layer"); at most MAX_KEYS
   local list = {}
   for _, k in pairs(kinds) do list[#list + 1] = k end
   local lowTop = rc.lowPriorityOnTop ~= false
@@ -1175,7 +1178,7 @@ local function makeRoadEffects()
     return effect(name, {
       { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', prio },
       { 'shader', shader }, { 'stateBlock', SB_RMAP }, { 'target', dst },
-      { 'targetSize', (2 * L * W) .. ' ' .. W }, { 'targetFormat', 'GFXFormatR16G16B16A16F' },
+      { 'targetSize', (2 * L * W) .. ' ' .. W }, { 'targetFormat', 'GFXFormatR32G32B32A32F' },
       { 'targetClear', 'PFXTargetClear_None' } }, { src })
   end
   local function callbacks(name)
@@ -1198,7 +1201,7 @@ local function makeRoadEffects()
       callbacks(name)
       local fx = effect(name, {
         { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' },
-        { 'renderPriority', sfmt('%.3f', 56.9 - key * 0.04 - (rl and 0.02 or 0)) },
+        { 'renderPriority', sfmt('%.3f', 56.9 - key * 0.02 - (rl and 0.01 or 0)) },
         { 'shader', shD }, { 'stateBlock', rl and SB_RMUL or SB_RDRAW }, { 'target', '$backBuffer' } },
         { '#prepass[Depth]', RTARGET, RLIT, rl and m.nrm or m.col, m.opa, rl and '' or m.ao })
       fx:enable()
@@ -1255,8 +1258,11 @@ end
 -- with the vehicle position in between (measured: the per-frame boxes of 8 trucks, formatted
 -- for every pass, cost ~0.5 ms of Lua a frame)
 local rveh = { n = 0 }
+local rwh = { n = 0 } -- tyres near the camera: hub xyz, radius, unit axle xyz, half width
 local function roadVehicles(now)
   local n = 0
+  rwh.n = 0
+  local sim = ctx.simTime and ctx.simTime() or 0
   for i = 0, be:getObjectCount() - 1 do
     if n >= 8 then break end
     local veh = be:getObject(i)
@@ -1279,7 +1285,8 @@ local function roadVehicles(now)
             hw = max(hw, abs(-rx * fy + ry * fx))
             zmin = min(zmin, q.z)
           end
-          b = { now, p.x, p.y, p.z, c.x, c.y, hl + 0.3, hw + 0.3, fx, fy, zmin }
+          -- body cut without wheel reports: 0.3 m over the lowest point
+          b = { now, p.x, p.y, p.z, c.x, c.y, hl + 0.3, hw + 0.3, fx, fy, zmin + 0.3 }
           vbox[id] = b
         else
           b = nil
@@ -1291,6 +1298,36 @@ local function roadVehicles(now)
         rveh[n] = e
         local dx, dy, dz = p.x - b[2], p.y - b[3], p.z - b[4]
         e[1], e[2], e[3], e[4], e[5], e[6], e[7] = b[5] + dx, b[6] + dy, b[7], b[8], b[9], b[10], b[11] + dz
+        -- its tyres go to the tyre list (roadLitP: no road on them)
+        -- body cut plane: the vehicle's up through 0.1 wheel radius under its lowest reported
+        -- hub (berms beside a sunk tyre reached half a radius under it; else 0.3 m over the box's
+        -- lowest point); body faces under it are vertical or turned down (roadDrawP drops those)
+        local up = veh:getDirectionVectorUp()
+        local ux, uy, uz = up.x, up.y, up.z
+        local ul = sqrt(ux * ux + uy * uy + uz * uz)
+        if ul > 1e-3 then ux, uy, uz = ux / ul, uy / ul, uz / ul else ux, uy, uz = 0, 0, 1 end
+        e[8], e[9], e[10], e[11], e[12], e[13] = e[1], e[2], e[7], ux, uy, uz
+        local vs = P.vehs and P.vehs[id]
+        if vs and vs.lastWheel then
+          local zc, best = math.huge, nil
+          for _, w in pairs(vs.lastWheel) do
+            if w.hz and sim - (w.at or -math.huge) < 0.5 then
+              local h = w.ax * ux + w.ay * uy + w.hz * uz - 0.1 * w.R
+              if h < zc then zc, best = h, w end
+              if rwh.n < 24 then
+                rwh.n = rwh.n + 1
+                local q = rwh[rwh.n] or {}
+                rwh[rwh.n] = q
+                local lag = sim - w.at
+                q[1], q[2], q[3], q[4] = w.ax + (w.vx or 0) * lag, w.ay + (w.vy or 0) * lag, w.hz, w.R
+                q[5], q[6], q[7], q[8] = w.nx, w.ny, w.nz, w.hw
+              end
+            end
+          end
+          if best then
+            e[8], e[9], e[10] = best.ax - 0.1 * best.R * ux, best.ay - 0.1 * best.R * uy, best.hz - 0.1 * best.R * uz
+          end
+        end
       end
     end
   end
@@ -1357,7 +1394,6 @@ local function roadFrame()
         setConst(name, 'dnTint', tn[1], tn[2], tn[3], mt.tint[4])
         setConst(name, 'dnMat', mt.met, mt.rough, rc.relief or 1, rc.alphaGain or 1)
         setConst(name, 'dnLook', rc.minNormalZ or 0.5, rc.edgeFade or 12, rl and 1 or 0, (mt.ao ~= '' and rc.materialAO ~= false) and 1 or 0)
-        setConst(name, 'dnPass2', rc.vehicleAbove or 0.1, 0, 0, 0)
       end
     end
   end
@@ -1371,7 +1407,12 @@ local function litFrame(any)
   if any then
     roadVehicles(os.clock())
     beginConsts(FX_RLIT)
-    setConst(FX_RLIT, 'dnVehN', rveh.n, rc.ao ~= false and 1 or 0, 0, 0)
+    setConst(FX_RLIT, 'dnVehN', rveh.n, rc.ao ~= false and 1 or 0, rwh.n, 0)
+    for k = 1, rwh.n do
+      local q = rwh[k]
+      setConst(FX_RLIT, 'dnWh' .. (k - 1), q[1], q[2], q[3], q[4])
+      setConst(FX_RLIT, 'dnWa' .. (k - 1), q[5], q[6], q[7], q[8])
+    end
     for k = 1, rveh.n do
       local e = rveh[k]
       setConst(FX_RLIT, 'dnVeh' .. (k - 1), e[1], e[2], e[3], e[4])
@@ -1381,13 +1422,10 @@ local function litFrame(any)
       local b = k * 2 + 2 <= rveh.n and rveh[k * 2 + 2] or nil
       setConst(FX_RLIT, 'dnVehD' .. k, a and a[5] or 1, a and a[6] or 0, b and b[5] or 1, b and b[6] or 0)
     end
-    for k = 0, 1 do
-      local z = {}
-      for j = 1, 4 do
-        local e = k * 4 + j <= rveh.n and rveh[k * 4 + j] or nil
-        z[j] = e and e[7] or 0
-      end
-      setConst(FX_RLIT, 'dnVehZ' .. k, z[1], z[2], z[3], z[4])
+    for k = 1, rveh.n do
+      local e = rveh[k]
+      setConst(FX_RLIT, 'dnVb' .. (k - 1), e[8], e[9], e[10], 0)
+      setConst(FX_RLIT, 'dnVu' .. (k - 1), e[11], e[12], e[13], 0)
     end
   end
 end
