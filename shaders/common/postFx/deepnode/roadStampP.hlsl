@@ -41,7 +41,7 @@ cbuffer perDraw : register(b0)
     uniform float4 dnTex;   // texel size (m), unused x3
     // quad i, corners relative to the window origin: dnQa = left xy, right xy at the start;
     // dnQb = the same at the end; dnQc = v at start, at end (repeats), surface z - baseZ at
-    // start, at end; dnQd = fade at start, at end, key, unused
+    // start, at end; dnQd = fade at start, at end, key, right edge z - left edge z (m)
 #define DN_Q(i) uniform float4 dnQa##i; uniform float4 dnQb##i; uniform float4 dnQc##i; uniform float4 dnQd##i;
     DN_Q(0) DN_Q(1) DN_Q(2) DN_Q(3) DN_Q(4) DN_Q(5) DN_Q(6) DN_Q(7)
     DN_Q(8) DN_Q(9) DN_Q(10) DN_Q(11) DN_Q(12) DN_Q(13) DN_Q(14) DN_Q(15)
@@ -147,7 +147,7 @@ void insert(float4 c0, float4 c1, bool inside, int L)
                         float v = lerp(dnQc##i.x, dnQc##i.y, us.y);                        \
                         float2 gv = gs * (dnQc##i.y - dnQc##i.x);                          \
                         float fd = saturate(lerp(dnQd##i.x, dnQd##i.y, us.y));             \
-                        float4 c0 = float4(frac(v), us.x, lerp(dnQc##i.z, dnQc##i.w, saturate(us.y)), \
+                        float4 c0 = float4(frac(v), us.x, lerp(dnQc##i.z, dnQc##i.w, saturate(us.y)) + (saturate(us.x) - 0.5) * dnQd##i.w, \
                                            dnQd##i.z + 0.49 * fd);                          \
                         bool inside = us.x >= 0.0 && us.x <= 1.0 && us.y >= 0.0 && us.y <= 1.0; \
                         insert(c0, float4(gu, gv), inside, L);                             \

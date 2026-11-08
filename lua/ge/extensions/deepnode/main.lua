@@ -6081,6 +6081,8 @@ function M.onWheelDefs(vid, flat)
       if vs then vs.tyres[floor(i)] = tyres end
     end
   end
+  -- the road shader masks these tyres (overlay roadVehicles: hub nodes read every frame)
+  if vs then vs.wheelDefs = defs end
   local wm = P.mod('wheelMud')
   if wm then wm.setWheelDefs(vid, defs) end
 end
@@ -6288,18 +6290,6 @@ function M.onMudReport(vid, w, nodes, tris)
           prev.cx, prev.cy = px, py
         end
         prev.ax, prev.ay, prev.at = px, py, simTime
-        -- the tyre as a cylinder for the road shader (overlay roadVehicles: no road on it)
-        local al = sqrt(ax * ax + ay * ay + az * az)
-        if al > 1e-3 then
-          local hwt = W * 0.5
-          local Wt = vs.tyres[wi]
-          if type(Wt) == 'table' then
-            hwt = 0
-            for _, ty in ipairs(Wt) do hwt = max(hwt, abs(ty.o) + ty.w * 0.5) end
-          end
-          prev.hz, prev.R, prev.hw = pz, R, hwt
-          prev.nx, prev.ny, prev.nz = ax / al, ay / al, az / al
-        end
         prev.t = simTime
         vs.lastWheel[wi] = prev
       end

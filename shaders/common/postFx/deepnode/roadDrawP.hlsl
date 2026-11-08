@@ -180,6 +180,9 @@ float4 mainP(PFXVertToPix IN) : SV_Target
                     if (dbg == 3) c = dnTint.rgb / PI * Lg;
                     // 4: opacity sample (red), opacity map bound (green)
                     if (dbg == 4) c = float3(op, dnPass.y * 0.2, 0.0);
+                    // 6: height over the road's own surface: red < -0.5 m, yellow -0.5..-0.25,
+                    // green -0.25..-0.1, blue -0.1..0.1, white above
+                    if (dbg == 6) c = dz < -0.5 ? float3(1, 0, 0) : dz < -0.25 ? float3(1, 1, 0) : dz < -0.1 ? float3(0, 1, 0) : dz < 0.1 ? float3(0, 0, 1) : float3(1, 1, 1);
                     // 5: slots 4 / 5 / 3 read with SampleLevel (r, g, b)
                     if (dbg == 5) c = float3(opaTexTex.SampleLevel(opaTex_sampler_, tc, 0).r, aoTexTex.SampleLevel(aoTex_sampler_, tc, 0).r, m3.r);
                     // this layer over what the pass has so far

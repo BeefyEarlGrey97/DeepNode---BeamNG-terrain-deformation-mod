@@ -1043,7 +1043,7 @@ local function buildRoads()
     local road = e.road
     local okC, ec = pcall(function() return road:getEdgeCount() end)
     ec = okC and tonumber(ec) or 0
-    local Lx, Ly, Rx, Ry, Mz, D = {}, {}, {}, {}, {}, {}
+    local Lx, Ly, Rx, Ry, Mz, D, Sz = {}, {}, {}, {}, {}, {}, {}
     local n, dist, px, py, pz = 0, 0, 0, 0, 0
     for i = 0, (key and ec or 0) - 1 do
       local okE, l, r = pcall(function() return road:getLeftEdgePosition(i), road:getRightEdgePosition(i) end)
@@ -1055,6 +1055,7 @@ local function buildRoads()
           dist = dist + dd
           n = n + 1
           Lx[n], Ly[n], Rx[n], Ry[n], Mz[n], D[n] = l.x, l.y, r.x, r.y, mz, dist
+          Sz[n] = r.z - l.z -- across the road: a road along a hillside is ~1 m higher on one edge
           px, py, pz = mx, my, mz
         end
       end
@@ -1077,7 +1078,8 @@ local function buildRoads()
         local x0, x1 = min(Lx[i], Rx[i], Lx[i + 1], Rx[i + 1]), max(Lx[i], Rx[i], Lx[i + 1], Rx[i + 1])
         local y0, y1 = min(Ly[i], Ry[i], Ly[i + 1], Ry[i + 1]), max(Ly[i], Ry[i], Ly[i + 1], Ry[i + 1])
         rquads[#rquads + 1] = { Lx[i], Ly[i], Rx[i], Ry[i], Lx[i + 1], Ly[i + 1], Rx[i + 1], Ry[i + 1],
-          -D[i] / texLen, -D[i + 1] / texLen, Mz[i], Mz[i + 1], fadeAt(D[i]), fadeAt(D[i + 1]), key, x0, y0, x1, y1 }
+          -D[i] / texLen, -D[i + 1] / texLen, Mz[i], Mz[i + 1], fadeAt(D[i]), fadeAt(D[i + 1]), key, x0, y0, x1, y1,
+          (Sz[i] + Sz[i + 1]) * 0.5 }
         local qi = #rquads
         for gy = floor((y0 - 1) / RB), floor((y1 + 1) / RB) do
           for gx = floor((x0 - 1) / RB), floor((x1 + 1) / RB) do
@@ -1253,25 +1255,32 @@ local function startRoads()
 end
 
 -- tyres near the camera for the road light pass (no road painted on them): a cylinder per
--- reported wheel (hub, radius, axle, half width; main onMudReport), moved on with the wheel's
--- speed since its report. A footprint box per vehicle (2026-11-08, first with a height cap over
--- the road, then a plane under the hubs) cut the road out in a rectangle wherever the ground
--- in the box stood higher (berms, dunes); vehicle bodies are left to roadDrawP's face tests.
+-- wheel from its hub nodes (read every frame; main onWheelDefs: nodes, radius, tyres), on any
+-- ground: a vehicle on hard ground beside a road sends no wheel reports. A footprint box per
+-- vehicle (2026-11-08, first with a height cap over the road, then a plane under the hubs) cut
+-- the road out in a rectangle wherever the ground in the box stood higher (berms, dunes).
 local rwh = { n = 0 } -- hub xyz, radius, unit axle xyz, half width
 local pbox = {}       -- vehicle id -> footprint box for the puddle mask (overlay frame)
 local function roadVehicles()
   rwh.n = 0
-  local sim = ctx.simTime and ctx.simTime() or 0
-  for _, vs in pairs(P.vehs or {}) do
-    for _, w in pairs(vs.lastWheel or {}) do
-      if rwh.n < 24 and w.hz and sim - (w.at or -math.huge) < 0.5
-          and (w.ax - camX) ^ 2 + (w.ay - camY) ^ 2 < 10000 then
-        rwh.n = rwh.n + 1
-        local q = rwh[rwh.n] or {}
-        rwh[rwh.n] = q
-        local lag = sim - w.at
-        q[1], q[2], q[3], q[4] = w.ax + (w.vx or 0) * lag, w.ay + (w.vy or 0) * lag, w.hz, w.R
-        q[5], q[6], q[7], q[8] = w.nx, w.ny, w.nz, w.hw
+  for vid, vs in pairs(P.vehs or {}) do
+    local veh = vs.wheelDefs and getObjectByID(vid)
+    local p = veh and veh:getPosition()
+    if p and (p.x - camX) ^ 2 + (p.y - camY) ^ 2 < 10000 then
+      for _, d in ipairs(vs.wheelDefs) do
+        if rwh.n >= 24 then return end
+        local a, b = veh:getNodePosition(d.n1), veh:getNodePosition(d.n2)
+        local nx, ny, nz = b.x - a.x, b.y - a.y, b.z - a.z
+        local nl = sqrt(nx * nx + ny * ny + nz * nz)
+        if nl > 1e-3 then
+          local hw = d.W * 0.5
+          for _, ty in ipairs(d.tyres or {}) do hw = max(hw, abs(ty.o) + ty.w * 0.5) end
+          rwh.n = rwh.n + 1
+          local q = rwh[rwh.n] or {}
+          rwh[rwh.n] = q
+          q[1], q[2], q[3], q[4] = p.x + (a.x + b.x) * 0.5, p.y + (a.y + b.y) * 0.5, p.z + (a.z + b.z) * 0.5, d.R
+          q[5], q[6], q[7], q[8] = nx / nl, ny / nl, nz / nl, hw
+        end
       end
     end
   end
@@ -1311,7 +1320,7 @@ local function roadFrame()
       setConst(FX_RSTAMP, 'dnQa' .. i, q[1] - x0, q[2] - y0, q[3] - x0, q[4] - y0)
       setConst(FX_RSTAMP, 'dnQb' .. i, q[5] - x0, q[6] - y0, q[7] - x0, q[8] - y0)
       setConst(FX_RSTAMP, 'dnQc' .. i, q[9] - fv, q[10] - fv, q[11] - bz, q[12] - bz)
-      setConst(FX_RSTAMP, 'dnQd' .. i, q[13], q[14], q[15], 0)
+      setConst(FX_RSTAMP, 'dnQd' .. i, q[13], q[14], q[15], q[20])
     end
     rqh = rqh + n
     if rqh > rqt then rqh, rqt = 1, 0 end

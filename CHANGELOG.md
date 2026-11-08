@@ -3,10 +3,12 @@
 ## [Unreleased]
 
 ### Changed
-- Road shader: no more rectangle cut out of the road round a vehicle and no road painted on
-  sunk tyres. The vehicle footprint box is gone from the road passes: only tyres are masked
-  (cylinders from the wheel reports, moved with the wheel's speed), and faces turned down
-  (bumper / sill undersides) never get the road. The box (road only 0.1 m over its own height,
+- Road shader: no more rectangle cut out of the road round a vehicle and no road painted on the
+  vehicle. The road's height now follows its cross slope (left to right edge): it was the centre
+  line's height across the whole width, ~1 m too high on the low side of a road along a hillside
+  (motorsports_playground), so a whole car there took the road. The vehicle footprint box is gone
+  from the road passes: only tyres are masked (cylinders from their hub nodes, read every frame,
+  any ground), and faces turned down (bumper / sill undersides) never get the road. The box (road only 0.1 m over its own height,
   then a plane under the hubs) cut the road in a rectangle wherever the ground in it stood
   higher (berms, dunes; motorsports_playground beach). `overlay.roads.vehicleAbove` removed.
 - Road shader keys 60 -> 240 (road map 32-bit float): johnson_valley has 137 material /

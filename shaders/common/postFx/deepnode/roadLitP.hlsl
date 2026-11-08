@@ -7,7 +7,7 @@
 // Runs at PFXBeforeBin ReflectDepthBin: #lightinfo holds there (it reads 0 by ObjTranslucentBin,
 // where the road passes run, measured 2026-11-08).
 // Vehicles (2026-11-08b): a pixel inside a tyre (a cylinder round the hub along the axle, from
-// the wheel reports) is marked (a = -1 - AO) and gets no road. Footprint boxes (first with a
+// its hub nodes, 4 cm margin) is marked (a = -1 - AO) and gets no road. Footprint boxes (first with a
 // height cap over the road, then a plane under the hubs) cut the road out in a rectangle where
 // the ground in the box stood higher; vehicle bodies are left to roadDrawP's face tests.
 #include "../postFx.h.hlsl"
@@ -63,7 +63,7 @@ cbuffer perDraw : register(b0)
         float3 c = wp - dnWh##i.xyz;                                                  \
         float a = dot(c, dnWa##i.xyz);                                                \
         float r = length(c - a * dnWa##i.xyz);                                        \
-        if (abs(a) < dnWa##i.w + 0.02 && r < dnWh##i.w + 0.02) on = 1.0;            \
+        if (abs(a) < dnWa##i.w + 0.04 && r < dnWh##i.w + 0.04) on = 1.0;            \
     }
 
 float4 mainP(PFXVertToPix IN) : SV_Target
