@@ -703,7 +703,12 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `liquid.minStep` | 0.004 | m of change before a vertex is rewritten (each write can rebuild a tile) |
 | `bermFraction` | 0.4 | Share of displaced mud that ends in the berms |
 | `bermWidthFactor` | 0.6 | Berm width as a share of the tyre width |
-| `bermMax` | 0.1 | Highest berm above the undisturbed surface |
+| `bermMax` | 0.25 | Rut code range above the undisturbed surface (m): the highest berm of any kind |
+| `bermCap` | 0.1 | Berm cap above the undisturbed surface (m); per kind `kinds.<kind>.bermCap` (mud 0.2, sand 0.16, snow 0.12) |
+| `bermPeak` | 0.5 | Where a berm is highest across its band (0 at the tyre wall); mud 0.4. Kinds with `rimDepth` 0 start the berm at the tyre wall |
+| `bow`, `bowLen` | 0, 0.5 | Bow wave ahead of a rolling tyre: height = bow x sink depth, over bowLen x R ahead of its front (mud 0.45 / 0.75, sand 0.4, snow 0.25) |
+| `kinds.<kind>.bermWidthFactor` | - | Berm band width per kind (mud 1.0), else `bermWidthFactor` |
+| `layerRelief` | 0.8 | (clods) Tyre layer: strength of the dirt normal map over the tyre relief |
 | `rimCells` | 1 | Width of the soft rim beside the tyre, in cells |
 | `rimDepth` | 0.45 | How far the rim sags towards the tyre edge (0..1); per kind in `kinds` (mud 0: the pushed mud stays against the tyre and the liquid flow takes it round) |
 | `maxSlope` | 1.2 | Steepest wall the mud holds (rise over run; 1.2 is about 50°) |

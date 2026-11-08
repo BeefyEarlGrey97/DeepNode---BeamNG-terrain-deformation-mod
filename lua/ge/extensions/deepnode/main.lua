@@ -324,8 +324,18 @@ local defaults = {
     -- damping 1/s (viscosity: slosh dies out); life s it flows after the wheel left;
     -- minStep m of change before a vertex is rewritten (each write can rebuild a tile)
     liquid = { enabled = true, kinds = { mud = 1.0 }, margin = 1.0, maxSize = 12, hz = 20, gravity = 9.81,
-               depthRef = 0.12, yield = 0.3, damping = 1.4, life = 2.0, minStep = 0.004 },
-    bermMax = 0.1,          -- berm cap above the rest surface (m)
+               depthRef = 0.15, yield = 0.15, damping = 1.0, life = 3.0, minStep = 0.004 },
+    bermMax = 0.25,         -- rut code range above the rest surface (m): the highest berm of any kind
+    bermCap = 0.1,          -- berm cap above the rest surface (m), per kind in kinds.<kind>.bermCap
+    -- SnowRunner-style berms (per kind, defaults here): bermPeak = where the berm is highest
+    -- across its band (0 at the tyre wall .. 1 at the far edge; 0.5 = symmetric); a kind
+    -- without rim sag (rimDepth 0) heaps its berm right against the tyre (no gap). bow =
+    -- height of the bow wave pushed ahead of a rolling tyre as a share of its sink depth
+    -- (0 = none), over bowLen x R ahead of the tyre's front; the tyre carves it again as
+    -- it rolls on (into the side berms), so the wave travels with it.
+    bermPeak = 0.5,
+    bow = 0,
+    bowLen = 0.5,
     rimCells = 1,           -- soft rim width in cells beside the tyre (cosine falloff)
     rimDepth = 0.45,        -- how far the rim sags towards the tyre edge (0..1)
     maxSlope = 1.2,         -- steepest wall wet mud holds (rise/run, about 50 degrees)
@@ -379,13 +389,15 @@ local defaults = {
     --    (s = slip ratio; Reece 1965: strong in sand, weak in clay; values to tune)
     --  spinDig: factor on spinDigRate / spinDigMax
     kinds = {
-      mud = { bermFraction = 0.45, maxSlope = 2.2, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8,
-              rimDepth = 0 },
-      sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4 },
+      mud = { bermFraction = 0.85, maxSlope = 1.0, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8,
+              rimDepth = 0, bermCap = 0.2, bermPeak = 0.4, bermWidthFactor = 1.0, bow = 0.45, bowLen = 0.75 },
+      sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4,
+               bermCap = 0.16, bermPeak = 0.35, bow = 0.4, bowLen = 0.45 },
       -- snow compacts under the tyre more than it is pushed aside (small berms), the walls
       -- of a packed rut stand steep; Bekker n for snow ~1.0-1.6 (Wong, Terramechanics);
       -- first values, to tune on polish_roads_winter
-      snow = { bermFraction = 0.15, maxSlope = 1.4, soilN = 1.3, soften = 0, slipBeta = 0.5, spinDig = 1.0 },
+      snow = { bermFraction = 0.15, maxSlope = 1.4, soilN = 1.3, soften = 0, slipBeta = 0.5, spinDig = 1.0,
+               bermCap = 0.12, bermPeak = 0.35, bow = 0.25 },
       -- firm (grass, dirt): turf and packed soil compact, little is pushed aside; spinning
       -- tears it up slowly
       firm = { bermFraction = 0.2, maxSlope = 1.6, soilN = 0.8, soften = 0, slipBeta = 0.15, spinDig = 0.4 },
@@ -499,6 +511,7 @@ local defaults = {
     -- detail on the mud (lug tops lighter, grooves darker).
     tyreLayer = true,
     layerAoTint = 0.1,
+    layerRelief = 0.8,      -- strength of the dirt's own normal map (clods, grit) on the layer
     -- Tyre skin (wheelMud): one mesh per wheel, built once; the material's alpha clip
     -- shows coverage = coverMax x min(1, coat)^coverExp of it (per pixel, t_tyremud_*).
     coverMax = 0.92,        -- covered share at coat 1 (the rest up to coatMax)
@@ -4940,10 +4953,11 @@ local function writeOne(tx, ty, i, j, z, tr)
       local target = floor(128 - st.relaxKeep * (128 - lo) + 0.5)
       if c < target then c = target end
     elseif c > 128 then
-      local hi = t.peakHi[idx]
-      if c > hi then t.peakHi[idx] = c; hi = c end
-      local target = floor(128 + st.relaxKeepBerm * (hi - 128) + 0.5)
-      if c > target then c = target end
+      -- berms: the peak only; clamping every write to relaxKeepBerm x the new peak held a
+      -- berm built from many small deposits at ~4 deposits (2-3 cm, measured 2026-11-08).
+      -- It settles once when the tile freezes (P.finishRelax).
+      if c > t.peakHi[idx] then t.peakHi[idx] = c end
+      t.bermPeak = true
     end
   end
   if c == old and tr <= t.track[idx] then return end
@@ -4997,7 +5011,7 @@ function P.distributeBerm(nB, wsum, amount)
     local t, idx = vertexRef(bermGX[b], bermGY[b])
     if t then
       local cur = decodeZ(t, idx)
-      local cap = t.rest[idx] + bermMax
+      local cap = t.rest[idx] + (P.kBermCap or bermMax)
       if cur < cap then
         local nz = min(cap, cur + k * bermW[b])
         writeVertex(bermGX[b], bermGY[b], nz, 0)
@@ -5053,9 +5067,14 @@ local function carve(gcx, gcy, t, idx, bottom, tr, dig, digFloor, fb)
   return cur - decodeZ(t, idx)
 end
 
--- smooth bump 0..1..0 over u in 0..1 (berm cross-section without a ridge)
-local function bump(u)
+-- smooth bump 0..1..0 over u in 0..1 (berm cross-section without a ridge), highest at
+-- u = peak (0.5 symmetric; small: the berm leans against the tyre)
+local function bump(u, peak)
   if u <= 0 or u >= 1 then return 0 end
+  peak = peak or 0.5
+  if peak ~= 0.5 then
+    if u < peak then u = 0.5 * u / peak else u = 0.5 + 0.5 * (u - peak) / (1 - peak) end
+  end
   local s = math.sin(math.pi * u)
   return s * s
 end
@@ -5145,7 +5164,7 @@ local function stampFootprint(cx, cy, cz, axx, axy, fwx, fwy, R, tyres, tr, dig,
   local rs = max(CELL * 0.5, minW * st.shoulderFactor)
   local ridge = rs * ((cfg.dually and cfg.dually.ridge) or 0.6)
   local rimW = max(CELL, st.rimCells * CELL)
-  local bw = max(CELL, (hi - lo) / nt * st.bermWidthFactor)
+  local bw = max(CELL, (hi - lo) / nt * (P.kBermW or st.bermWidthFactor))
   local latExt = max(abs(lo), abs(hi)) + rimW + bw
   local ex = abs(axx) * latExt + abs(fwx) * R
   local ey = abs(axy) * latExt + abs(fwy) * R
@@ -5185,7 +5204,14 @@ local function stampFootprint(cx, cy, cz, axx, axy, fwx, fwy, R, tyres, tr, dig,
             removed = removed + carve(gcx, gcy, t, idx, bottom, tr)
           else
             local aa = (s < lo) and (lo - s) or (s - hi) -- distance outside the tyre group
-            if aa <= rimW then
+            if P.bermAtWall then
+              local w = bump(aa / (rimW + bw), P.kPeak)
+              if w > 0 then
+                nB = nB + 1
+                bermGX[nB], bermGY[nB], bermW[nB] = gcx, gcy, w
+                wsum = wsum + w
+              end
+            elseif aa <= rimW then
               -- soft rim: the mud beside the tyre sags towards the tyre edge,
               -- fully at the edge, not at all rimW away (cosine falloff)
               local edge = bottom0 + rs
@@ -5200,7 +5226,7 @@ local function stampFootprint(cx, cy, cz, axx, axy, fwx, fwy, R, tyres, tr, dig,
                 end
               end
             else
-              local w = bump((aa - rimW) / bw)
+              local w = bump((aa - rimW) / bw, P.kPeak)
               if w > 0 then
                 nB = nB + 1
                 bermGX[nB], bermGY[nB], bermW[nB] = gcx, gcy, w
@@ -5239,10 +5265,13 @@ local function stampSwept(p0x, p0y, p0z, dx, dy, dz, L, axx, axy, fwx, fwy, R, t
   local rs = max(CELL * 0.5, minW * st.shoulderFactor)
   local ridge = rs * ((cfg.dually and cfg.dually.ridge) or 0.6)
   local rimW = max(CELL, st.rimCells * CELL)
-  local bw = max(CELL, (hi - lo) / nt * st.bermWidthFactor)
+  local bw = max(CELL, (hi - lo) / nt * (P.kBermW or st.bermWidthFactor))
   local latExt = max(abs(lo), abs(hi)) + rimW + bw
-  local ex = abs(axx) * latExt + abs(fwx) * R
-  local ey = abs(axy) * latExt + abs(fwy) * R
+  -- bow wave: berm ahead of the tyre's front, in the direction it rolls (fw points there)
+  local bowW, bowL = P.kBow or 0, (P.kBowLen or st.bowLen or 0.5) * R
+  local ahead = bowW > 0 and R + bowL or R
+  local ex = abs(axx) * latExt + abs(fwx) * ahead
+  local ey = abs(axy) * latExt + abs(fwy) * ahead
   local gx0 = ceil((min(p0x, p0x + dx) - ex - ter.ox) / CELL)
   local gx1 = floor((max(p0x, p0x + dx) + ex - ter.ox) / CELL)
   local gy0 = ceil((min(p0y, p0y + dy) - ey - ter.oy) / CELL)
@@ -5262,7 +5291,24 @@ local function stampSwept(p0x, p0y, p0z, dx, dy, dz, L, axx, axy, fwx, fwy, R, t
       local u = f0 * invD
       if u < 0 then u = 0 elseif u > 1 then u = 1 end
       local f = f0 - u * dfw
-      if f * f < R2 then
+      if bowW > 0 and f >= R and f < R + bowL then
+        -- ahead of the end footprint: the bow wave, a rounded mound bow x the tyre's sink
+        -- depth high (a shape, not shared volume: shared, it was carved again and recycled
+        -- at the berm share every step and stayed ~1 cm)
+        local s = rx0 * axx + ry0 * axy - dax
+        local u2 = (s - lo + rimW) / (hi - lo + 2 * rimW)
+        if u2 > 0 and u2 < 1 then
+          local t, idx = vertexRef(gcx, gcy)
+          if t and t.rest[idx] - t.floor[idx] > 0.002 then
+            local rest = t.rest[idx]
+            local dep = rest - (p0z + dz - R)
+            if dep > 0 then
+              local h = min(P.kBermCap or bermMax, bowW * dep * bump((f - R) / bowL, 0.3) * bump(u2))
+              if rest + h > decodeZ(t, idx) + 0.004 then writeVertex(gcx, gcy, rest + h, 0) end
+            end
+          end
+        end
+      elseif f * f < R2 then
         local s = rx0 * axx + ry0 * axy - u * dax
         if s >= sLo and s <= sHi then
           local t, idx = vertexRef(gcx, gcy)
@@ -5292,7 +5338,14 @@ local function stampSwept(p0x, p0y, p0z, dx, dy, dz, L, axx, axy, fwx, fwy, R, t
               removed = removed + carve(gcx, gcy, t, idx, bottom, tr, nil, nil, fb0 ^ k)
             else
               local aa = (s < lo) and (lo - s) or (s - hi)
-              if aa <= rimW then
+              if P.bermAtWall then
+                local w = bump(aa / (rimW + bw), P.kPeak)
+                if w > 0 then
+                  nB = nB + 1
+                  bermGX[nB], bermGY[nB], bermW[nB] = gcx, gcy, w
+                  wsum = wsum + w
+                end
+              elseif aa <= rimW then
                 local edge = bottom0 + rs
                 local cur = decodeZ(t, idx)
                 if edge < cur then
@@ -5306,7 +5359,7 @@ local function stampSwept(p0x, p0y, p0z, dx, dy, dz, L, axx, axy, fwx, fwy, R, t
                   end
                 end
               else
-                local w = bump((aa - rimW) / bw)
+                local w = bump((aa - rimW) / bw, P.kPeak)
                 if w > 0 then
                   nB = nB + 1
                   bermGX[nB], bermGY[nB], bermW[nB] = gcx, gcy, w
@@ -5345,6 +5398,13 @@ function P.setStampKind(kind, depth, key)
     P.soil = nil
   end
   P.kRim = K and K.rimDepth or st.rimDepth
+  P.kBermCap = min(bermMax, K and K.bermCap or st.bermCap or bermMax)
+  P.kPeak = K and K.bermPeak or st.bermPeak or 0.5
+  P.kBermW = K and K.bermWidthFactor or nil
+  P.kBow = K and K.bow or st.bow or 0
+  P.kBowLen = K and K.bowLen or st.bowLen or 0.5
+  -- no rim sag: the berm band starts at the tyre wall
+  P.bermAtWall = P.kRim <= 0
   return K
 end
 
@@ -5615,7 +5675,7 @@ end
 
 -- settle a tile to its end shape at once (it freezes now: frozen ruts do not settle)
 function P.finishRelax(t)
-  if not t.relaxing then return end
+  if not (t.relaxing or t.bermPeak) then return end
   local st = cfg.stamp
   local keepLo, keepHi = st.relaxKeep, st.relaxKeepBerm
   local rut, lo, hi = t.rut, t.peakLo, t.peakHi
@@ -5629,7 +5689,7 @@ function P.finishRelax(t)
       if c > target then rut[k] = target end
     end
   end
-  t.relaxing = false
+  t.relaxing, t.bermPeak = false, nil
   t.dirty = true
 end
 
@@ -6166,6 +6226,9 @@ function M.onMudReport(vid, w, nodes, tris)
             tgx, tgy = px, py -- jump or first report: no prediction from a stale speed
             P.stampWheel(px, py, pzs, px, py, pzs, axx, axy, fwx, fwy, R, Wt, tr, true, dig, digMax)
           end
+          -- the tyre is an obstacle for the liquid mud (inside this block: axx..fwy and Wt
+          -- are its locals; called after it they were nil and liqStep threw every frame)
+          if phys then P.liquidTyre(vid, wi, px, py, pz, axx, axy, fwx, fwy, R, Wt) end
         end
         -- tyre mud only on soft ground: the tile meshes (and so the vehicle's reports)
         -- also cover the hard squares at the mud's edge, where mudLayerAt falls back to
@@ -6181,7 +6244,6 @@ function M.onMudReport(vid, w, nodes, tris)
           prev.cx, prev.cy = px, py
         end
         prev.ax, prev.ay, prev.at = px, py, simTime
-          if phys then P.liquidTyre(vid, wi, px, py, pz, axx, axy, fwx, fwy, R, Wt) end
         prev.t = simTime
         vs.lastWheel[wi] = prev
       end
@@ -6219,6 +6281,7 @@ function M.onMudReport(vid, w, nodes, tris)
   end
   -- later stamps (relax, other callers) use the global rules
   P.soil, P.kBerm, P.kSlope, P.kRim = nil, nil, nil, nil
+  P.kBermCap, P.kPeak, P.kBow, P.kBowLen, P.bermAtWall, P.kBermW = nil, nil, nil, nil, nil, nil
   P.printOnly = false
 end
 
@@ -7669,7 +7732,7 @@ function M.clearRuts()
       ffi.fill(t.peakLo, NW * NW, 128)
       ffi.fill(t.peakHi, NW * NW, 128)
       if t.passN then ffi.fill(t.passN, NW * NW, 0); ffi.fill(t.z1, NW * NW, 0) end
-      t.relaxing = false
+      t.relaxing, t.bermPeak = false, nil
       t.rutted = false
       t.dirty = true
       P.changedTiles[t.key] = true

@@ -10,10 +10,26 @@
   tyre mesh uploads; one material reload (~2.6 ms) per mask level / colour step, shared per
   tyre material (vehicles with the same tyre show the muddiest one). Skin mesh kept as the
   fallback (option off, or a tyre material with 4 layers already).
+- SnowRunner-style berms (`stamp.bermPeak`, `bermCap`, `bow`, `bowLen`, per kind; `bermMax` is
+  now only the rut code range, 0.25 m): mud heaps against the tyre wall with no gap (kinds
+  without rim sag), a rounded bow wave rides ahead of a rolling tyre (bow x sink depth), mud
+  berm share 0.85 (wet mud barely compacts), band as wide as the tyre, wall slope 1.0 (rounded).
+- Liquid mud more liquid (yield 0.15, damping 1.0, depthRef 0.15, life 3 s): the rut refills
+  behind the tyre from its berms (gridmap_v2: -18 cm at 1.5 m behind the front axle, -5 cm at
+  3.5 m).
+- Tyre layer: own dirt texture (wet/dry patches, clods, grit) and its normal map as detail
+  over the tyre's relief (`clods.layerRelief`).
+
 - Decal roads on mud no longer switch off on maps over 8 x 8 km (`roads.maxMapKm2` removed: it
   belonged to the removed road bake).
 
 ### Fixed
+- Liquid mud never ran: the tyre obstacle call sat outside the block holding the axle and
+  tyre locals, so `liqStep` threw every frame (80 MB log, MCP stalled). The offline check
+  (tools/dev/luacheck.sh) now lists global reads outside the engine's names.
+- Berms held at 2-3 cm: with `instantSettle` every berm write was clamped to relaxKeepBerm x
+  its new peak; berms now keep their peak and settle once when their tile freezes.
+
 - Pre-rutted roads: the pre-rut square flags were declared inside the vertex loop (out of
   scope where they are used), so own-mesh tiles still dropped the road's ruts.
 

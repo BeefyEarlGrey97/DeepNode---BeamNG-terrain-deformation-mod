@@ -964,6 +964,7 @@ end
 -- reload path and sharing as the wet rubber: one material per tyre name.
 local LAYER_B = '/art/deepnode/tyre/t_tyrelayer_b.color.dds'
 local LAYER_O = '/art/deepnode/tyre/t_tyrelayer_o%d.data.dds'
+local LAYER_N = '/art/deepnode/tyre/t_tyrelayer_nm.normal.dds'
 local LAYER_K = 7
 local LAYER_SHARE = 0.12
 
@@ -1034,6 +1035,9 @@ local function applyRubber(R, w, mud)
         m:setField('detailMap', li, R.ao)
         m:setField('detailScale', li, '1 1')
         m:setField('detailBaseColorMapStrength', li, sfmt('%g', R.ao ~= '' and (c.layerAoTint or 0.1) or 0))
+        -- the dirt's own clods and grit over the tyre's relief
+        m:setField('detailNormalMap', li, LAYER_N)
+        m:setField('detailNormalMapStrength', li, sfmt('%g', c.layerRelief or 0.8))
         m:setField('metallicFactor', li, '0')
         m:setField('opacityFactor', li, '1')
         m:setField('activeLayers', 0, tostring(li + 1))
