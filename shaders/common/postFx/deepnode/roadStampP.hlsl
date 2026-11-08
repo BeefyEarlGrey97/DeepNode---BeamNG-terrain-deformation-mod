@@ -17,9 +17,10 @@
 // (corners left / right edge points of two neighbouring spline samples, as the engine's strip).
 // A texel takes a quad when its centre lies within `margin` m of it (beyond the edges, so the
 // texels on an edge carry it). The same road continuing (same key, u and v at the centre and
-// direction of their gradients) keeps one entry, the one whose quad holds the centre; key, u
-// and v alone merged different roads of one material (gridmap_v2 has 102 furrow roads at one
-// priority) and dropped layers. A full texel drops the entry of least
+// direction of their gradients, all nearly equal: the two quads map the same texel centre)
+// keeps one entry, the one whose quad holds the centre; looser tests (0.1 in u, v) merged
+// different roads of one material (gridmap_v2 has 102 furrow roads at one priority, many
+// parallel offset copies) and dropped layers in texel blocks. A full texel drops the entry of least
 // weight (margin entries before inside ones, then the lowest key).
 // Like rutStampP.hlsl, one full-target pass reads the old map (shifted when the window moved)
 // and writes every texel to #deepnode_roadTmp; rutCopyP.hlsl copies it back.
@@ -109,8 +110,8 @@ void insert(float4 c0, float4 c1, bool inside, int L)
     // the same road continuing: keep the entry whose quad holds the centre
     [unroll] for (int j = 0; j < DN_MAXL; j++) {
         if (j < L && E0[j].a > 0.5 && abs(entKey(E0[j]) - key) < 0.5
-            && abs(E0[j].g - c0.g) < 0.1 && abs(frac(E0[j].r - c0.r + 0.5) - 0.5) < 0.1
-            && sameDir(E1[j].rg, c1.rg) > 0.9 && sameDir(E1[j].ba, c1.ba) > 0.9) {
+            && abs(E0[j].g - c0.g) < 0.02 && abs(frac(E0[j].r - c0.r + 0.5) - 0.5) < 0.02
+            && sameDir(E1[j].rg, c1.rg) > 0.99 && sameDir(E1[j].ba, c1.ba) > 0.99) {
             if (inside || !(E0[j].g >= 0.0 && E0[j].g <= 1.0)) { E0[j] = c0; E1[j] = c1; }
             return;
         }

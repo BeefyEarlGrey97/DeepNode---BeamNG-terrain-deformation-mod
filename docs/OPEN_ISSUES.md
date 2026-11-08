@@ -350,6 +350,8 @@ Replaces the copies in the GUI (OPEN_ISSUES 14 / 23 hold their history). Measure
 vanilla decals 149.3 (+1.43 ms), copies 146.3 (+1.57 ms, before any digging; copies add uploads
 and submeshes per dug tile, the shader costs the same dug or not). Lua +0.07 ms.
 Open:
+- 2026-11-08 later: opacity / AO maps fixed (were flat); the numbers in the next item are from
+  before that fix. Full stack now mean 147.5 vs 143.3, spread 37.9 vs 39.4.
 - Look against the engine (pre-rut off, one material at a time, mean 8-bit level change vs no
   road): mud_furrows +1.9 vs -0.8 (match), mud_water +12.6 vs +16.7, mud_large -26 vs -12 (too
   dark; -17 without the relight pass, so both the colour and the relight overshoot). The engine's

@@ -59,6 +59,25 @@ cbuffer perDraw : register(b0)
     #define mainP main
 #endif
 
+// Anisotropic sample with explicit mip levels: SampleGrad on slots 4 and 5 returned the
+// texture's smallest mip (its average) in game (2026-11-08) while SampleLevel reads right, and
+// the post effect samplers are not anisotropic (one isotropic mip blurred the road at grazing
+// angles next to the engine's decals). 4 taps along the footprint's long axis.
+float4 sampleAniso(Texture2D t, SamplerState sm, float2 tc, float2 gx, float2 gy)
+{
+    uint w, h;
+    t.GetDimensions(w, h);
+    float2 ts = float2(w, h);
+    float lx = length(gx * ts), ly = length(gy * ts);
+    float2 major = lx > ly ? gx : gy;
+    float lmaj = max(lx, ly), lmin = max(min(lx, ly), 1e-6);
+    float n = clamp(lmaj / lmin, 1.0, 4.0);
+    float lod = max(0.0, log2(max(lmaj / n, 1e-6)));
+    float4 acc = 0;
+    [unroll] for (int i = 0; i < 4; i++) acc += t.SampleLevel(sm, tc + major * ((i + 0.5) / 4.0 - 0.5) * (n > 1.0 ? 1.0 : 0.0), lod);
+    return acc * 0.25;
+}
+
 float4 mainP(PFXVertToPix IN) : SV_Target
 {
     if (accumTime < -1.0e9 || rtParams0.x < -1.0e9) discard;
@@ -125,12 +144,13 @@ float4 mainP(PFXVertToPix IN) : SV_Target
                 float2 tc = float2(u, v);
                 float2 gx = float2(dot(t1.rg, dpx.xy), dot(t1.ba, dpx.xy));
                 float2 gy = float2(dot(t1.rg, dpy.xy), dot(t1.ba, dpy.xy));
-                float4 m3 = mapTex3Tex.SampleGrad(mapTex3_sampler_, tc, gx, gy);
-                float op = dnPass.y > 0.5 ? opaTexTex.SampleGrad(opaTex_sampler_, tc, gx, gy).r : (relight ? 1.0 : m3.a);
+                float4 m3 = sampleAniso(mapTex3Tex, mapTex3_sampler_, tc, gx, gy);
+                float op = dnPass.y > 0.5 ? sampleAniso(opaTexTex, opaTex_sampler_, tc, gx, gy).r
+                                          : (relight ? 1.0 : m3.a);
                 float zK = 1.0 - smoothstep(zTop * 0.6, zTop, dz);
                 float alpha = saturate(op * dnTint.a * dnMat.w) * fade * slopeK * edgeK * zK;
                 // 3: the light on an albedo of dnTint.rgb, opaque (light scale check against the terrain)
-                if (dbg == 3) alpha = 1.0;
+                if (dbg >= 3) alpha = 1.0;
                 if (alpha > 0.002 && relight) {
                     // the ground normal blended towards the road's normal (u across, v along) by
                     // the road's opacity, as the engine's G-buffer blend
@@ -145,7 +165,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
                     accM *= clamp(Lb / max(Lg, 1e-4), 0.3, 2.0);
                 } else if (alpha > 0.002) {
                     float3 alb = m3.rgb * dnTint.rgb;
-                    float ao = dnLook.w > 0.5 ? aoTexTex.SampleGrad(aoTex_sampler_, tc, gx, gy).r : 1.0;
+                    float ao = dnLook.w > 0.5 ? sampleAniso(aoTexTex, aoTex_sampler_, tc, gx, gy).r : 1.0;
                     float3 E = lit.rgb + evalSHIrradiance(sh, ng) * lit.a * ao;
                     float met = saturate(dnMat.x);
                     float3 c = alb * (1.0 - met) / PI * E;
@@ -158,6 +178,10 @@ float4 mainP(PFXVertToPix IN) : SV_Target
                     if (dbg == 1) c = float3(frac(u), frac(v), 0.0) * 5.0;
                     if (dbg == 2) c = 0.5 / PI * E;
                     if (dbg == 3) c = dnTint.rgb / PI * Lg;
+                    // 4: opacity sample (red), opacity map bound (green)
+                    if (dbg == 4) c = float3(op, dnPass.y * 0.2, 0.0);
+                    // 5: slots 4 / 5 / 3 read with SampleLevel (r, g, b)
+                    if (dbg == 5) c = float3(opaTexTex.SampleLevel(opaTex_sampler_, tc, 0).r, aoTexTex.SampleLevel(aoTex_sampler_, tc, 0).r, m3.r);
                     // this layer over what the pass has so far
                     accC = c * alpha + accC * (1.0 - alpha);
                     accA = alpha + accA * (1.0 - alpha);

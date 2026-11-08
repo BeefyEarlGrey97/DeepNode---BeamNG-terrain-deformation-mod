@@ -968,7 +968,9 @@ local function buildRoads()
         m = false
         if col ~= '' then
           local tint = colorFactor(mo)
-          tint[4] = tint[4] * numField(mo, 'opacityFactor', 1)
+          -- the engine's layer opacity is opacityFactor x opacity map; baseColorFactor alpha is not
+          -- used (defaultMat.hlsl; furrows 0.7 and water 0.5 made the layers translucent here)
+          tint[4] = numField(mo, 'opacityFactor', 1)
           m = { name = mat, col = col, opa = matTexture(mo, { 'opacityMap' }), nrm = matTexture(mo, { 'normalMap' }),
             ao = matTexture(mo, { 'ambientOcclusionMap' }), tint = tint, met = numField(mo, 'metallicFactor', 0), rough = numField(mo, 'roughnessFactor', 1),
             nstr = numField(mo, 'normalMapStrength', 1) }

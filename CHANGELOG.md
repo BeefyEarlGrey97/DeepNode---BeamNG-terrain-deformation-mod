@@ -23,6 +23,14 @@
   ones of the pit's 7-road stack, and different roads of one material merged: `layers` 8 at
   512 texels, the duplicate test also compares the gradient directions; the draw passes stop at
   the first empty entry).
+  Second fix (user: layers still missing): the opacity and AO maps read flat (SampleGrad on post
+  effect slots 4 / 5 returns the smallest mip), so every mud layer was nearly opaque and buried
+  the water under it; `baseColorFactor` alpha was wrongly taken as opacity (furrows 0.7); the
+  duplicate test (0.1 in u, v) merged parallel furrow roads into texel blocks. Now explicit mip
+  levels with 4-tap anisotropic sampling, opacity = `opacityFactor` x map, test 0.02. gridmap_v2
+  pit full stack: mean level 147.5 vs vanilla 143.3, spread 37.9 vs 39.4 (was 28 vs 32 with
+  visibly missing water strips); per material coverage of the engine's decal: water 99 %,
+  mud_large 87 % (extra 210k -> 42k px).
 - Liquid mud (`stamp.liquid`, mud only): the rut surface round every vehicle in mud flows. A
   shallow-water pipe model on the 0.2 m rut grid (gravity on the height step beyond a yield
   slope, viscous damping) with the tyres as solid obstacles: the mud the tyres push aside

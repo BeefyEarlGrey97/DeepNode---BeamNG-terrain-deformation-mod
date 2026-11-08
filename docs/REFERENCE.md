@@ -926,7 +926,7 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.roads.alphaGain` | 1 | Opacity multiplier |
 | `overlay.roads.lowPriorityOnTop` | true | Engine draw order: lower `renderPriority` numbers on top |
 | `overlay.roads.skipMatch` | `invisible` | Road materials left out |
-| `overlay.roads.debug` | 0 | 1 u / v, 2 light only, 3 light on `debugAlbedo` (light scale check against the terrain); `debugMat` draws one material only |
+| `overlay.roads.debug` | 0 | 1 u / v, 2 light only, 3 light on `debugAlbedo` (light scale check against the terrain), 4 opacity, 5 slots 4 / 5 / 3 raw; `debugMat` draws one material only |
 | `overlay.fadeStart` / `fadeLength` | 35 / 25 | Prints fade out between these distances from the camera (m) |
 | `overlay.zTolerance` | 0.35 | Pixels this far above the undisturbed ground are left alone (vehicles over the ruts) |
 | `overlay.bermZTolerance` | 0.5 | Same over a berm (berms stand above the ground) |

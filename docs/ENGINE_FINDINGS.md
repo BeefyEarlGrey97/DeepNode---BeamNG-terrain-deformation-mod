@@ -438,6 +438,10 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
 - Decal road material AO maps are strong (mud_water mean 0.21, mud_furrows 0.69, mud_large
   0.64) and every one has a normal map; the engine blends decal normals into the G-buffer before
   lighting, so the relief shows on the ground under a decal too.
+- In a post effect, `SampleGrad` on texture slots 4 and 5 returned the texture's smallest mip
+  (its average) while `SampleLevel` on the same slot read right (slot 3 `SampleGrad` worked);
+  post effect samplers (`SamplerWrapLinear`) are not anisotropic. The road shader samples with
+  explicit mip levels and 4 taps along the footprint (roadDrawP.hlsl `sampleAniso`).
 - gridmap_v2 mud pit: up to 7 decal roads overlap at one point (>= 5 on 2 % of road cells),
   12 visible (renderPriority, material) keys, 7 materials.
 - `distanceFade` of the pit roads is "150 50", `startEndFade` "5 5".
