@@ -6850,6 +6850,9 @@ function P.rebuildTiles()
   -- together (2 at 60-80 fps = 30-40 Hz).
   local digEvery = max(1, floor(cfg.ring.digEvery or 1))
   if digEvery > 1 and (tm.frame() % digEvery) ~= 0 then digMax = 0 end
+  -- a frame reserved for a tyre material reload (wheelMud, ~17 ms with 8 trucks sharing the
+  -- material) runs it alone: with the dig uploads on top those frames took 28-37 ms
+  if tm.reservedFor and tm.reservedFor() == 'M' then digMax = 0 end
   -- ruts deepened in view by the axles behind take the fast path too (ring.deepenFast):
   -- through the shared budget they waited 0.6 s on average behind the fresh fronts
   -- (8 trucks, gridmap_v2, 2026-11-07), which read as ruts lagging the truck

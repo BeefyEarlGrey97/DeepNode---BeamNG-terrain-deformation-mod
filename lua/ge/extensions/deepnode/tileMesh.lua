@@ -285,6 +285,7 @@ end
 -- createMesh (shadow/reflection passes, measured +0.5 ms each while uploads run).
 local uploadEvery = 1
 function M.setUploadEvery(n) uploadEvery = max(1, floor(n or 1)) end
+function M.reservedFor() return reserved end
 function M.canUpload(kind, verts)
   if uploadEvery > 1 and frameNo % uploadEvery ~= 0 then return false end
   -- a reserved frame belongs to that kind even after the rut fronts' dig uploads (they

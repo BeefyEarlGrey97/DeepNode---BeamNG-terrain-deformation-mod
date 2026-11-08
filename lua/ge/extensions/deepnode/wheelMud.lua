@@ -1151,8 +1151,13 @@ local function rubberPass(c, t_m)
   if not best then return end
   -- a wetness-only update keeps the layer as it is
   if not bestMud and best.mudOn and best.mudW then bestMud = best.mud end
-  local room = not (t_m and t_m.canUpload) or t_m.canUpload('M', 200)
-  if not room and now - best.t < (c.flushWait or 0.5) * 2 then return end
+  -- the reload runs in a frame of its own (tileMesh reserveFrame: no tile uploads in it);
+  -- after flushWait x 2 without one it runs anyway
+  if t_m and t_m.reservedFor and t_m.reservedFor() ~= 'M' then
+    if not best.askT then best.askT = now end
+    if now - best.askT < (c.flushWait or 0.5) * 2 then t_m.reserveFrame('M'); return end
+  end
+  best.askT = nil
   local timer = hptimer and hptimer()
   applyRubber(best, best.target < 0.03 and 0 or best.target, bestMud)
   local ms = timer and timer:stop() or 2

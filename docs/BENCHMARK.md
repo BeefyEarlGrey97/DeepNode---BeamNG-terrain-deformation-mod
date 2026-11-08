@@ -503,3 +503,8 @@ heavier rear axles carve deeper than the front one under the bearing model, so t
 Floor writes out of the upload budget + collect only when a write may go (next commit): the
 shared budget had held the floor for whole runs (7 terrain updates per run, 463 holds); now 24
 per run (every ~0.6 s), floor section 0.44 -> 0.09 ms/frame, fps 35.3 / 35.8 (same band).
+Tyre-layer reload in a frame of its own (tileMesh reserveFrame 'M', dig uploads skipped in it):
+reload frames 16-17 ms each (8 trucks share the tyre material) also carried 4-11 ms of tile
+uploads (28-37 ms frames); reloads per run 18 -> 7 (requests coalesce while waiting up to 1 s).
+Interleaved with HEAD: fps 36.1 / 36.4 vs 35.7 / 37.5, low1 23.9 / 24.7 vs 22.6 / 23.3, rut lag
+0.134 vs 0.112-0.131 (same band).
