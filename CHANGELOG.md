@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Changed
+- Undug soft ground is the terrain again (`physics.heavy.lowDrawAll` off, new `lowDrawRuts`
+  on): only vertices under a dug rut get the terrain drawn at the full sink level (once, when
+  the first rut reaches them) with the physics floor kept separately. With every soft cluster
+  drawn low the mud mesh drew whole johnson_valley dunes: lighter than the terrain, no ripple
+  relief, and the road shader's roads on it ended in hard straight edges where vanilla shows
+  soft ones (checked side by side with the mod stopped).
 - Road shader: no more rectangle cut out of the road round a vehicle and no road painted on the
   vehicle. The road's height now follows its cross slope (left to right edge): it was the centre
   line's height across the whole width, ~1 m too high on the low side of a road along a hillside

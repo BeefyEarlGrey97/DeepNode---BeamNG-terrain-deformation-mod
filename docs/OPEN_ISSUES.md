@@ -462,9 +462,10 @@ drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
   debounce (removed).
 - While driving the tyre sits 5-10 cm below the drawn rut surface at the hub (soft layer 0.2 m vs
   drawn rut ~0.12-0.15 m right under the tyre; deeper after the following axles).
-- `lowDrawAll` meshes all soft ground (as vanilla mode): checked on gridmap_v2 only; holes would
-  show where a mud mesh is missing (sector edges, far mesh range) - check johnson_valley and a
-  region-mode map. Region mode / coarse terrains keep the old path.
+- `lowDrawAll` (all soft ground drawn low) looked wrong on johnson_valley (mesh dunes lighter, no
+  ripples, hard road edges): replaced by `lowDrawRuts` (only dug squares drawn low, once; not
+  undone when ruts reset, those squares stay meshed until a restart). Checked on johnson_valley
+  sand (look + parked SUV -8 mm in 4 s); gridmap_v2 one-truck sink numbers not re-run with it.
 - Bekker kc / kphi are game-soft values fitted to one Percheron (6x6 and 8x8 configs); light
   cars, wide tyres and snow not checked. Drive torque / spin dig on top: full throttle from
   standstill dug the front wheels to 0.25-0.27 m (cruise 0.20-0.21).

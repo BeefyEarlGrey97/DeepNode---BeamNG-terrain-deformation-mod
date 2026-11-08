@@ -252,8 +252,8 @@ BeamNG's own physics:
   redraw, so the grass beside them never blinks. gridmap_v2, one 2-Percheron run: terrain
   redraws near grass 10 -> 0 (262 physics-only writes), fps in the noise (127.7 / 131.3 off /
   138.9, BENCHMARK 13). Region mode and coarse terrains skip it.
-  Since 2026-11-08 (`lowDrawAll`, default on): every soft cluster is drawn low, so the floor is
-  physics only everywhere and sits `floorSoftShare` (1) x the kind's ground-model `defaultDepth`
+  `lowDrawRuts` (default on, 2026-11-08; `lowDrawAll` off): a vertex is drawn low once the first
+  rut reaches it (`lowDrawAll` did that for every soft cluster), so the floor is physics only there and sits `floorSoftShare` (1) x the kind's ground-model `defaultDepth`
   ABOVE the drawn rut (minus `floorMargin`): a tyre sinks the soft layer and rests on the drawn rut
   bottom. `floorGap` (0.6 s): floor writes at least this far apart, because the vehicle physics
   takes a terrain change only ~0.55 s after the last `updateGrid` (ENGINE_FINDINGS).

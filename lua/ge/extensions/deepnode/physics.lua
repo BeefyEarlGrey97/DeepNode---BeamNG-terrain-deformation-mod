@@ -46,6 +46,7 @@ local saved = {}     -- ground model name -> original values
 local applied = {}   -- ground model name -> { e = engine entry, vals = heavy values }
 local watchAcc = 0
 local pending = {}   -- sink record number -> { gx, gy, lift }
+local newLow = {}    -- sink record number -> true: to be drawn low first (lowDrawRuts)
 local npend = 0
 local acc = 0
 local stats = { writes = 0, updates = 0, ms = 0, maxMs = 0, held = 0, lowered = 0, raised = 0, blocked = 0,
@@ -188,7 +189,7 @@ end
 local softDepth = {}
 local function floorMarginAt(gx, gy, h)
   local m = h.floorMargin or 0.03
-  if not h.lowDrawAll then return m end
+  if not (h.lowDrawAll or h.lowDrawRuts) then return m end
   local kind = ctx.layerKindAt(gx, gy)
   local d = softDepth[kind]
   if d == nil then
@@ -226,13 +227,13 @@ local function wantedLift(gx, gy, k, h)
       end
     end
   end
-  if zmin == huge then return lift0 end
+  if zmin == huge then return lift0, false end
   local ter = ctx.ter
   local V = P.sinkBase[k] + (ter.localZ and ter.oz or 0) -- full sink level (absolute)
   local l = zmin - floorMarginAt(gx, gy, h) - V
-  if l < 0 then return 0 end
-  if l > lift0 then return lift0 end
-  return l
+  if l < 0 then return 0, true end
+  if l > lift0 then return lift0, true end
+  return l, true
 end
 
 -- Stopped vehicles keep their floor. While a vehicle drives, the floor writes trail it
@@ -312,8 +313,13 @@ local function collect(h)
       for gx = max(0, gx0), min(S - 1, gx0 + TS) do
         local k = P.sinkFind(gy * S + gx)
         if k and P.sinkLift0[k] > 0 then
-          local want = wantedLift(gx, gy, k, h)
+          local want, carved = wantedLift(gx, gy, k, h)
           local cur = P.sinkLift[k]
+          if carved and h.lowDrawRuts and not P.lowDrawn[gy * S + gx] then
+            -- a rut over this vertex: the terrain goes under it for good (written low once)
+            newLow[k] = true
+            if not pending[k] then npend = npend + 1; pending[k] = { gx, gy, cur } end
+          end
           if want < cur - 0.005 and nHeld > 0 and isHeld(gx, gy) then
             blocked = true
             stats.wheelHeld = (stats.wheelHeld or 0) + 1
@@ -557,6 +563,49 @@ end
 -- GroundCover hidden too; gridmap_v2 2048 x 2048: 1-2.5 ms). Once the measured cost passes
 -- slowUpdateMs, the floor is written at most every slowUpdateGap s, everything pending in
 -- one update (one hitch instead of one per cluster); the rut shows that much later.
+-- physics.heavy.lowDrawRuts: the terrain under dug ruts is drawn at the full sink level once
+-- (a real updateGrid box takes the heights it holds at the call for the render) and holds the
+-- physics floor from then on (physics-only writes). The floor can then sit one soft layer
+-- above the drawn rut (floorMarginAt) without covering it, and undug ground stays the
+-- terrain itself: with every soft cluster drawn low (lowDrawAll) the mud mesh drew whole
+-- dunes on johnson_valley, lighter and without the terrain's ripples (2026-11-08).
+-- Not undone when the ruts reset (the squares stay meshed until a restart).
+local function drawLow(tb, clampRaw)
+  local ter = ctx.ter
+  local S = ter.size
+  local x0, y0, x1, y1 = huge, huge, -huge, -huge
+  for k in pairs(newLow) do
+    local w = pending[k]
+    if w then
+      P.lowDrawn[w[2] * S + w[1]] = true
+      x0, y0, x1, y1 = min(x0, w[1]), min(y0, w[2]), max(x1, w[1]), max(y1, w[2])
+    end
+  end
+  for k in pairs(newLow) do newLow[k] = nil end
+  if x0 > x1 then return end
+  -- every low-drawn vertex in the box at its low height for the redraw, then its floor back
+  local saved = {}
+  for gy = y0, y1 do
+    for gx = x0, x1 do
+      local idx = gy * S + gx
+      local k = P.lowDrawn[idx] and P.sinkFind(idx)
+      if k then
+        local lo = P.sinkBase[k]
+        if lo < clampRaw then lo = clampRaw end
+        saved[#saved + 1] = { gx, gy, k }
+        tb:setHeightGrid(gx, gy, lo)
+      end
+    end
+  end
+  terrainUpdate(tb, x0, y0, x1, y1, extensions and extensions.deepnode_tileMesh)
+  for _, e in ipairs(saved) do
+    local hz = P.sinkBase[e[3]] + P.sinkLift[e[3]]
+    if hz < clampRaw then hz = clampRaw end
+    tb:setHeightGrid(e[1], e[2], hz)
+  end
+  stats.lowDrawn = (stats.lowDrawn or 0) + #saved
+end
+
 local cl, take = {}, {}
 local updEma, lastUpd = nil, -huge
 local function write(h)
@@ -608,7 +657,7 @@ local function write(h)
   local grassAny = false
   local ux0, uy0, ux1, uy1 = huge, huge, -huge, -huge
   for key, b in pairs(slow and {} or cl) do
-    if lowZone[key] then
+    if lowZone[key] or h.lowDrawRuts then
       -- drawn low since the start: physics only, nothing to redraw
       take[key] = 3
       grassAny = true
@@ -645,6 +694,7 @@ local function write(h)
   end
   local tb = ctx.ter.tb
   local clampRaw = ctx.ter.clampRaw or 0
+  if h.lowDrawRuts and next(newLow) then drawLow(tb, clampRaw) end
   local maxV = (h.floorMaxVerts or 600) * (slow and 4 or 1)
   local n = 0
   local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
@@ -769,6 +819,7 @@ function M.start(main, layers)
   ctx = main
   P = main.private
   pending, npend, acc = {}, 0, 0
+  newLow = {}
   for k in pairs(stats) do stats[k] = 0 end
   layersSeen = layers
   -- grass layers are read on the first write (main lifts the groundcover after the sink pass)
@@ -783,6 +834,12 @@ end
 -- vertex left the region or was sunk again: its queued write is void)
 function M.remapRecords(map, n)
   local function nk(k) if k < n then return map[k] end return -1 end
+  local nl = {}
+  for k in pairs(newLow) do
+    local k2 = nk(k)
+    if k2 >= 0 then nl[k2] = true end
+  end
+  newLow = nl
   local np, c = {}, 0
   for k, w in pairs(pending) do
     local k2 = nk(k)

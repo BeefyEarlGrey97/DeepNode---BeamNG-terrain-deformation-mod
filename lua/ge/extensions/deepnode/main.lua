@@ -685,8 +685,11 @@ local defaults = {
       floorHz = 5,         -- rut floor recomputes per second
       floorGap = 0.6,      -- s between floor writes: the physics takes a terrain change only
                            -- ~0.55 s after the last tb:updateGrid (deepnode_physics write)
-      lowDrawAll = true,   -- terrain drawn at the full sink level under all soft ground: the
-                           -- floor is physics only and sits the soft-layer depth above the rut
+      lowDrawAll = false,  -- terrain drawn at the full sink level under all soft ground (the mesh
+                           -- then draws every dune: lighter, no terrain ripples on johnson_valley)
+      lowDrawRuts = true,  -- terrain drawn at the full sink level only under dug ruts (once, when
+                           -- the first rut reaches a vertex); the floor is physics only there and
+                           -- sits the soft-layer depth above the rut
       floorSoftShare = 1,  -- share of the kind's ground-model defaultDepth the floor stays above the rut
       floorMaxVerts = 600, -- terrain vertices written per frame at most
       -- every terrain update rebuilds the grass (GroundCover) over its box, missing for a
