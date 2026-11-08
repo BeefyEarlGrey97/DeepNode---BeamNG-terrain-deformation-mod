@@ -17,6 +17,13 @@
 - Liquid mud more liquid (yield 0.15, damping 1.0, depthRef 0.15, life 3 s): the rut refills
   behind the tyre from its berms (gridmap_v2: -18 cm at 1.5 m behind the front axle, -5 cm at
   3.5 m).
+- Performance (4 Percherons, gridmap_v2, BENCHMARK 19): liquid mud writes no longer count as
+  tyre stamps (dig-rate rebuilds, big-change, under-body wait); tiles changed only by the flow
+  rebuild at `liquid.rebuildHz` 1; flow minStep 1 cm, damping 2, life 1.2 s: 42.6 -> 50 fps.
+  `ring.digMaxPerFrame` 16 -> 6 (dig upload bursts made 20-50 ms frames, worst under a frame
+  limiter): 49.6 -> 52.5 fps, low1 27 -> 31, same rut lag. Tyre-layer reloads at most every
+  `clods.layerGap` 1.5 s per material.
+
 - Tyre layer: own dirt texture (wet/dry patches, clods, grit) and its normal map as detail
   over the tyre's relief (`clods.layerRelief`).
 

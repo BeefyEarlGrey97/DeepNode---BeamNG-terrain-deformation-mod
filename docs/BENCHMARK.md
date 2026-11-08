@@ -453,3 +453,32 @@ B = A within noise: the rubber reloads are a rare ~7 ms spike, not an average co
 +3.2 fps over its neighbouring A runs: that is the most a shader-drawn coat (`overlay.tyreCoat`)
 could save with 4 trucks, if it replaced the coat meshes' material flushes. The shader pass draws
 at most 16 wheels (`tyreMaxWheels`); 4 Percherons have 32.
+
+## 19. Liquid mud, dig bursts, frame limiter (2026-11-08, test)
+
+gridmap_v2, 4 Percherons (`gridmap_spawn4.lua`), orbit cam yaw 160 / pitch 14 / 16 m, user GUI
+settings (tileRebuildHz 60, maxMeshBuildsPerSec 400, uploadMsMax 6, overlay on, heavy physics),
+`bench2.py <label> 2 clear`, run 2 (both runs where they differ). Limiter off unless stated.
+
+| variant | fps | low1 | front lag s | notes |
+|---|---|---|---|---|
+| liquid mud working (scope fix), as first committed | 42.6 | 23.5 | 0.065 | Lua 10.7 ms; liquid writes counted as tyre stamps |
+| liquid off (same code) | 55.8 | 30.9 | 0.063 | Lua 6.8 ms |
+| liquid: writes not tyre stamps, 1 Hz liquid-only rebuilds, minStep 1 cm, damping 2, life 1.2 s | 49.2 / 50.1 | 26.5 | 0.070 | tile uploads 3092 -> 2866 per run |
+| same, liquid off (interleaved) | 49.6 / 52.8 | 31.7 | 0.076 | |
+| same, frame limiter 120 | 48.4 / 48.8 | 27.2 | 0.064 | |
+| same, frame limiter 60 | 45.2 | 28.2 | 0.070 | FPSLimiter 1.0 ms a frame below the cap |
+| limiter 60, digMaxPerFrame 4 | 48.1 | 32.9 | 0.093 | fewer uploads, +20 ms front lag |
+| limiter 60, digMaxPerFrame 6 | 45.8 | 31.3 | 0.070 | |
+| no limiter, digMaxPerFrame 6 (new default) | 51.5 / 53.5 | 32.2 | 0.072 | |
+| same, road shader passes off | 52.6 / 54.2 | 32.9 | 0.068 | road shader ~1 fps, Render -0.2 ms |
+| mod off (trucks do not sink: 12 m/s instead of 3.5) | 112.7 | 102.0 | - | Lua 0.63 ms |
+
+Frame times while driving (no limiter, digMaxPerFrame 16): 30 % of frames under 16.7 ms with
+~0.5 ms of mod work, 41 % at 20-50 ms with 4-10 ms (uploads 2.6-6.7 ms in the frame). A
+frame limiter pads the short frames and cannot shorten the long ones, so bursts lose fps under
+a cap even below it; spreading the dig uploads (digMaxPerFrame 6) evens them out. A per-frame
+budget that follows the limiter (grow after a padded frame) was tried: 45.7-46.8 vs 45.2, dropped.
+Mod GE Lua per frame (profile run): tile rebuilds + uploads 2.4 ms (2849 uploads / run, ~1 ms
+each plus engine draw cost), vehicle reports 0.6, overlay 0.27, liquid 0.22, tyre mud 0.26,
+physics floor 0.24. Tyre-layer material reloads ~8.6 ms each (shared by 4 trucks), ~20 per run.

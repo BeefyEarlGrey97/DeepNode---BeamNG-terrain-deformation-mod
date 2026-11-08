@@ -1131,8 +1131,13 @@ local function rubberPass(c, t_m)
       local col = wetColor(W, wheelColor(W))
       mud = { k = layerLevel(W.dC), col = colorString(col), rough = wetRoughness(W, K), c3 = col, wet = W.wet or 0 }
       local a = R.mud
+      -- a reload of a tyre material costs ~8 ms (every mesh of every vehicle using it,
+      -- 4 Percherons): layer changes at most once per layerGap s, the first coat at once
+      local due = now - R.t >= (c.layerGap or 1.5)
       if not a then
         if mud.k > 0 then score = max(score, 2) end
+      elseif not due then
+        -- wait
       elseif mud.k ~= a.k then
         score = max(score, 1 + abs(mud.k - a.k) * 0.1)
       elseif colorDiff(mud.c3, a.c3) >= (c.colorStep or 0.03) or abs(mud.wet - a.wet) >= (c.wetStep or 0.1) then

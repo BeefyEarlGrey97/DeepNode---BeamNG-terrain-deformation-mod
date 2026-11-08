@@ -652,6 +652,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `inViewTarget` / `outViewTarget` | 0.3 / 1.5 | Target latency (s) of a waiting rebuild in / out of the camera view: the queue serves the earliest deadline first after fresh rut fronts |
 | `outViewMaxDefer` | 4 | Deepening of a meshed tile out of view waits until it comes into view, at most this long (s; config.json 1) |
 | `bodyFreshHz` / `bodyFreshDist` | 20 / 20 | A fresh rut front in view under the vehicle body (front axle inside the footprint box) skips `bodyMaxWait` and rebuilds at this rate within this many m of the camera; 0 Hz = wait |
+| `digMaxPerFrame` | 6 | Rut-front (dig) tile uploads per frame at most; the rest go next frame. 16 made 20-50 ms frames between 10 ms ones (low1 27 vs 31, 4 trucks); 4 = +2 fps, front lag +20 ms |
 | `deepenFast` | true | Ruts deepened in view by the axles behind (within `digNearDist`) take the fresh-front fast path instead of the shared budget |
 | `ownMeshRadius` | 3 | Untouched tiles this close to a footprint box get their own mesh ahead of the wheels |
 | `maxMeshBuildsPerSec` | 40 | Tile + sector mesh replaces per second at most (config.json 400; the kept collision memory is returned by collision compaction) |
@@ -703,11 +704,13 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `liquid.minStep` | 0.004 | m of change before a vertex is rewritten (each write can rebuild a tile) |
 | `bermFraction` | 0.4 | Share of displaced mud that ends in the berms |
 | `bermWidthFactor` | 0.6 | Berm width as a share of the tyre width |
+| `liquid.rebuildHz` | 1 | Tiles changed only by the liquid flow since their last build rebuild this often; flow writes do not count as tyre stamps (dig rate, big-change, under-body wait) |
 | `bermMax` | 0.25 | Rut code range above the undisturbed surface (m): the highest berm of any kind |
 | `bermCap` | 0.1 | Berm cap above the undisturbed surface (m); per kind `kinds.<kind>.bermCap` (mud 0.2, sand 0.16, snow 0.12) |
 | `bermPeak` | 0.5 | Where a berm is highest across its band (0 at the tyre wall); mud 0.4. Kinds with `rimDepth` 0 start the berm at the tyre wall |
 | `bow`, `bowLen` | 0, 0.5 | Bow wave ahead of a rolling tyre: height = bow x sink depth, over bowLen x R ahead of its front (mud 0.45 / 0.75, sand 0.4, snow 0.25) |
 | `kinds.<kind>.bermWidthFactor` | - | Berm band width per kind (mud 1.0), else `bermWidthFactor` |
+| `layerGap` | 1.5 | (clods) s between two tyre-layer updates of one tyre material (a reload costs ~8 ms with 4 trucks sharing it) |
 | `layerRelief` | 0.8 | (clods) Tyre layer: strength of the dirt normal map over the tyre relief |
 | `rimCells` | 1 | Width of the soft rim beside the tyre, in cells |
 | `rimDepth` | 0.45 | How far the rim sags towards the tyre edge (0..1); per kind in `kinds` (mud 0: the pushed mud stays against the tyre and the liquid flow takes it round) |

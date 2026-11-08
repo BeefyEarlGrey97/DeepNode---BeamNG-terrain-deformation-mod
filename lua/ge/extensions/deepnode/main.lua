@@ -322,9 +322,12 @@ local defaults = {
     -- tyres (one window per vehicle, at most maxSize m a side); hz sub-steps;
     -- depthRef m of mud the flux moves through (wave speed); yield: slope the mud holds;
     -- damping 1/s (viscosity: slosh dies out); life s it flows after the wheel left;
-    -- minStep m of change before a vertex is rewritten (each write can rebuild a tile)
+    -- minStep m of change before a vertex is rewritten (each write can rebuild a tile);
+    -- rebuildHz: tiles changed only by the flow since their last build rebuild this often
+    -- (each upload ~1.2 ms CPU + engine draw cost; the flow at the tile rate: -6 fps, 4 trucks)
     liquid = { enabled = true, kinds = { mud = 1.0 }, margin = 1.0, maxSize = 12, hz = 20, gravity = 9.81,
-               depthRef = 0.15, yield = 0.15, damping = 1.0, life = 3.0, minStep = 0.004 },
+               depthRef = 0.15, yield = 0.15, damping = 2.0, life = 1.2, minStep = 0.01,
+               rebuildHz = 1 },
     bermMax = 0.25,         -- rut code range above the rest surface (m): the highest berm of any kind
     bermCap = 0.1,          -- berm cap above the rest surface (m), per kind in kinds.<kind>.bermCap
     -- SnowRunner-style berms (per kind, defaults here): bermPeak = where the berm is highest
@@ -512,6 +515,7 @@ local defaults = {
     tyreLayer = true,
     layerAoTint = 0.1,
     layerRelief = 0.8,      -- strength of the dirt's own normal map (clods, grit) on the layer
+    layerGap = 1.5,         -- s between two layer updates of one tyre material (a reload ~8 ms)
     -- Tyre skin (wheelMud): one mesh per wheel, built once; the material's alpha clip
     -- shows coverage = coverMax x min(1, coat)^coverExp of it (per pixel, t_tyremud_*).
     coverMax = 0.92,        -- covered share at coat 1 (the rest up to coatMax)
@@ -4963,10 +4967,12 @@ local function writeOne(tx, ty, i, j, z, tr)
   if c == old and tr <= t.track[idx] then return end
   -- a visible step (first tyre through, new berm) or only a few mm (the axles behind
   -- deepen the same rut by a few cm): see ring.smallChangeWait
-  if not t.bigChange and (c - old >= P.bigCode or old - c >= P.bigCode) then t.bigChange, t.bigSince = true, simTime end
+  -- (liquid flow is neither: its changes wait like small ones, see P.liqWriting)
+  local liq = P.liqWriting
+  if not liq and not t.bigChange and (c - old >= P.bigCode or old - c >= P.bigCode) then t.bigChange, t.bigSince = true, simTime end
   -- the front of a rut: untouched mud carved now (the axles behind only deepen it).
   -- Tiles with a fresh front in view get the fast rebuild path (P.rebuildTiles).
-  if old == 128 and t.track[idx] == 0 and 128 - c >= P.bigCode then
+  if not liq and old == 128 and t.track[idx] == 0 and 128 - c >= P.bigCode then
     t.lastFresh = simTime
     t.freshPend = t.freshPend or simTime
   end
@@ -4976,16 +4982,21 @@ local function writeOne(tx, ty, i, j, z, tr)
   if c > t.peakHi[idx] then t.peakHi[idx] = c end
   if tr > t.track[idx] then t.track[idx] = tr end
   t.rutted = true
-  t.lastStamp = simTime
+  -- liquid flow is not a tyre: its tiles rebuild at the settling rate (as tyre-dug ones
+  -- they rebuilt at the dig rate for the whole flow life, +20 % uploads, 4 trucks)
+  if P.liqWriting then t.liqDirty = true else t.lastStamp = simTime; t.stampDirty = true end
   local pd = P.poolDirty
   if pd then pd[t] = true end
   t.pendSince = t.pendSince or simTime
   P.lag.writes = P.lag.writes + 1
-  -- terrain squares written since the last build, see P.dirtyHidden
-  local sq = floor(j / CPS) * (TS + 1) + floor(i / CPS)
-  local ds = t.dsq
-  if not ds then ds = {}; t.dsq = ds end
-  if not ds[sq] then ds[sq] = true; t.ndsq = (t.ndsq or 0) + 1 end
+  -- terrain squares written since the last build, see P.dirtyHidden (not the flow's: it
+  -- reaches past the body box and kept tiles under a truck from waiting for it)
+  if not liq then
+    local sq = floor(j / CPS) * (TS + 1) + floor(i / CPS)
+    local ds = t.dsq
+    if not ds then ds = {}; t.dsq = ds end
+    if not ds[sq] then ds[sq] = true; t.ndsq = (t.ndsq or 0) + 1 end
+  end
   t.relaxing = not settle
   t.dirty = true
   P.changedTiles[t.key] = true
@@ -5861,8 +5872,9 @@ local function liqStep(w, dt, lc)
     end
   end
   -- heights; a vertex is rewritten once its change passes minStep (the rest is carried)
-  local minStep = lc.minStep or 0.004
+  local minStep = lc.minStep or 0.01
   local moving = false
+  P.liqWriting = true
   for j = 0, Gy - 1 do
     for i = 0, Gx - 1 do
       local k = j * Gx + i
@@ -5885,6 +5897,7 @@ local function liqStep(w, dt, lc)
       end
     end
   end
+  P.liqWriting = nil
   return moving
 end
 
@@ -6701,6 +6714,7 @@ function P.rebuildTiles()
   local meshR = cfg.ring.meshRange or huge
   local meshR2 = (meshR + TILE) * (meshR + TILE)
   local settleGap = 1 / max(0.5, cfg.ring.settleRebuildHz or 2)
+  local liqGap = 1 / max(0.2, cfg.stamp.liquid and cfg.stamp.liquid.rebuildHz or 1)
   local bodyWait = cfg.ring.bodyMaxWait or 1.5
   local bodyFreshGap = (cfg.ring.bodyFreshHz or 0) > 0 and 1 / cfg.ring.bodyFreshHz or nil
   local bodyFreshDist = cfg.ring.bodyFreshDist or 20
@@ -6734,6 +6748,8 @@ function P.rebuildTiles()
         local gap = minGap + (max(minGap, farGap) - minGap) * f
         -- no tyre on it for 0.3 s: only settling changes it (relax), slowly
         if t.lastStamp and simTime - t.lastStamp > 0.3 then gap = max(gap, settleGap) end
+        -- changed only by the liquid flow since its last build: liquid.rebuildHz
+        if t.liqDirty and not t.stampDirty then gap = max(gap, liqGap) end
         local inView = P.tileInView(t)
         local seen = dc <= digNear and inView
         t.digNow = seen and t.lastFresh ~= nil and simTime - t.lastFresh < freshWin
@@ -6790,7 +6806,10 @@ function P.rebuildTiles()
   -- whatever the frame-rate governor says, up to digMaxPerFrame per frame; their upload
   -- time is still charged to the shared account, so sectors and settling wait instead.
   local digR2 = (cfg.ring.digNearDist or 50) ^ 2
-  local digMax = cfg.ring.digMaxPerFrame or 16
+  -- 6, not 16: a burst of dig uploads made frames of 20-50 ms between frames under 13
+  -- (4 Percherons, gridmap_v2, 2026-11-08: 16 -> 6 = 49.6 -> 52.5 fps, low1 27 -> 31, same
+  -- rut lag; with a 60 fps cap 45.7 -> 45.8, low1 28 -> 31; 4: +2 fps more, front lag +20 ms)
+  local digMax = cfg.ring.digMaxPerFrame or 6
   local digDone = 0
   -- Every frame that draws a freshly uploaded mesh costs the engine ~1 ms (shadow pass,
   -- measured; size does not matter): dig uploads only every digEvery-th frame, all
@@ -6816,6 +6835,7 @@ function P.rebuildTiles()
       -- No own mesh (and no sector rebuild) until the first rut, which saves most
       -- rebuilds while driving: every mesh replace costs engine memory for good.
       t.dirty = false
+      t.stampDirty, t.liqDirty = nil, nil
       t.lastBuild = simTime
       t.built = true
     elseif prebuild and P.buildTokens < reserve then
@@ -6836,6 +6856,7 @@ function P.rebuildTiles()
         t.pendSince, t.visSince, t.bigChange = nil, nil, nil
         if t.ndsq and t.ndsq > 0 then tclear(t.dsq); t.ndsq = 0 end
         t.dirty = false
+        t.stampDirty, t.liqDirty = nil, nil
         t.lastBuild = simTime
       else
         if dig then digDone = digDone + 1; P.buildTokens = max(0, P.buildTokens - 1) end
@@ -6864,6 +6885,7 @@ function P.rebuildTiles()
         -- stay hidden: that sector rebuild cannot wait (secOut: set by the sector build)
         if hadMesh and t.rutted and not t.secOut and fm then fm.markDirty(P.sectorKeyOfTile(t.tx, t.ty), true) end
         t.dirty = false
+        t.stampDirty, t.liqDirty = nil, nil
         t.lastBuild = simTime
         t.built = true
         if not hadMesh and t.obj and fm then
@@ -6881,6 +6903,7 @@ function P.rebuildTiles()
         end
       else
         t.dirty = false
+        t.stampDirty, t.liqDirty = nil, nil
         t.lastBuild = simTime
       end
     end
