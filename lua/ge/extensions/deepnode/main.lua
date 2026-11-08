@@ -155,7 +155,6 @@ local defaults = {
     -- time even with castShadows 0 (5 levels -10 fps with 8 trucks, BENCHMARK 15)
     copyFade = {},
     copyMerge = true,       -- drawn cells of a dug square merged into planar rectangles for the copies
-    maxMapKm2 = 68,         -- maps over this (8 x 8 km; hw550 8192 m = 67.1): decal roads on the mud off
     copyMergeFlat = 0.004,  -- m: largest mud deviation from a merged copy quad (under copyLift)
     -- overlay: the road's own material on the mud mesh (translucent, lit by the engine as
     -- the level's decal); false = alpha-clipped matte copies (old look)
@@ -493,6 +492,13 @@ local defaults = {
     -- the visual tyre is surfaceOffset x radius outside the tread nodes (tyre meshes are
     -- a little bigger than the physics tyre)
     surfaceOffset = 0.04,
+    -- Tyre layer (wheelMud, SnowRunner-style): the coat drawn as one more layer of the
+    -- vehicle's own tyre material (coverage masks over the tread, then shoulders and
+    -- sidewalls; the tyre's own normal/AO maps under it). Off, or a tyre material that
+    -- already has 4 layers: the skin mesh below. layerAoTint: the tyre's AO map as colour
+    -- detail on the mud (lug tops lighter, grooves darker).
+    tyreLayer = true,
+    layerAoTint = 0.1,
     -- Tyre skin (wheelMud): one mesh per wheel, built once; the material's alpha clip
     -- shows coverage = coverMax x min(1, coat)^coverExp of it (per pixel, t_tyremud_*).
     coverMax = 0.92,        -- covered share at coat 1 (the rest up to coatMax)
@@ -1741,16 +1747,11 @@ end
 
 -- 'overlay' (decals drawn into the mud meshes, deepnode_decals), 'drape' (engine decals
 -- switched to overObjects and draped by a collision reload) or 'off'
--- decal roads on the mud only on maps up to roads.maxMapKm2
-function P.roadsAllowed()
-  return not (ter and (ter.worldSize / 1000) ^ 2 > (cfg.roads.maxMapKm2 or 68))
-end
-
 function P.roadMode()
   local r = cfg.roads
   -- 'vanilla': the level's own decal roads untouched (not hidden, no copies, any map size)
   if r and r.enabled ~= false and r.mode == 'vanilla' then return 'vanilla' end
-  if not r or r.enabled == false or not P.roadsAllowed() then return 'off' end
+  if not r or r.enabled == false then return 'off' end
   if r.mode == 'drape' then return r.overObjects ~= false and 'drape' or 'off' end
   if r.mode == 'off' then return 'off' end
   if r.mode == 'overlay' then return 'overlay' end
@@ -4334,6 +4335,22 @@ function P.prepareTile(tx, ty)
   -- pre-rutted decal roads: the cell's own offset replaces the bilinear one of the
   -- vertices (vRest carries the vertex offsets, see vertexInfo)
   local po = preOff and preOff[key]
+  -- squares carrying a pre-rut offset: never merged to one quad nor left to the terrain
+  -- (both lost the road's ruts the moment the tile got its own mesh)
+  local preSq = nil
+  if po then
+    preSq = ffi.new('uint8_t[?]', TS * TS)
+    for j = 0, N do
+      for i = 0, N do
+        local o = po[j * NW + i]
+        if o > 0.002 or o < -0.002 then
+          for sj = max(0, floor((j - 1) / CPS)), min(TS - 1, floor(j / CPS)) do
+            for si = max(0, floor((i - 1) / CPS)), min(TS - 1, floor(i / CPS)) do preSq[sj * TS + si] = 1 end
+          end
+        end
+      end
+    end
+  end
   for j = 0, N do
     local s = j / CPS
     local sj = floor(s); if sj > TS - 1 then sj = TS - 1 end
@@ -4351,22 +4368,6 @@ function P.prepareTile(tx, ty)
         local c00 = sj * CPS * NW + si * CPS
         local c01 = c00 + CPS * NW
         local vb = po[c00] * w00 + po[c00 + CPS] * w10 + po[c01] * w01 + po[c01 + CPS] * w11
-  -- squares carrying a pre-rut offset: never merged to one quad nor left to the terrain
-  -- (both lost the road's ruts the moment the tile got its own mesh)
-  local preSq = nil
-  if po then
-    preSq = ffi.new('uint8_t[?]', TS * TS)
-    for j = 0, N do
-      for i = 0, N do
-        local o = po[j * NW + i]
-        if o > 0.002 or o < -0.002 then
-          for sj = max(0, floor((j - 1) / CPS)), min(TS - 1, floor(j / CPS)) do
-            for si = max(0, floor((i - 1) / CPS)), min(TS - 1, floor(i / CPS)) do preSq[sj * TS + si] = 1 end
-          end
-        end
-      end
-    end
-  end
         rest[idx] = rest[idx] + po[idx] - vb
       end
     end
@@ -7481,9 +7482,6 @@ function P.start()
   if rcp and P.roadMode() == 'copy' then
     local okRc, errRc = pcall(rcp.start, M)
     if not okRc then log('E', logTag, 'road copies failed: ' .. tostring(errRc)) end
-  end
-  if not P.roadsAllowed() then
-    log('I', logTag, sfmt('decal roads off: map %.1f km2 over roads.maxMapKm2 %s', (ter.worldSize / 1000) ^ 2, tostring(cfg.roads.maxMapKm2 or 68)))
   end
   local ov = P.mod('overlay')
   if ov then

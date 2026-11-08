@@ -18,7 +18,6 @@
   "roads": {
     "enabled": true,
     "mode": "shader",
-    "maxMapKm2": 68,
     "overlayOriginal": true,
     "overlayOnRuts": true,
     "hideOnMud": true,
@@ -336,6 +335,8 @@
     "filmColor": 0.03,
     "filmMud": 0.5,
     "filmLift": 0.0015,
+    "tyreLayer": true,
+    "layerAoTint": 0.1,
     "rubberWet": true,
     "rubberGloss": 0.7,
     "rubberDarken": 0.3,

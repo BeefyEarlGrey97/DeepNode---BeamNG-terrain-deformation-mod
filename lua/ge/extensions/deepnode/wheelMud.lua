@@ -954,6 +954,23 @@ local function parseColor(s)
   return { t[1], t[2], t[3], t[4] or 1 }
 end
 
+-- Tyre layer (clods.tyreLayer, SnowRunner-style): the coat is drawn as one more layer of
+-- the vehicle's own tyre material instead of the skin mesh: a layer of dirt on the rubber,
+-- the tyre's own normal and AO maps under it (the tread relief stays, grooves stay dark).
+-- Its opacity map is one of LAYER_K coverage masks (tools/tyre_textures/bake_tyrelayer.py,
+-- mask k covers 0.12 k of the tyre: tread first, then shoulders, then sidewall blotches; an
+-- opacity map is not alpha-clipped in a layer, so the share needs its own mask). The masks
+-- assume the common tyre strip layout (U around, V across, tread in the middle). Same
+-- reload path and sharing as the wet rubber: one material per tyre name.
+local LAYER_B = '/art/deepnode/tyre/t_tyrelayer_b.color.dds'
+local LAYER_O = '/art/deepnode/tyre/t_tyrelayer_o%d.data.dds'
+local LAYER_K = 7
+local LAYER_SHARE = 0.12
+
+local function layerLevel(dC)
+  return clamp(floor(dC / LAYER_SHARE + 0.5), 0, LAYER_K)
+end
+
 local function isRubberName(nm)
   local l = nm:lower()
   if l:find('deepnode', 1, true) then return false end
@@ -977,7 +994,10 @@ local function rubberOf(veh)
             layers[#layers + 1] = { rough = tonumber(m:getField('roughnessFactor', l)) or 1,
               col = parseColor(m:getField('baseColorFactor', l)) }
           end
-          R = { name = nm, layers = layers, applied = 0, target = 0, t = -huge }
+          -- the layer goes on top of the material's own layers (at most 4 in all)
+          R = { name = nm, layers = layers, applied = 0, target = 0, t = -huge, nl = nl,
+            mudIdx = nl < 4 and nl or nil,
+            nrm = m:getField('normalMap', 0) or '', ao = m:getField('ambientOcclusionMap', 0) or '' }
           rubber[nm] = R
         end
       end
@@ -987,7 +1007,9 @@ local function rubberOf(veh)
   return list
 end
 
-local function applyRubber(R, w)
+-- mud: nil = no tyre layer, else { k = mask level 0..LAYER_K, col = colour string,
+-- rough = roughness } (k 0 = layer off)
+local function applyRubber(R, w, mud)
   local m = scenetree.findObject(R.name)
   if not m then rubber[R.name] = nil; return false end
   local c = ctx.cfg.clods
@@ -1000,6 +1022,32 @@ local function applyRubber(R, w)
       m:setField('baseColorFactor', l, sfmt('%g %g %g %g', L.col[1] * k, L.col[2] * k, L.col[3] * k, L.col[4]))
     end
   end
+  local li = R.mudIdx
+  if li then
+    if mud and mud.k > 0 then
+      if not R.mudOn then
+        -- maps set once per material (a layer count change compiles a new permutation)
+        m:setField('baseColorMap', li, LAYER_B)
+        m:setField('normalMap', li, R.nrm)
+        m:setField('ambientOcclusionMap', li, R.ao)
+        -- the tyre's AO as colour detail: lug tops lighter, grooves darker
+        m:setField('detailMap', li, R.ao)
+        m:setField('detailScale', li, '1 1')
+        m:setField('detailBaseColorMapStrength', li, sfmt('%g', R.ao ~= '' and (c.layerAoTint or 0.1) or 0))
+        m:setField('metallicFactor', li, '0')
+        m:setField('opacityFactor', li, '1')
+        m:setField('activeLayers', 0, tostring(li + 1))
+      end
+      m:setField('opacityMap', li, sfmt(LAYER_O, mud.k))
+      m:setField('baseColorFactor', li, mud.col)
+      m:setField('roughnessFactor', li, sfmt('%g', mud.rough))
+      R.mudOn = true
+    elseif R.mudOn then
+      m:setField('activeLayers', 0, tostring(R.nl))
+      R.mudOn = false
+    end
+    R.mud = mud and mud.k > 0 and mud or nil
+  end
   m:reload()
   R.applied, R.t = w, now
   counters.rubberReloads = (counters.rubberReloads or 0) + 1
@@ -1009,7 +1057,7 @@ end
 -- original look back on every touched material; keep = leave them registered (toggle)
 local function restoreRubber(keep)
   for _, R in pairs(rubber) do
-    if R.applied > 0 then pcall(applyRubber, R, 0) end
+    if R.applied > 0 or R.mudOn then pcall(applyRubber, R, 0, nil) end
   end
   if not keep then rubber = {} end
 end
@@ -1043,35 +1091,61 @@ end
 -- one pass every rubberGap s: target per material = wettest tyre of the vehicles in range
 -- that use it; the biggest change past rubberStep is applied (one reload per pass)
 local function rubberPass(c, t_m)
-  if c.rubberWet == false or now - rubberT < (c.rubberGap or 0.25) then return end
+  local wetOn = c.rubberWet ~= false
+  if not (wetOn or c.tyreLayer ~= false) or now - rubberT < (c.rubberGap or 0.25) then return end
   rubberT = now
-  for _, R in pairs(rubber) do R.target = 0 end
+  for _, R in pairs(rubber) do R.target, R.mudW = 0, nil end
   local range = c.drawDist or 150
   for _, V in pairs(vehs) do
     if V.rubber and (V.camD or 0) <= range then
-      local w = 0
-      for _, W in pairs(V.wheels) do if (W.rw or 0) > w then w = W.rw end end
-      if w > 0 then
-        for _, nm in ipairs(V.rubber) do
-          local R = rubber[nm]
-          if R and w > R.target then R.target = w end
+      local w, mw = 0, nil
+      for _, W in pairs(V.wheels) do
+        if wetOn and (W.rw or 0) > w then w = W.rw end
+        -- tyre layer: the muddiest wheel of the vehicle shows on its tyre material
+        if V.layer and W.valid and (W.dC or 0) > (mw and mw.dC or 0) then mw = W end
+      end
+      for _, nm in ipairs(V.rubber) do
+        local R = rubber[nm]
+        if R then
+          if w > R.target then R.target = w end
+          if mw and (not R.mudW or mw.dC > R.mudW.dC) then R.mudW = mw end
         end
       end
     end
   end
-  local best, bestD = nil, 0
+  local best, bestD, bestMud = nil, 0, nil
   local step = c.rubberStep or 0.12
   for _, R in pairs(rubber) do
     local d = abs(R.target - R.applied)
-    if (d >= step or (R.target < 0.03 and R.applied > 0) or (R.applied == 0 and R.target > 0.03)) and d > bestD then
-      best, bestD = R, d
+    local score = 0
+    if d >= step or (R.target < 0.03 and R.applied > 0) or (R.applied == 0 and R.target > 0.03) then score = d end
+    -- the layer: mask level, colour or wetness of its muddiest wheel changed
+    local mud = nil
+    local W = R.mudW
+    if R.mudIdx and W then
+      local K = kindCfg(lookKind(W))
+      local col = wetColor(W, wheelColor(W))
+      mud = { k = layerLevel(W.dC), col = colorString(col), rough = wetRoughness(W, K), c3 = col, wet = W.wet or 0 }
+      local a = R.mud
+      if not a then
+        if mud.k > 0 then score = max(score, 2) end
+      elseif mud.k ~= a.k then
+        score = max(score, 1 + abs(mud.k - a.k) * 0.1)
+      elseif colorDiff(mud.c3, a.c3) >= (c.colorStep or 0.03) or abs(mud.wet - a.wet) >= (c.wetStep or 0.1) then
+        score = max(score, 0.5)
+      end
+    elseif R.mudOn then
+      score = max(score, 1)
     end
+    if score > bestD then best, bestD, bestMud = R, score, mud end
   end
   if not best then return end
+  -- a wetness-only update keeps the layer as it is
+  if not bestMud and best.mudOn and best.mudW then bestMud = best.mud end
   local room = not (t_m and t_m.canUpload) or t_m.canUpload('M', 200)
   if not room and now - best.t < (c.flushWait or 0.5) * 2 then return end
   local timer = hptimer and hptimer()
-  applyRubber(best, best.target < 0.03 and 0 or best.target)
+  applyRubber(best, best.target < 0.03 and 0 or best.target, bestMud)
   local ms = timer and timer:stop() or 2
   if t_m and t_m.recordUpload then t_m.recordUpload('M', nil, ms) end
   counters.rubberMs = (counters.rubberMs or 0) + ms
@@ -1095,9 +1169,18 @@ function M.setWheelDefs(vid, defs)
     V = { wheels = {} }
     vehs[vid] = V
   end
-  if ctx.cfg.clods.rubberWet ~= false then
+  local cl = ctx.cfg.clods
+  if cl.rubberWet ~= false or cl.tyreLayer ~= false then
     local veh = getObjectByID(vid)
     if veh then V.rubber = rubberOf(veh) end
+  end
+  -- tyre layer instead of the skin mesh: only when every tyre material takes one more layer
+  V.layer = false
+  if cl.tyreLayer ~= false and V.rubber and #V.rubber > 0 then
+    V.layer = true
+    for _, nm in ipairs(V.rubber) do
+      if not (rubber[nm] and rubber[nm].mudIdx) then V.layer = false end
+    end
   end
   local seen = {}
   for _, d in ipairs(defs) do
@@ -1113,10 +1196,17 @@ function M.setWheelDefs(vid, defs)
     W.n1, W.n2, W.tread, W.R, W.width = d.n1, d.n2, d.tread, d.R, d.W
     W.tyres = d.tyres or { { o = 0, w = d.W } }
     W.rimR = d.rimR
-    if not W.mat then acquireMaterial(W) end
-    if not W.film and ctx.cfg.clods.wetFilm ~= false then acquireFilm(W) end
-    -- the mesh is kept over resets; only a new shape needs a new one
-    if not sameShape(shapeOf(W), W.shape) then W.needMesh = true; W.needT = now end
+    if V.layer then
+      -- no skin: no mesh, skin material or film
+      if W.obj then hideWheel(W); W.obj:delete(); W.obj = nil end
+      releaseMaterial(W)
+      W.needMesh, W.shape = false, nil
+    else
+      if not W.mat then acquireMaterial(W) end
+      if not W.film and ctx.cfg.clods.wetFilm ~= false then acquireFilm(W) end
+      -- the mesh is kept over resets; only a new shape needs a new one
+      if not sameShape(shapeOf(W), W.shape) then W.needMesh = true; W.needT = now end
+    end
     resetCoat(W)
     hideWheel(W)
     seen[d.index] = true
@@ -1407,7 +1497,7 @@ function M.update(dt)
           W.sr = 1 + extra / max(0.1, Rv)
           W.sa = 1 + extra / max(0.1, (W.width or 0.3) * 0.5 + 0.05)
           -- chunks from the mud that dropped off (only where the tyre is drawn)
-          if dropped > 0 and W.visible and not W.far then
+          if dropped > 0 and (W.visible or V.layer) and not W.far then
             W.chunkAcc = (W.chunkAcc or 0) + dropped * (c.chunkRate or 10)
             local n = min(3, floor(W.chunkAcc))
             if n > 0 then
@@ -1420,7 +1510,7 @@ function M.update(dt)
         end
         -- a kind of another cake thickness (sand film / mud cake): rebuild once the wheel
         -- stayed in it for a second (boundaries between kinds would rebuild every frame)
-        if W.meshSig and not W.needMesh and now - (W.dkindT or W.kindT or -huge) > 1
+        if not V.layer and W.meshSig and not W.needMesh and now - (W.dkindT or W.kindT or -huge) > 1
           and abs(meshSig(kindCfg(lookKind(W)), c) - W.meshSig) > 1e-5 then
           W.needMesh = true; W.needT = now
         end

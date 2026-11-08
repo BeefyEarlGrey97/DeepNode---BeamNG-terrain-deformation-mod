@@ -598,7 +598,6 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `copyLift` / `copyLiftStep` | 0.008 / 0 | Mode `copy`: m over the mud; extra m per renderPriority level (not needed: copy submeshes draw bottom layer first, depth writes off) |
 | `copyMerge` | true | Mode `copy`: the drawn cells of a dug square go into the copies as greedy planar rectangles instead of one quad per cell |
 | `copyMergeFlat` | 0.004 | Mode `copy`: m; largest mud deviation from a merged copy quad (keep it under `copyLift`) |
-| `maxMapKm2` | 68 | Maps larger than this (km², 8 x 8 km; hw550 8192 m = 67.1): decal roads on the mud are off (mode treated as `off`) |
 | `overlayOriginal` | true | Copies use the road's own material (translucent, same look as the engine decal); false = alpha-clipped matte copies (`overlayAlphaRef`, `overlayRoughness`) |
 | `overlayOnRuts` | true | Copies also on rut and track cells, clipped to the strip (the pattern drapes over the ruts); false = untouched squares only |
 | `overlayQuiet` | 1.0 | s after a tile's last stamp before its decal copies are built (0 = every build) |
@@ -831,6 +830,8 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `filmMud` | 0.5 | Water film colour = ground colour of the wheel's last soft ground x this (`filmColor` grey where unknown) |
 | `filmOpacity` | 0.4 | Water film opacity at full wetness (x the streak texture `t_tyrefilm_o`) |
 | `wetFilm` | false | Old water film layer on the tyre skin (replaced by `rubberWet`) |
+| `tyreLayer` | true | Tyre mud drawn as one more layer of the vehicle's own tyre material (SnowRunner-style layer of dirt: coverage masks tread first, the tyre's normal/AO maps stay); off or no free layer: the skin mesh |
+| `layerAoTint` | 0.1 | Tyre layer: the tyre's AO map as colour detail on the mud (lug tops lighter, grooves darker) |
 | `rubberWet` | true | Wet tyres: the vehicle's own tyre materials (name contains tire/tyre) get lower roughness and a darker colour |
 | `rubberGloss` | 0.7 | Roughness x (1 - this x wetness) |
 | `rubberDarken` | 0.3 | Base colour x (1 - this x wetness) |

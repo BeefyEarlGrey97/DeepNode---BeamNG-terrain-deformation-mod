@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### Changed
+- Tyre mud is drawn as one more layer of the vehicle's own tyre material (`clods.tyreLayer`,
+  SnowRunner-style layer of dirt) instead of the skin mesh round the tyre: coverage masks
+  (tread first, then shoulders and sidewall blotches; `t_tyrelayer_*`, bake_tyrelayer.py)
+  over the tyre's own normal and AO maps, so the tread relief and lettering stay visible. No
+  tyre mesh uploads; one material reload (~2.6 ms) per mask level / colour step, shared per
+  tyre material (vehicles with the same tyre show the muddiest one). Skin mesh kept as the
+  fallback (option off, or a tyre material with 4 layers already).
+- Decal roads on mud no longer switch off on maps over 8 x 8 km (`roads.maxMapKm2` removed: it
+  belonged to the removed road bake).
+
+### Fixed
+- Pre-rutted roads: the pre-rut square flags were declared inside the vertex loop (out of
+  scope where they are used), so own-mesh tiles still dropped the road's ruts.
+
 - Defaults: decal roads on mud `roads.mode` 'shader' (was 'off'), pre-rutted roads off,
   physics heavy (unchanged).
 
