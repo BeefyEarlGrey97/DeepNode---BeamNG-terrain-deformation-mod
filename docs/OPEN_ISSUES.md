@@ -343,6 +343,14 @@ mud_large drawn as if water were on top). Suspect: `mud_large` has `alphaTest` 1
 render in an earlier bin than the other translucent copies; alphaTest 1 on every clone fixed the
 centre but not all stripes (unfinished). Fade default must change (cost) once the stack is right.
 
+## 32. Pre-bearing depth back (2026-11-09, f94874a)
+
+User chose the mud depth / berm / liquid behaviour from before the bearing model, with the floor
+timing fixes kept. Comes back with it: tyres sink a soft layer (0.25 m mud) below the drawn rut
+(the reason for the bearing model: parked sink 0.45 m, tyre bottom under the mesh), softer
+liquid (yield 0.15 halved the rut structure in the 11-08 test). Not checked: sand / snow bogging,
+8-truck bench with these values, tyre coat look at mid / full coat (only a 30 m thin coat seen).
+
 ## 31. Upload stutter, johnson_valley 6 trucks (2026-11-09)
 
 BENCHMARK 22: no frame over 33 ms, but the slowest 5 % are upload frames (createMesh ~4 ms,
