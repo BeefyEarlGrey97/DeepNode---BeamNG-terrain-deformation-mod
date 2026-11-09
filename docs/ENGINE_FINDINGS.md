@@ -614,3 +614,10 @@ uploads), the >45 ms frames are dig batches plus a reload / floor write in the s
 - Mud ProceduralMesh uploads already skip invisible changes (ring.minVisibleChange 6 mm on
   screen) and padding is ~8 % of corners (6 tile classes): no visual-neutral upload cut left
   there.
+- Wheel-report loop restructure tested (2026-11-09, 8 trucks): stamps deferred until after
+  onMudReport and run from a small loop (kind state captured) -> 124.5 vs 69.7 us per
+  stampWheel call, same aborts. The caller frame is not the cause.
+- Branch-free tyre write path (per cell only codes + per-tile running min/max, bookkeeping once
+  per tile at the end of onMudReport): bit-identical to the old path (6 trials, 48672 values
+  each, 0 differences) and fewer trace aborts, but not faster (interleaved 74.9 / 81.2 vs
+  71.9 / 74.3 us per call). Reverted. The stamp cost is not the trace aborts.
