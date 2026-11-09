@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-09 — road shader, liquid mud, shader tyre coat, SnowRunner ruts
+
 ### Changed
 - Sector auto-size counts the soft ground the sink pass draws low near grass
   (`physics.heavy.grassLowDraw`): it is meshed, but counted as 0 m2, so johnson_valley kept 10 m
@@ -11,10 +13,6 @@
   same urgent sector wait (0.29-0.34 s). Same geometry, only fewer objects.
 - A tile's first rut no longer forces an urgent sector rebuild when that sector drew nothing
   for the tile (terrain-first ground: the terrain draws untouched squares).
-
-## [0.8.0] — 2026-11-09 — road shader, liquid mud, shader tyre coat, SnowRunner ruts
-
-### Changed
 - Mud balance between the firm (bearing) and the soft (pre-bearing) setups, against a SnowRunner
   reference (deep truck, firm sculpted rut walls, broad torn berms): liquid `yield` 0.45,
   `flowBack` 0.15, `relaxKeep` 0.88 / 0.9, sink limit mud 0.45 / sand 0.25, soft layer mud 0.22 /

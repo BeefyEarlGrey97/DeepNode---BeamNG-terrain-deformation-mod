@@ -15,6 +15,8 @@
 - Tyre coat builds more slowly and matches the ground's colour (dried mud was far too bright).
 - Smoother berms: rounded crests and lumps instead of rows of spikes.
 - Tile meshes padded to 24 size classes: about 8 % less upload time per mesh.
+- Bigger mud sectors where the whole soft area is meshed (grass low-draw): fewer mesh objects,
+  +5 fps driving johnson_valley's mud zones at 40-55 km/h (76.5 -> 81.7 fps, one vehicle).
 
 ## Fixed
 - Liquid mud never ran in earlier builds; berms held at 2-3 cm.
@@ -26,6 +28,7 @@
 |---|---|
 | Ural-4320, gridmap_v2 mud, throttle 0.7 from a standstill | 12 km/h, 40 m in 15 s, body 0.33 m down (v0.7.x tuning: 22 km/h) |
 | johnson_valley, 6 Percherons on the circle bench, run 2 | 48-51 fps, low 1 % 33-36 fps, no frame over 33 ms |
+| johnson_valley, fullsuv circling the mud zones at 40-55 km/h (BENCHMARK 23) | 81.7 fps (10 m sectors: 76.5) |
 | gridmap_v2, 8 Percherons (BENCHMARK 21) | 30.5-31.7 fps, low 1 % 17-18 fps |
 
 Not measured for this release: vanilla physics, and the final mud balance (rut / berm values set
