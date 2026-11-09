@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-09 — road shader, liquid mud, shader tyre coat, SnowRunner ruts
+
 ### Changed
 - Mud balance between the firm (bearing) and the soft (pre-bearing) setups, against a SnowRunner
   reference (deep truck, firm sculpted rut walls, broad torn berms): liquid `yield` 0.45,
