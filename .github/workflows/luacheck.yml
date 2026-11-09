@@ -16,5 +16,6 @@ jobs:
         run: bash tools/dev/luacheck.sh | tee luacheck.log; test "${PIPESTATUS[0]}" -eq 0
       - name: Only castRayStatic may be written as a global
         run: |
-          bad=$(sed -n '/global writes/,$p' luacheck.log | grep -v 'global writes' | grep -v '"castRayStatic"' || true)
+          # the writes section ends where luacheck.sh starts its global reads section
+          bad=$(sed -n '/global writes/,/global reads/p' luacheck.log | grep -v 'global writes' | grep -v 'global reads' | grep -v '"castRayStatic"' || true)
           if [ -n "$bad" ]; then echo "Unexpected global writes:"; echo "$bad"; exit 1; fi
