@@ -480,3 +480,13 @@ drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
   upload). Next lever, not done: merge flat 2x2 / 4x4 cell blocks in `emitTileCells` (corners
   dominate createMesh), keeping size classes, road-copy quads and decals intact.
 
+## 29. Deeper ruts, tyre sectors (2026-11-09, test)
+- Ural-4320 (uralivannq mod) on gridmap_v2 only. Not benched with 8 trucks: the sectored skin
+  costs 8 materials per wheel (48 per 6x6) and up to one flush per frame while coats change,
+  plus 8 draw calls per wheel. Bench before merging to main.
+- Sand / snow / water sectors untested in game (same code path as mud).
+- Mod tyres whose UVs are not the common strip layout (Ural: one disc atlas, lugs in a corner)
+  get the tyre-layer masks in the wrong places; the sectored skin (own UVs) carries the look.
+  The clean Ural tyre itself is a flat 256 px texture (asset, not the mod).
+- treadInset 0.07 suits big-lug truck tyres; a road tyre may show the cake sunk into it.
+

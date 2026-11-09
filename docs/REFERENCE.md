@@ -564,7 +564,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | Key | Default | Meaning |
 |---|---|---|
 | `defaultSinkDepth` | 0.3 | Sink depth of a soft layer with no specific entry |
-| `sinkDepthByMatch` | mud 0.35, sand 0.2, snow 0.2 | Sink depth by text found in the layer name; first match wins; layers ticked by hand use their kind's value |
+| `sinkDepthByMatch` | mud 0.5, sand 0.3, snow 0.2 | Sink depth by text found in the layer name; first match wins; layers ticked by hand use their kind's value |
 | `featherVerts` | 4 | Width of the depth fade in terrain vertices |
 | `edgeDip` | 0.04 | How far the patch dips under the terrain where the depth is 0 |
 
@@ -727,7 +727,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `instantSettle` | true | Ruts written at their settled depth (no settling pass, no extra re-meshes) |
 | `relaxWindow` | 0.3 | Seconds after the last stamp; settling then snaps to its end shape (instantSettle off) |
 | `spinDigRate` | 0.012 | Visual only: dig per (m/s of wheel spin x s) under a spinning wheel |
-| `spinDigMax` | 0.12 | Visual only: deepest spin hole below the tyre at `refWheelLoad` |
+| `spinDigMax` | 0.2 | Visual only: deepest spin hole below the tyre at `refWheelLoad` |
 | `torqueDigRate` | 0.08 | Dig under a driven wheel per s per unit of traction ratio (drive force / wheel load) above `torqueDigStart`; capped like spin digging. Heavy mode: the floor follows, so a rear-wheel-drive car squats into the mud under hard throttle |
 | `torqueDigStart` | 0.25 | Traction ratio below which drive torque does not dig |
 | `refWheelLoad` | 3500 | Wheel load (N) the dig numbers are tuned for; heavier digs more |
@@ -746,7 +746,8 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `trackBase` | 0.25 | Roughness of any rut |
 | `trackSpinGain` | 0.08 | Extra roughness per m/s of wheel spin |
 | `trackDepthGain` | 2.0 | Extra roughness per metre of depth |
-| `bermCrumble`, `bermCrumbleMax` | 0.6, 0.12 | Torn berm crests: berm vertices move by berm height x this x a clump noise (render only), capped (m) |
+| `bermCrumble`, `bermCrumbleMax` | 0.9, 0.16 | Torn berm crests: berm vertices move by berm height x this x a clump noise (render only), capped (m) |
+| `rutCrumble`, `rutCrumbleMax` | 0.6, 0.06 | Torn rut walls and floor: dug vertices move by depth x this x a +- clump noise (render only), capped (m) |
 | `jitterZ` | 0.015 | Height jitter of the roughest ruts |
 | `jitterXY` | 0.03 | Sideways jitter of the roughest ruts |
 | `kinds.<kind>.bermFraction` | mud 0.35, sand 0.5 | Berm share per ground kind (kind of the terrain square under the hub) |
@@ -833,17 +834,19 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `darken`, `roughness` | 0.5, 0.35 | Generic mud colour and roughness (when `kinds.mud` gives none) |
 | `kinds.<kind>` | mud, sand | Per ground kind: `stick` (pick-up factor), `coatMax` (1 = no thick cake), `shed` (loose/clean/fling factor), `wet` (colour factor on the layer texture), `roughness`, `size` (cake thickness factor), `color` (generic texture colour) |
 | `kinds.<kind>.thickness` | sand 0.003 | Skin thickness of that kind (default `clods.thickness`); a kind with its own `texO` gets an even skin |
-| `kinds.<kind>.treadInset` | sand 0.010 | Skin this far below the tread surface (x outward share of the normal): the tyre's lugs show through, sand stays in the grooves |
+| `kinds.<kind>.treadInset` | mud 0.07, sand 0.010 | Skin this far below the tread surface (x outward share of the normal): the tyre's lugs show through, sand stays in the grooves |
 | `kinds.<kind>.coverMax` | sand 0.62 | Covered share at coat 1 (default `clods.coverMax`) |
 | `kinds.<kind>.groundGain` | sand 1.3 | Factor on the ground colour (default: the kind's `wet`) |
 | `kinds.<kind>.groundDesat` | sand 0.3 | Move the ground colour towards grey (0..1) |
 | `groundColor` | true | Tyre coat takes the terrain colour under the wheel (base map + macro/detail mean, / tyre texture mean); `color`, `brightness`, `tyreBrightness` only where it is unknown |
 | `groundGrid` | 128 | Cells a side of the base-map colour grid read at start |
-| `kinds.mud.texN` / `groundGain` | t_tyremud_nm, 2.0 | Procedural mud normal map; drying mud on a tyre is lighter than the wet ground |
+| `kinds.mud.texN` / `groundGain` | t_tyremud_nm, 1.4 | Procedural mud normal map; drying mud on a tyre is lighter than the wet ground |
 | `filmMud` | 0.5 | Water film colour = ground colour of the wheel's last soft ground x this (`filmColor` grey where unknown) |
 | `filmOpacity` | 0.4 | Water film opacity at full wetness (x the streak texture `t_tyrefilm_o`) |
 | `wetFilm` | false | Old water film layer on the tyre skin (replaced by `rubberWet`) |
 | `tyreLayer` | true | Tyre mud drawn as one more layer of the vehicle's own tyre material (SnowRunner-style layer of dirt: coverage masks tread first, the tyre's normal/AO maps stay); off or no free layer: the skin mesh |
+| `sectors` | 8 | Tyre perimeter arcs with their own coat / kind / colour / wetness (skin submesh + material each); arcs in the contact patch pick mud up by rolled distance, arcs under water get wet and washed; 0 = one coat per wheel |
+| `layerMaxSectors` | 3 | With sectors: highest tyre-layer mask level (the layer is only the dirt on the rubber under the sectored skin) |
 | `layerAoTint` | 0.1 | Tyre layer: the tyre's AO map as colour detail on the mud (lug tops lighter, grooves darker) |
 | `rubberWet` | true | Wet tyres: the vehicle's own tyre materials (name contains tire/tyre) get lower roughness and a darker colour |
 | `rubberGloss` | 0.7 | Roughness x (1 - this x wetness) |
@@ -1038,7 +1041,7 @@ effect shader fails to compile; it keeps drawing the old one).
 Rut depth of a rolling tyre comes from the Bekker rigid-wheel sinkage, not from where the tyre
 bottom is: z = (3 W / ((3 - n)(kc + b kphi) sqrt(D)))^(2 / (2n + 1)) with W the wheel's load
 (vehicle report `downForce`), b tyre width, D diameter, n `kinds.<kind>.soilN`, kc / kphi
-`kinds.<kind>.kc` / `kphi` (game-soft values: mud 2000 / 250000, sand 30000 / 2600000; Percheron
+`kinds.<kind>.kc` / `kphi` (game-soft values: mud 800 / 90000, sand 20000 / 1600000 since 2026-11-09; Percheron
 wheel 18 kN, 0.39 m, R 0.6: ~0.2 m in mud, ~0.1 m in sand), times (1 + slip sinkage). Heavier
 vehicles and narrower or smaller tyres dig deeper; spinning and drive torque still dig on top
 (`spinDig*`, `torqueDig*`). Off (`bearing = false`) the stamp carves to the tyre bottom, which in

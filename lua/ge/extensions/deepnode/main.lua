@@ -396,10 +396,10 @@ local defaults = {
     --    game-soft values, Percheron wheel (18 kN, 0.39 m wide, R 0.6) ~0.2 m in mud, ~0.1 m in sand
     kinds = {
       mud = { bermFraction = 0.85, maxSlope = 1.0, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8,
-              kc = 2000, kphi = 250000,
+              kc = 800, kphi = 90000,
               rimDepth = 0, bermCap = 0.2, bermPeak = 0.4, bermWidthFactor = 1.0, bow = 0.45, bowLen = 0.75 },
       sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4,
-               kc = 30000, kphi = 2600000,
+               kc = 20000, kphi = 1600000,
                bermCap = 0.16, bermPeak = 0.35, bow = 0.4, bowLen = 0.45 },
       -- snow compacts under the tyre more than it is pushed aside (small berms), the walls
       -- of a packed rut stand steep; Bekker n for snow ~1.0-1.6 (Wong, Terramechanics);

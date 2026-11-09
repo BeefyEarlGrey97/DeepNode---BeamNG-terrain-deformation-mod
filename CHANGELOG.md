@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Changed
+- Deeper ruts that keep a torn structure (Ural-4320 6x6, gridmap_v2 mud, 3.5 m/s): mud Bekker
+  moduli kc 2000 -> 800, kphi 250000 -> 90000, sand 30000 / 2.6e6 -> 20000 / 1.6e6; sink depth
+  limit mud 0.35 -> 0.5 m, sand 0.2 -> 0.3 m; spinDigMax 0.12 -> 0.2. Rut 15 -> 22 cm below the
+  surface, tyre sink while driving 0.23 -> 0.31 m, parked 0.39 m. New `stamp.rutCrumble` /
+  `rutCrumbleMax` (0.6, 0.06 m): rut walls and floor get a two-scale clump noise (render only)
+  instead of a smooth trough; berm crumble 0.6 / 0.12 -> 0.9 / 0.16.
+- Tyre mud per perimeter sector (`clods.sectors` 8, MudRunner / SnowRunner style): the skin is
+  split into 8 arcs, each with its own coat, kind (mud / sand / snow), colour, wetness and
+  material. Only the arcs in the contact patch (half angle from the sinking depth, swept over the
+  rotation since the last tick) pick mud up, by the distance they roll; water wets and washes
+  only the arcs under the water line. With sectors the skin is drawn on top of the tyre layer,
+  which stays as the dirt on the rubber (`clods.layerMaxSectors` 3: at most 36 % of its masks).
+  Mud coat darker and wetter (groundGain 2.0 -> 1.4, roughness 0.6 -> 0.4) and sunk between the
+  lugs (`treadInset` 0.07): the lug tops show through the cake.
+
 - Undug soft ground is the terrain again (`physics.heavy.lowDrawAll` off, new `lowDrawRuts`
   on): only vertices under a dug rut get the terrain drawn at the full sink level (once, when
   the first rut reaches them) with the physics floor kept separately. With every soft cluster
