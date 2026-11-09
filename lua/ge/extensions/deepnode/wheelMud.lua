@@ -850,6 +850,7 @@ local function resetCoat(W)
   W.dcol, W.dkind, W.lookKey, W.lookFrom, W.dC = nil, nil, nil, nil, 0
   W.cang, W.cacc = nil, 0
   if W.sec then for _, S in ipairs(W.sec) do resetSector(S, W) end end
+  if W.bins then for s = 1, #W.bins do W.bins[s], W.binT[s] = 0, -huge end end
 end
 
 -- coat change over dt; returns the coat that dropped off as chunks (loose shed + fling).
@@ -868,7 +869,8 @@ local function updateCoat(W, c, dt, pickW, wat, moved)
     local rolled = surf * dt
     local spinF = 1 + min(2, (c.buildSpinGain or 0.5) * W.lastSpin)
     local depthF = clamp(W.lastDepth / 0.1, 0.2, 1.5)
-    local room = max(0, 1 - W.coat / max(0.05, cap))
+    -- a binned wheel passes the free room of the arcs in contact (W.roomW)
+    local room = W.roomW or max(0, 1 - W.coat / max(0.05, cap))
     -- the ground's kind (what is picked up) can differ from the coat's (what is drawn)
     local GK = W.groundKind or W.kind
     local KG = GK == W.kind and K or kindCfg(GK)
@@ -907,6 +909,7 @@ local function updateCoat(W, c, dt, pickW, wat, moved)
       col[1], col[2], col[3] = col[1] + (kr - col[1]) * f, col[2] + (kg - col[2]) * f, col[3] + (kb - col[3]) * f
     end
     W.coat = W.coat + gain
+    W.gainNow = gain
     W.loose = min(W.loose + gain, W.coat * (K.looseShare or c.looseShare or 0.55))
   else
     if now - W.mudT > (c.cleanDelay or 2) then
@@ -945,6 +948,7 @@ local function updateCoat(W, c, dt, pickW, wat, moved)
     W.loose = W.loose - wl
     local wp = min(W.coat - wl, w)
     W.coat = W.coat - wl - wp
+    W.washNow = wl + wp
     counters.washed = counters.washed + wl + wp
     dropped = dropped * (1 - water)
   end
@@ -975,7 +979,10 @@ end
 -- A sector reads the wheel's shared state (spin, depth, ground kind and colour) through
 -- its metatable; everything it writes (coat, loose, kind, col, wet, material) is its own.
 local TWO_PI = 2 * math.pi
+local shaderCoat
 local function nSectors()
+  -- shader coat: the perimeter lives in W.bins, the skin (fallback) has one material
+  if shaderCoat() then return 0 end
   local n = ctx and ctx.cfg.clods.sectors or 0
   return n >= 2 and floor(n) or 0
 end
@@ -1074,6 +1081,85 @@ local function updateSectors(W, c, dt)
     W.col = col
   end
   return dropped / n
+end
+
+-------------------------------------------------------------------------------
+-- perimeter bins (shader coat, overlay.tyreCoat)
+-------------------------------------------------------------------------------
+-- With the coat drawn by the tyre shader (deepnode_overlay, tyreWetP.hlsl) the perimeter
+-- needs no materials: W.bins[1..32] hold the coat of equal arcs round the tyre
+-- (32, same column angles as the sectors), W.binT the time each arc last picked mud up. The
+-- wheel runs ONE coat model (kind, colour, loose layer, fling, wash); per tick its gain goes
+-- to the arcs that swept through the contact patch (by contact weight x their free room),
+-- its losses come off every arc by its share, washing off the arcs under the water line.
+-- So a tyre rolling into mud gets a coat that starts at the contact patch, creeps round
+-- the tyre as it rolls (half a turn = half the tyre) and thickens with every pass.
+function shaderCoat()
+  local o = ctx and ctx.cfg.overlay
+  return o and o.enabled ~= false and o.tyres ~= false and o.tyreCoat and true or false
+end
+
+local function makeBins(W)
+  local n = 32 -- tyreWetP.hlsl reads exactly 32 arcs
+  local b, t = {}, {}
+  for s = 1, n do b[s], t[s] = 0, -huge end
+  W.bins, W.binT = b, t
+end
+
+local function updateBins(W, c, dt)
+  local b, bt = W.bins, W.binT
+  local n = #b
+  local w = contactWeights(W, n)
+  W.cacc = 0
+  local capP = max(0.05, W.cap or c.coatMax)
+  local sum, rw = 0, 0
+  for s = 1, n do
+    sum = sum + b[s]
+    rw = rw + w[s] * max(0, 1 - b[s] / capP)
+  end
+  W.coat = sum / n
+  W.roomW = rw / n
+  W.gainNow, W.washNow = 0, 0
+  local dropped = updateCoat(W, c, dt)
+  W.roomW = nil
+  local g = W.gainNow
+  if g > 0 and rw > 0 then
+    local k = g * n / rw
+    for s = 1, n do
+      local gs = k * w[s] * max(0, 1 - b[s] / capP)
+      if gs > 0 then
+        b[s] = b[s] + gs
+        if w[s] > 0.05 then bt[s] = now end
+      end
+      sum = sum + gs
+    end
+  end
+  -- losses: wash by the arcs' water share, the rest by each arc's share of the coat
+  local loss = sum - W.coat * n
+  if loss > 1e-9 and sum > 0 then
+    local lw = min(loss, (W.washNow or 0) * n)
+    local p = W.water or 0
+    if lw > 0 and p < 0.99 then
+      local a1 = W.cang or 0
+      local ws = 0
+      for s = 1, n do
+        local d = abs(wrapAngle((s - 0.5) * TWO_PI / n - a1))
+        local wat = clamp((math.pi * p - d) / (TWO_PI / n) + 0.5, 0, 1)
+        wts[s] = wat * b[s]
+        ws = ws + wts[s]
+      end
+      if ws > 0 then
+        for s = 1, n do b[s] = b[s] - min(b[s], lw * wts[s] / ws) end
+        sum = sum - lw
+        loss = loss - lw
+      end
+    end
+    if loss > 1e-9 and sum > 0 then
+      local k = max(0, 1 - loss / sum)
+      for s = 1, n do b[s] = b[s] * k end
+    end
+  end
+  return dropped
 end
 
 -------------------------------------------------------------------------------
@@ -1336,7 +1422,7 @@ function M.setWheelDefs(vid, defs)
   end
   -- tyre layer instead of the skin mesh: only when every tyre material takes one more layer
   V.layer = false
-  if cl.tyreLayer ~= false and V.rubber and #V.rubber > 0 then
+  if cl.tyreLayer ~= false and not shaderCoat() and V.rubber and #V.rubber > 0 then
     V.layer = true
     for _, nm in ipairs(V.rubber) do
       if not (rubber[nm] and rubber[nm].mudIdx) then V.layer = false end
@@ -1356,6 +1442,11 @@ function M.setWheelDefs(vid, defs)
     W.n1, W.n2, W.tread, W.R, W.width = d.n1, d.n2, d.tread, d.R, d.W
     W.tyres = d.tyres or { { o = 0, w = d.W } }
     W.rimR = d.rimR
+    if shaderCoat() then
+      if not W.bins then makeBins(W) end
+    else
+      W.bins, W.binT = nil, nil
+    end
     local ns = nSectors()
     if V.layer and ns == 0 then
       -- no skin: no mesh, skin material or film
@@ -1540,7 +1631,7 @@ function M.preRender(dt)
             W.prevC[1], W.prevC[2], W.prevC[3] = f[1], f[2], f[3]
             -- sectors: where "down" points in the tyre's own frame (the skin's column
             -- angle of the contact patch) and how far it turned since the last coat tick
-            if W.sec then
+            if W.sec or W.bins then
               local a = atan2(-f[12], -f[9])
               if W.cang then W.cacc = (W.cacc or 0) + wrapAngle(a - W.cang) end
               W.cang = a
@@ -1670,7 +1761,8 @@ function M.update(dt)
       if not skipV then for _, W in pairs(V.wheels) do
         if W.valid and (W.coat > 0 or (W.dC or 0) > 0 or now - W.mudT < 0.5 or (W.wet or 0) > 0 or (W.water or 0) > 0
           or (W.rw or 0) > 0) then
-          local dropped = W.sec and updateSectors(W, c, vdt) or updateCoat(W, c, vdt)
+          local dropped = W.sec and updateSectors(W, c, vdt) or W.bins and updateBins(W, c, vdt)
+            or updateCoat(W, c, vdt)
           updateRubberWet(W, c, vdt)
           updateLook(W, c)
           -- drawn coverage follows the coat's at most coverUpRate / coverDownRate per s
@@ -1701,7 +1793,7 @@ function M.update(dt)
           W.sr = 1 + extra / max(0.1, Rv)
           W.sa = 1 + extra / max(0.1, (W.width or 0.3) * 0.5 + 0.05)
           -- chunks from the mud that dropped off (only where the tyre is drawn)
-          if dropped > 0 and (W.visible or V.layer) and not W.far then
+          if dropped > 0 and (W.visible or V.layer or W.ssDraw) and not W.far then
             W.chunkAcc = (W.chunkAcc or 0) + dropped * (c.chunkRate or 10)
             local n = min(3, floor(W.chunkAcc))
             if n > 0 then
@@ -1729,7 +1821,7 @@ function M.update(dt)
         local tstep = W.sec and max(step, c.sectorRefStep or 8) or step
         local cstep, wstep = c.colorStep or 0.03, c.wetStep or 0.1
         for _, T in ipairs(targets) do
-        if T.mat and not W.needMesh and not W.far and inView then
+        if T.mat and not W.needMesh and not W.far and inView and not W.ssDraw then
           local diff = abs(T.wantRef - T.ref)
           -- colour steps of a look fade: at most one per colorFlushGap s per wheel
           local kindChange = T.coat > 0 and (T.matKind ~= lookKind(T)
@@ -1772,7 +1864,8 @@ function M.update(dt)
         -- a wheel waiting for a skin rebuild (other kind: thickness, inset) keeps drawing
         -- its current skin; hiding it made the coat vanish for a moment at every mud/sand
         -- switch. Only a wheel without any skin yet waits hidden.
-        local show = W.valid and not W.far and (not W.needMesh or (W.gv or 0) > 0) and W.obj
+        -- a wheel the tyre shader draws (W.ssDraw, set by the overlay) shows no skin
+        local show = W.valid and not W.far and not W.ssDraw and (not W.needMesh or (W.gv or 0) > 0) and W.obj
           and ((W.wantRef < 255 and W.ref < 255) or (W.filmWet or 0) > 0)
         if show and not W.visible then
           if applyTransform(W) then W.obj:setHidden(false); W.visible = true end

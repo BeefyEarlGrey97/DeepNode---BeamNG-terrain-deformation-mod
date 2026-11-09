@@ -891,19 +891,25 @@ local defaults = {
     -- fullSpin m/s), radius sizeMin..sizeMax m; tinted like the carried mud
     splats = { enabled = true, minSpin = 0.8, perSpin = 1.2, maxPerSec = 6, reach = 3, fullSpin = 6,
                sizeMin = 0.08, sizeMax = 0.3, color = { 0.12, 0.105, 0.09 }, gain = 0.45, opacity = 0.85 },
-    -- wet tyres (screen-space): wheels within tyreRange m, nearest tyreMaxWheels (shader limit 16)
+    -- wet tyres (screen-space): wheels within tyreRange m, nearest tyreMaxWheels (shader limit 32)
     tyres = true,
     tyreRange = 40,
-    tyreMaxWheels = 16,
+    tyreMaxWheels = 32,
     tyreWetDarken = 0.35,
     tyreAlbedo = 0.06,      -- tyre albedo guess: light level for highlight / coat = scene / this
     tyreHighlight = 1.0,
     tyreMudWet = 0.7,       -- wetness of a fresh mud coat
     tyreMudDry = 25,        -- s: a mud coat's sheen fades after leaving the mud
-    tyreCoat = false,       -- draw the tyre mud coat in the shader too (tyre mud meshes stay)
-    tyreCoatLump = 0.03,    -- m lump size of that coat
+    -- Tyre mud coat drawn by the tyre shader (wheelMud keeps 32 arcs round each tyre: the coat
+    -- starts at the contact patch, creeps round as the tyre rolls, thickens per pass). Wheels
+    -- it draws show no skin mesh and need no material flushes; the clods.tyreLayer is off.
+    tyreCoat = true,
+    tyreCoatLump = 0.03,    -- m lump size of a thin coat (lumps grow with the cake)
+    tyreCoatDryLift = 1.3,  -- albedo factor of dried mud over fresh wet mud
+    tyreCoatCracks = 0.6,   -- strength of the crack lines in thick dried mud
     debug = 0,              -- 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask,
-                            -- 5 tyre pixels
+                            -- 5 tyre pixels, 10 tyre coat (r cover, g thickness, b freshness),
+                            -- 11 tyre coat light (r opacity, g engine light x 4, b albedo x 4)
   },
 }
 

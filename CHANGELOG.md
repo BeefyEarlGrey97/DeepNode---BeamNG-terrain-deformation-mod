@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed
+- Tyre mud is drawn by the tyre shader (`overlay.tyreCoat` on by default; MudRunner-style build-up).
+  wheelMud keeps 32 perimeter arcs per wheel (`W.bins`): the wheel's one coat model (kind, colour,
+  loose layer, fling, wash) hands its gain per tick to the arcs that swept through the contact
+  patch (by contact weight x free room) and takes losses by share (wash from the arcs under the
+  water line). A tyre rolling into mud gets a coat that starts at the ground, creeps round as it
+  turns (half a turn = half the tyre) and thickens per pass. tyreWetP.hlsl interpolates the arcs
+  (Catmull-Rom, ragged front from a jittered lookup) against a stick order (tread, shoulders, the
+  sidewall band that sank below the mud = sink depth / sidewall height, blotches to the rim):
+  first pass = translucent stain, then opaque, then a cake that fills the tread (lug relief
+  fades), blob relief + sparse lumps, contact shadow at its edge. Fresh arcs (picked mud in the
+  last `tyreMudDry` s) are darker and wet-glossy, smeared round a fast tyre; dried mud is lighter,
+  thick dried cake cracks (Voronoi edges). Lit like an engine material from the light pack
+  (`#deepnode_roadLit`: diffuse light + sky SH9 x AO): the rubber is no longer the light probe
+  (the Ural's dark rubber made the mud ~5x too dark). Wheels the shader draws (nearest 32 in
+  `tyreRange`) show no skin mesh and need no material flushes; further ones keep the skin with
+  one material. `clods.tyreLayer` is off with it (a shared tyre material cannot show one wheel's
+  perimeter). New: `overlay.tyreCoatDryLift`, `tyreCoatCracks`, debug views 10 / 11;
+  `tyreMaxWheels` 16 -> 32.
+
 ### Fixed
 - Wet tyre prints are left only once the tyre is out of the water, not on the bed under it.
 - Tyre sector coats drew unevenly and late: the flush queue was rebuilt only on coat ticks and

@@ -480,6 +480,17 @@ drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
   upload). Next lever, not done: merge flat 2x2 / 4x4 cell blocks in `emitTileCells` (corners
   dominate createMesh), keeping size classes, road-copy quads and decals intact.
 
+## 30. Shader tyre coat (2026-11-09, test)
+- Checked on the Ural (gridmap_v2 mud pit, 2.5 m/s roll-in, seeded arcs) only. Not benched: it
+  should save the coat material flushes of drawn wheels (BENCHMARK 18: up to +1.4..3.2 fps with
+  4 trucks) but adds 4 float4 constants per wheel (up to 128 setShaderConst a frame) and 32
+  wheel tests per screen pixel. Bench 8 trucks before merging to main.
+- Sand / snow / water arcs untested in game. Mud colour comes from the ground (gridmap pit:
+  beige), so fresh mud there reads light; check on a dark-soil map.
+- No silhouette growth (screen-space: the cake cannot stick out past the tyre outline).
+- `reloadShaders()` does not swap the tyre pass's shader (full GE Lua reload needed).
+- Wheels beyond the 32 nearest / `tyreRange` fall back to the one-material skin (old look).
+
 ## 29. Deeper ruts, tyre sectors (2026-11-09, test)
 - Ural-4320 (uralivannq mod) on gridmap_v2 only. Not benched with 8 trucks: the sectored skin
   costs 8 materials per wheel (48 per 6x6) and up to one flush per frame while coats change,

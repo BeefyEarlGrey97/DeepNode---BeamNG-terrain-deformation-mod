@@ -845,7 +845,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `filmOpacity` | 0.4 | Water film opacity at full wetness (x the streak texture `t_tyrefilm_o`) |
 | `wetFilm` | false | Old water film layer on the tyre skin (replaced by `rubberWet`) |
 | `tyreLayer` | true | Tyre mud drawn as one more layer of the vehicle's own tyre material (SnowRunner-style layer of dirt: coverage masks tread first, the tyre's normal/AO maps stay); off or no free layer: the skin mesh |
-| `sectors` | 8 | Tyre perimeter arcs with their own coat / kind / colour / wetness (skin submesh + material each); arcs in the contact patch pick mud up by rolled distance, arcs under water get wet and washed; 0 = one coat per wheel |
+| `sectors` | 8 | Tyre perimeter arcs with their own coat / kind / colour / wetness (skin submesh + material each); arcs in the contact patch pick mud up by rolled distance, arcs under water get wet and washed; 0 = one coat per wheel. Not used while `overlay.tyreCoat` is on (the shader's 32 arcs replace it; the fallback skin then has one material) |
 | `sectorRefStep` | 8 | Sector coverage thresholds snap to multiples of this (alphaRef): arcs with the same coat change level together |
 | `layerMaxSectors` | 3 | With sectors: highest tyre-layer mask level (the layer is only the dirt on the rubber under the sectored skin) |
 | `layerAoTint` | 0.1 | Tyre layer: the tyre's AO map as colour detail on the mud (lug tops lighter, grooves darker) |
@@ -970,15 +970,17 @@ second pass makes wet / freshly mud-coated tyres darker and glossy. No mesh uplo
 | `overlay.wetTracks` | see config | Tyres wet from water (wetness >= `minWet`) leave dark glossy tracks on hard ground (strength wetness x `perWet`, `darken`), drying patchily over `dryTime` s (< 64: the map stores the paint time mod 64 s; a paint pass every 3 s erases dried texels) |
 | `overlay.splats` | see config | Mud thrown by wheels spinning in mud (MudRunner's terrain mud decals): `enabled`, `minSpin` (m/s slip), `perSpin` (splats per s per m/s), `maxPerSec`, `reach` (m behind the wheel, full at `fullSpin` m/s), `sizeMin`/`sizeMax` (radius m), `color`, `gain`, `opacity`. Thrown only while the paint queue is below a quarter full |
 | `overlay.tyres` | true | Wet tyre pass on/off |
-| `overlay.tyreRange` / `tyreMaxWheels` | 40 / 16 | Wheels within this distance, nearest first (shader limit 16) |
+| `overlay.tyreRange` / `tyreMaxWheels` | 40 / 32 | Wheels within this distance, nearest first (shader limit 32); further wheels fall back to the tyre skin mesh |
 | `overlay.tyreWetDarken` / `tyreHighlight` | 0.35 / 1.0 | Wet tyre darkening / sun highlight |
-| `overlay.tyreAlbedo` | 0.06 | Tyre albedo guess (light level for highlight and coat) |
-| `overlay.tyreMudWet` / `tyreMudDry` | 0.7 / 25 | Wetness of a fresh mud coat / seconds its sheen takes to fade after leaving the mud |
-| `overlay.tyreCoat` / `tyreCoatLump` | false / 0.03 | Also draw the tyre mud coat in the shader (tyre mud meshes stay; step towards dropping them) / lump size (m) |
-| `overlay.debug` | 0 | 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask, 5 tyre pixels, 6 print terms (groove, lip, filters), 7 crumbs, 9 depth below the undisturbed ground |
+| `overlay.tyreAlbedo` | 0.06 | Tyre albedo guess (light level for the wet highlight; the coat uses the engine light pack when `engineLight` is on) |
+| `overlay.tyreMudWet` / `tyreMudDry` | 0.7 / 25 | Wetness of fresh mud / seconds since an arc last picked mud up until it reads dry (per perimeter arc with `tyreCoat`) |
+| `overlay.tyreCoat` / `tyreCoatLump` | true / 0.03 | Tyre mud drawn by the tyre shader from 32 perimeter arcs per wheel (wheelMud `W.bins`): the coat starts at the contact patch, creeps round as the tyre rolls, thickens per pass; drawn wheels show no skin mesh and need no material flushes, `clods.tyreLayer` is off / lump size of a thin coat (m) |
+| `overlay.tyreCoatDryLift` / `tyreCoatCracks` | 1.3 / 0.6 | Albedo factor of dried over fresh mud / crack strength in thick dried cake |
+| `overlay.debug` | 0 | 1 sun term, 2 coverage (red print, blue berm, green carried), 3 shadow mask, 5 tyre pixels, 6 print terms (groove, lip, filters), 7 crumbs, 9 depth below the undisturbed ground, 10 tyre coat (r cover, g thickness, b freshness), 11 tyre coat light (r opacity, g engine light x 4, b albedo x 4) |
 
 `deepnode_overlay.reloadShaders()` recompiles the overlay and tyre shaders (new ShaderData
-objects, prints stay), for shader work. Offline syntax check: copy the game's `shaders/common`
+objects, prints stay), for shader work. 2026-11-09: it did NOT swap the tyre pass's shader (a
+red-output test kept drawing the old one); reload GE Lua for tyre shader edits. Offline syntax check: copy the game's `shaders/common`
 and the mod's `shaders/common/postFx/deepnode` into one tree and run the Windows SDK `dxc.exe
 -T ps_6_0 -E main -D SHADER_STAGE_PS=1 -I <tree> <file>` (the game logs nothing when a post
 effect shader fails to compile; it keeps drawing the old one).

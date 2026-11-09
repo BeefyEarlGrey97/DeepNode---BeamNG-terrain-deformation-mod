@@ -59,7 +59,7 @@ local MAX_QUADS = 32     -- roadStampP.hlsl
 local MAX_KEYS = 240
 local COMMON_PATH = SHADER_DIR .. 'dnCommon.h.hlsl'
 local MAX_SEG = 16
-local MAX_WHEELS = 16
+local MAX_WHEELS = 32
 -- surface kinds stored in the map (rutStampP.hlsl)
 local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT, KIND_GRASS, KIND_DIRT, KIND_WET = 0, 1, 2, 3, 4, 5, 6, 7
 local KIND_PLAIN = 11 -- pre-rutted road wheel line: wet trench floor + pools, no tyre print
@@ -255,7 +255,7 @@ local function makeEffects()
   local ty = effect(FX_TYRE, {
     { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '49' },
     { 'shader', shTyre }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
-    { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', '#sunShadowMask' })
+    { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', '#sunShadowMask', RLIT })
   st:enable(); cp:enable(); ov:enable(); ty:enable()
   setSkip(st, false); setSkip(cp, false); setSkip(ov, true); setSkip(ty, true)
   stampOn, overOn, tyreOn = true, false, false
@@ -716,7 +716,8 @@ end
 -- tyre left the mud (overlay.tyreMudDry s)
 local function tyreWet(W)
   local w = max(W.wet or 0, W.water or 0)
-  if (W.kind or 'mud') == 'mud' and (W.coat or 0) > 0 then
+  -- shader coat: fresh mud is wet per arc (binT), not the whole tyre
+  if (W.kind or 'mud') == 'mud' and (W.coat or 0) > 0 and not (oc.tyreCoat and W.bins) then
     local age = max(0, wheelNow - (W.mudT or -1e9))
     w = max(w, min(1, W.coat * 1.5) * exp(-age / max(1, oc.tyreMudDry)) * oc.tyreMudWet)
   end
@@ -846,11 +847,18 @@ local function onWheel(vid, W)
   -- tyre pass candidates: wet or (screen-space coat) coated wheels near the camera
   local ssCoat = oc.tyreCoat and coat > 0.02
   local wet = oc.tyres and tyreWet(W) or 0
-  if wet < 0.02 and not ssCoat then W.ssFrame = nil; return end
+  if wet < 0.02 and not ssCoat then W.ssFrame, W.ssDraw = nil, nil; return end
   local dx, dy, dz = cx - camX, cy - camY, cz - camZ
   local d2 = dx * dx + dy * dy + dz * dz
-  if d2 > oc.tyreRange * oc.tyreRange then W.ssFrame = nil; return end
+  if d2 > oc.tyreRange * oc.tyreRange then W.ssFrame, W.ssDraw = nil, nil; return end
   W.ssFrame = true
+  -- W.ssDraw: the shader draws this wheel's coat (wheelMud hides its skin); out of view it
+  -- keeps the last answer, so a wheel turning into view shows no skin for a frame
+  if oc.tyreCoat and W.bins then
+    if W.ssDraw == nil then W.ssDraw = true end
+  else
+    W.ssDraw = nil
+  end
   if ctx.pointInView and not ctx.pointInView(cx, cy, cz, W.R) then return end
   candN = candN + 1
   cand[candN] = W
@@ -875,6 +883,36 @@ local function packColor(r, g, b)
   return q6(r) + q6(g) * 64 + q6(b) * 4096
 end
 
+-- the 32 perimeter arcs of a wheel (wheelMud W.bins / W.binT) as 4 float4 for tyreWetP.hlsl:
+-- an arc = coat (7 bits, x coatMax / 127) + 128 x freshness (4 bits: wet fresh mud, fading
+-- over tyreMudDry s since the arc last picked mud up; mud kinds only), two arcs a float
+-- (arc 2k + 2048 x arc 2k+1: 22 bits, exact in a float)
+local sendBins
+do
+local pk = {}
+local PNAME = {}
+for i = 0, MAX_WHEELS - 1 do PNAME[i] = { 'dnWp' .. i .. 'a', 'dnWp' .. i .. 'b', 'dnWp' .. i .. 'c', 'dnWp' .. i .. 'd' } end
+function sendBins(W, i, on)
+  local b, bt = on and W.bins, W.binT
+  local sc = 127 / max(0.01, ctx.cfg.clods.coatMax or 3)
+  local dry = max(1, oc.tyreMudDry)
+  local mud = (W.kind or 'mud') == 'mud'
+  for k = 0, 15 do
+    local v = 0
+    for h = 0, 1 do
+      local s = 2 * k + h + 1
+      local cq = b and floor(min(127, max(0, b[s]) * sc) + 0.5) or 0
+      local fq = 0
+      if b and mud and cq > 0 then fq = floor(15 * exp(-max(0, wheelNow - bt[s]) / dry) + 0.5) end
+      v = v + (cq + 128 * fq) * (h == 0 and 1 or 2048)
+    end
+    pk[k + 1] = v
+  end
+  local nm = PNAME[i]
+  for j = 0, 3 do setConst(FX_TYRE, nm[j + 1], pk[4 * j + 1], pk[4 * j + 2], pk[4 * j + 3], pk[4 * j + 4]) end
+end
+end
+
 local function sendTyres(wm)
   beginConsts(FX_TYRE)
   for k = candN + 1, #order do order[k] = nil end
@@ -888,8 +926,19 @@ local function sendTyres(wm)
     setConst(FX_TYRE, 'dnWb' .. i, f[4], f[5], f[6], hw(W))
     setConst(FX_TYRE, 'dnWc' .. i, f[7], f[8], f[9], W.rimR or W.R * 0.6)
     local cr, cg, cb = wm.coatAlbedo(W)
-    setConst(FX_TYRE, 'dnWd' .. i, W.ovWet or 0, oc.tyreCoat and (W.coat or 0) or 0, packColor(cr, cg, cb),
-      (W.seed or 0) % 97)
+    -- y: sink share of the sidewall (last mud depth / sidewall height, 6 bits: that band
+    -- takes mud like the tread) x 1024 + tread speed x 16 (wet fresh mud smears round a fast tyre)
+    local side = max(0.05, (W.R or 0.5) - (W.rimR or (W.R or 0.5) * 0.6))
+    local imm = floor(min(1, max(0, (W.lastDepth or 0) / side)) * 63 + 0.5)
+    local spd = min(1023, floor(abs(W.omega or 0) * (W.R or 0.5) * 16 + 0.5))
+    setConst(FX_TYRE, 'dnWd' .. i, W.ovWet or 0, imm * 1024 + spd, packColor(cr, cg, cb), (W.seed or 0) % 97)
+    sendBins(W, i, oc.tyreCoat)
+    if W.ssDraw ~= nil then W.ssDraw = true end
+  end
+  -- beyond the shader's wheel count: wheelMud draws their skin
+  for k = n + 1, candN do
+    local W = order[k]
+    if W.ssDraw ~= nil then W.ssDraw = false end
   end
   for k = 1, candN do candD[cand[k]] = nil; cand[k] = nil end
   candN = 0
@@ -1448,7 +1497,7 @@ function M.stop()
   vals = { [FX_STAMP] = {}, [FX_OVER] = {}, [FX_TYRE] = {} }
   win.set = false
   local wm = extensions and extensions.deepnode_wheelMud
-  if wm and wm.eachWheel then wm.eachWheel(function(_, W) W.ssFrame, W.ovCarry = nil, nil end) end
+  if wm and wm.eachWheel then wm.eachWheel(function(_, W) W.ssFrame, W.ovCarry, W.ssDraw = nil, nil, nil end) end
 end
 
 -- recompile the overlay and tyre shaders after an edit (prints in the map stay; new ShaderData
@@ -1579,14 +1628,17 @@ function M.frame()
   if wantTyre ~= tyreOn then setSkip(ty, not wantTyre); tyreOn = wantTyre end
   if wantTyre then
     setConst(FX_TYRE, 'dnSun', sun.x, sun.y, sun.z, oc.ambient)
-    setConst(FX_TYRE, 'dnTy', nt, oc.tyreWetDarken, oc.tyreHighlight, dbg == 5 and 1 or 0)
+    setConst(FX_TYRE, 'dnTy', nt, oc.tyreWetDarken, oc.tyreHighlight, dbg == 5 and 1 or dbg == 10 and 2 or dbg == 11 and 3 or 0)
     setConst(FX_TYRE, 'dnTyOpt', useSh, oc.tyreAlbedo, oc.tyreCoat and 1 or 0, oc.tyreCoatLump)
+    setConst(FX_TYRE, 'dnLit', (oc.engineLight ~= false and find(FX_RLIT)) and 1 or 0, 0, 0, 0)
+    setConst(FX_TYRE, 'dnTyCoat', (ctx.cfg.clods.coatMax or 3) / 127, oc.tyreMudWet, oc.tyreCoatDryLift,
+      oc.tyreCoatCracks)
   end
 
   -- overlay pass: only while the map holds prints (or a debug view is on)
-  local wantOver = anyPrint or (dbg > 0 and dbg ~= 5)
+  local wantOver = anyPrint or (dbg > 0 and dbg ~= 5 and dbg ~= 10 and dbg ~= 11)
   if wantOver ~= overOn then setSkip(ov, not wantOver); overOn = wantOver end
-  litFrame(wantOver or (roadOn and next(rpresent) ~= nil))
+  litFrame(wantOver or wantTyre or (roadOn and next(rpresent) ~= nil))
   if not wantOver then return end
   -- engine light pack for the relight (oc.engineLight false: the old estimates)
   setConst(FX_OVER, 'dnLit', (oc.engineLight ~= false and rlitOn) and 1 or 0, 0, 0, 0)
