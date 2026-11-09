@@ -219,6 +219,18 @@ function M.markDirty(sk, urgent)
   end
 end
 
+-- Whether sector sk may draw anything for tile key: false only when its shown build drew
+-- nothing there and no build of it is running (terrain-first: an untouched tile is drawn
+-- by the terrain, so its first rut needs no sector rebuild to show)
+function M.drawsTile(sk, key)
+  local sec = sectors[sk]
+  if not sec then return false end
+  if job and job.sec == sec then return true end
+  if not sec.built then return false end
+  if not sec.drew then return sec.obj ~= nil end
+  return sec.drew[key] == true
+end
+
 function M.markAllDirty()
   for _, sec in pairs(sectors) do sec.dirty = true end
 end
@@ -303,6 +315,7 @@ local function buildBody(j)
       local key = ty * KEY + tx
       if not j.exclude[key] then
         local t = main.tiles[key]
+        local nv0 = b:vertexCount()
         t_m.recReset()
         if t and (t.state == 'frozen' or t.rutted) then
           -- an undug pre-rutted road tile (main.pinPreTile) on a coarser grid: 541 of them on
@@ -320,6 +333,7 @@ local function buildBody(j)
         if dec then dec.overlay(b, true, key) end
         local rcp = extensions and extensions.deepnode_roadCopy
         if rcp and rcp.isEnabled() then rcp.emit(b, key, main.N) end
+        if b:vertexCount() > nv0 then j.drew[key] = true end
       end
       if j.check() then coroutine.yield() end
     end
@@ -329,7 +343,7 @@ end
 
 local function startBuild(sec, sync)
   local b = table.remove(freeBuilders) or tm().newBuilder()
-  local j = { sec = sec, builder = b, snapshot = sec.handovers, exclude = {}, frames = 0, timer = newTimer(),
+  local j = { sec = sec, builder = b, snapshot = sec.handovers, exclude = {}, drew = {}, frames = 0, timer = newTimer(),
     urgentSince = sec.urgentSince }
   sec.urgentSince = nil
   sec.handovers = {}
@@ -380,6 +394,7 @@ local function finishBuild(j, meshes, failed)
         if t then t.secOut = j.exclude[ty * KEY + tx] == true end
       end
     end
+    sec.drew = j.drew
     sec.built = true
     sec.lastBuildT = os.clock()
     if j.urgentSince then

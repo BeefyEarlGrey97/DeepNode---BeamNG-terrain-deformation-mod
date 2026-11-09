@@ -1037,7 +1037,7 @@ effect shader fails to compile; it keeps drawing the old one).
 
 ## Sector auto size (2026-10-27)
 
-- `sectors.autoSize` (true): choose the sector size at start from the map's meshed soft area (soft kinds whose heavy floor lift is below their sink depth, plus zones in vanilla mode), so that a camera in the biggest region sees at most `sectors.autoMaxObjects` (200) sectors within `sectors.loadRadius`. Clamped between `sectors.tiles` (minimum, GUI "Sector size") and `sectors.autoMaxTiles` (8). The choice is logged (`sector size: ...`).
+- `sectors.autoSize` (true): choose the sector size at start from the map's meshed soft area (soft kinds whose heavy floor lift is below their sink depth, soft clusters drawn low near grass, plus zones in vanilla mode), so that a camera in the biggest region sees at most `sectors.autoMaxObjects` (50) sectors within `sectors.loadRadius`. Clamped between `sectors.tiles` (minimum, GUI "Sector size") and `sectors.autoMaxTiles` (8). The choice is logged (`sector size: ...`).
 
 ## Bearing sinkage (`stamp.bearing`, 2026-11-08)
 

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- Sector auto-size counts the soft ground the sink pass draws low near grass
+  (`physics.heavy.grassLowDraw`): it is meshed, but counted as 0 m2, so johnson_valley kept 10 m
+  sectors (~150-230 shown objects). `sectors.autoMaxObjects` 200 -> 50, sizing moved after the
+  physics start. johnson_valley now 21 m sectors: fullsuv circling the mud zones at 40-55 km/h,
+  fresh ground, 4 interleaved runs each: 81.7 vs 76.5 fps, RenderShadows -0.35 ms, Lua -0.4 ms,
+  same urgent sector wait (0.29-0.34 s). Same geometry, only fewer objects.
+- A tile's first rut no longer forces an urgent sector rebuild when that sector drew nothing
+  for the tile (terrain-first ground: the terrain draws untouched squares).
+
 ## [0.8.0] — 2026-11-09 — road shader, liquid mud, shader tyre coat, SnowRunner ruts
 
 ### Changed

@@ -2652,33 +2652,45 @@ end
 -- Meshed soft area of the map (m2): soft ground the mod draws a surface over. With the heavy
 -- rut floor at full lift (terrain-first) undisturbed ground is the terrain itself and needs no
 -- sector mesh, so only kinds whose floor lift is below their sink depth count (sand by default;
--- every kind with vanilla physics). Sampled on a grid of at most 1024 x 1024 vertices.
+-- every kind with vanilla physics), plus soft clusters near grass that the sink pass draws
+-- low (physics.heavy.grassLowDraw: the mesh draws them, measured on the johnson_valley zones:
+-- area 0 -> 10 m sectors, 21 m sectors there gave +5 fps at 50 km/h). Sampled on a grid of
+-- at most 1024 x 1024 vertices. Needs the physics module started (lowDrawCluster).
 function P.meshedSoftArea()
   local sq = ter.sq
   local h = cfg.physics and cfg.physics.mode == 'heavy' and cfg.physics.heavy
+  local ph = P.mod('physics')
+  local low = ph and ph.lowDrawCluster and ph.floorOn and ph.floorOn() and ph.lowDrawCluster or nil
   local function meshed(kind, depth)
     if not h or ter.K > 1 then return true end
     local l = tonumber(h.floorLift and h.floorLift[kind]) or 0
     return l < depth - 1e-3
   end
-  local meshedIdx = {}
+  local meshedIdx, softIdx = {}, {}
   for e, L in pairs(layers) do
-    if L.soft and meshed(L.kind, L.sinkDepth or 0) then meshedIdx[e] = true end
+    if L.soft then
+      softIdx[e] = true
+      if meshed(L.kind, L.sinkDepth or 0) then meshedIdx[e] = true end
+    end
   end
   -- the region (the whole map on small maps)
   local step = max(1, floor(max(regW, regY1 - regY0 + 1) / 1024))
   local n = 0
-  if next(meshedIdx) then
+  if next(meshedIdx) or (low and next(softIdx)) then
     for gy = regY0, regY1, step do
       for gx = regX0, regX1, step do
-        if distAt(gx, gy) > TOUCH and meshedIdx[layerAt(gx, gy)] then n = n + 1 end
+        if distAt(gx, gy) > TOUCH then
+          local e = layerAt(gx, gy)
+          if meshedIdx[e] or (low and softIdx[e] and low(gx, gy)) then n = n + 1 end
+        end
       end
     end
   end
   local area = n * (step * sq) ^ 2
   -- zones are mud
   for _, z in ipairs(zones) do
-    if meshed('mud', z.depth or 0.3) then
+    if meshed('mud', z.depth or 0.3)
+      or (low and low(floor((z.x - ter.ox) / sq), floor((z.y - ter.oy) / sq))) then
       area = area + ((z.kind == 'rect') and 4 * z.hx * z.hy or math.pi * z.r * z.r)
     end
   end
@@ -2694,7 +2706,7 @@ function P.autoSectorTiles(minTiles)
   local area = P.meshedSoftArea()
   local R = sc.loadRadius or 100
   local inView = min(area, math.pi * R * R)
-  local side = sqrt(inView / max(10, sc.autoMaxObjects or 200))
+  local side = sqrt(inView / max(10, sc.autoMaxObjects or 50))
   local sec = clamp(math.ceil(side / TILE), minTiles, max(minTiles, sc.autoMaxTiles or 8))
   P.stats.meshedSoftArea, P.stats.sectorTiles = area, sec
   log('I', logTag, sfmt('sector size: %d tiles (%.0f m) for %.0f m2 meshed soft ground, %.0f m2 in view at %.0f m',
@@ -6918,7 +6930,12 @@ function P.rebuildTiles()
         if t.ndsq and t.ndsq > 0 then tclear(t.dsq); t.ndsq = 0 end
         -- ruts under a sector that still draws this tile's old surface 1.5 cm above them
         -- stay hidden: that sector rebuild cannot wait (secOut: set by the sector build)
-        if hadMesh and t.rutted and not t.secOut and fm then fm.markDirty(P.sectorKeyOfTile(t.tx, t.ty), true) end
+        -- (none when that sector draws nothing here: measured ~9 needless sector uploads/s
+        -- at 45 km/h on fresh JV ground, every first rut of a tile)
+        if hadMesh and t.rutted and not t.secOut and fm then
+          local sk = P.sectorKeyOfTile(t.tx, t.ty)
+          if not fm.drawsTile or fm.drawsTile(sk, t.key) then fm.markDirty(sk, true) end
+        end
         t.dirty = false
         t.stampDirty, t.liqDirty = nil, nil
         t.lastBuild = simTime
@@ -7544,8 +7561,6 @@ function P.start()
   P.startCommitMB = nil -- process growth is measured from here (debug tab)
   P.compact = {}
   P.loadZones()
-  -- sector size from the map's meshed soft ground (zones included), before the sink pass
-  if cfg.sectors.autoSize then SEC = P.autoSectorTiles(SEC); M.sec = SEC end
   if not anySoft and #zones == 0 then
     log('I', logTag, 'level has no soft layers matching ' .. table.concat(cfg.softMatch, ', ') .. ' and no zones')
   end
@@ -7569,6 +7584,9 @@ function P.start()
 
   local ph = P.mod('physics')
   if ph then ph.start(M, layers) end
+  -- sector size from the map's meshed soft ground (zones included), before the sink pass
+  -- and after the physics start (its low-draw clusters are meshed too)
+  if cfg.sectors.autoSize then SEC = P.autoSectorTiles(SEC); M.sec = SEC end
   -- decal roads on soft ground as ruts from the start, before the sink pass (it lowers
   -- the terrain under their dips)
   P.pre, preV, preDip, preOff = nil, nil, nil, nil

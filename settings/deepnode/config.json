@@ -157,7 +157,7 @@
     "catchUpBudgetMs": 3.0,
     "nearRadius": 40,
     "autoSize": true,
-    "autoMaxObjects": 200,
+    "autoMaxObjects": 50,
     "autoMaxTiles": 8
   },
   "stamp": {

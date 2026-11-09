@@ -553,3 +553,26 @@ ms, of it createMesh 3.7-4.3; RenderShadows +2.5-3 ms first-draw cost; Lua 8-9 m
 33 ms in the final runs. After the last reload `PreRender` sat at ~0.95 ms (0.19 in the runs
 before); toggling the road passes, the GUI and tileClasses live did not change it: not explained.
 
+
+## 23. High speed, one vehicle, johnson_valley (2026-11-09, test)
+
+Player fullsuv on its own 100 m circle in the JV mud zones (dntestCircles, 90 km/h asked, 40-55
+km/h reached: it bogs in the 0.35 m zones), orbit cam following, vsync / limiter off, 30 s per
+run, every run on a fresh circle (zone centres C1..C4) after `reloadLevelData`, per-frame
+`dnFrameMet` + `dntestProf`. Scratch harness: hs.py / sec.py (session scratchpad).
+
+| variant | fps runs | mean |
+|---|---|---|
+| mod off (`deepnode_main.stop()`) | 157 | 157 |
+| sectors 2 tiles (10 m, old auto-size) | 76.7 / 74.1 / 77.2 / 77.9 | 76.5 |
+| sectors 4 tiles (21 m) | 82.5 / 82.9 / 80.6 / 80.7 | 81.7 |
+| new auto-size (picks 4), runs 2-3 after reload | 81.4 / 81.9 | 81.7 |
+
+Where the mod's ~7 ms per frame go at speed (sectors 2): uploads ~1.3 ms Lua (createMesh), mod
+Lua ~0.8 ms, tyre mud ~1.4 ms (clods off: 75 -> 85 fps), overlay ~0.3 ms, and ~4 ms engine
+render / shadow / reflection cost that is there in frames WITHOUT an upload too (no-upload frames
+14.1 ms vs 6.4 ms mod off): the shown mud objects. The whole zone is meshed (grass low-draw marks
+every vertex there), so sector loading follows the car: ~10 new sector uploads/s plus ~45 dig
+uploads/s. The GUI window open or closed: no difference.
+Not movable to other threads: createMesh and the render cost are main-thread engine work; the
+Lua parts the vehicle VMs could take (stamping, reports) are ~0.2 ms.
