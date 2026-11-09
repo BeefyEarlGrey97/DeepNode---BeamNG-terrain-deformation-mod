@@ -23,6 +23,11 @@
   `tyreMaxWheels` 16 -> 32.
 
 ### Fixed
+- Road shader on sand (`roads.mode` 'shader', johnson_valley): the ground's detail normals
+  (sand ripples) showed through every road; the engine's decal replaces them in the G-buffer.
+  The relight pass now reads the G-buffer normal (`#prepass[RT0]`) and blends it towards the
+  road's normal by opacity, and runs for every road key (also those without a normal map).
+  JV `m_dirt_road`, one material: luminance std 16.0 vs engine 16.5 vs old shader 20.2.
 - Wet tyre prints are left only once the tyre is out of the water, not on the bed under it.
 - Tyre sector coats drew unevenly and late: the flush queue was rebuilt only on coat ticks and
   cleared every frame (~10-20 flushes/s for 48 arc materials, levels stuck 2.5 s, arcs up to 3

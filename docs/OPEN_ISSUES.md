@@ -358,6 +358,11 @@ Open:
   full stack shows crisp holes in the mud layers where the cream water shows through; the shader
   draws the layers softer. Not found why (alphaTest clips at opacity - alphaRef, ref 0 there).
 - `relief` 0.5 from one contrast measurement (mud_large spread: 1.0 = 26.6, engine 22.4, none 21.1).
+- 2026-11-09 johnson_valley sand: ripples under the roads fixed (relight from the G-buffer
+  normal). Still per material 1-4 levels darker than the engine on the road (variation_02 -5 vs
+  -1, tiretracks -2.6 vs -1, dirt_road -2.5 vs 0; off road identical), more at a distance:
+  suspect the engine's roughness blend (specular light buffer) and detail normal maps
+  (`detailNormalMap`, strength 5 on variation_02), neither drawn by the shader.
 - Light triangular wedges seen in the full stack (top of the pit view), not explained; not layer
   overflow (same with `layers` 8).
 - Road ends clip at the map texels (37.5 cm) where a road has no `startEndFade`.

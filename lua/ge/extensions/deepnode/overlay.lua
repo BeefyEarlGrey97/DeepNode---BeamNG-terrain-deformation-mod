@@ -1247,14 +1247,16 @@ local function makeRoadEffects()
   rstampOn = true
   rdrawOn = {}
   for key, m in ipairs(rkeys) do
-    for _, rl in ipairs(m.nrm ~= '' and { false, true } or { false }) do
+    -- relight for every key: a decal without a normal map still writes its flat normal into
+    -- the G-buffer (the ground's detail normals fade under it)
+    for _, rl in ipairs({ false, true }) do
       local name = drawName(key, rl)
       callbacks(name)
       local fx = effect(name, {
         { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' },
         { 'renderPriority', sfmt('%.3f', 56.9 - key * 0.02 - (rl and 0.01 or 0)) },
         { 'shader', shD }, { 'stateBlock', rl and SB_RMUL or SB_RDRAW }, { 'target', '$backBuffer' } },
-        { '#prepass[Depth]', RTARGET, RLIT, rl and m.nrm or m.col, m.opa, rl and '' or m.ao })
+        { '#prepass[Depth]', RTARGET, RLIT, rl and m.nrm or m.col, m.opa, rl and '#prepass[RT0]' or m.ao })
       fx:enable()
       setSkip(fx, true)
       rdrawOn[name] = false
@@ -1391,7 +1393,7 @@ local function roadFrame()
         beginConsts(name)
         setConst(name, 'dnWin', rwin.x0, rwin.y0, rwin.span, W)
         setConst(name, 'dnZ', rwin.z, rc.zAbove or 0.12, rc.zBelow or 1.5, L)
-        setConst(name, 'dnPass', key, mt.opa ~= '' and 1 or 0, (rc.normalStrength or 1) * mt.nstr, dbg)
+        setConst(name, 'dnPass', key, mt.opa ~= '' and 1 or 0, mt.nrm ~= '' and (rc.normalStrength or 1) * mt.nstr or 0, dbg)
         local tn = dbg == 3 and rc.debugAlbedo or mt.tint
         setConst(name, 'dnTint', tn[1], tn[2], tn[3], mt.tint[4])
         setConst(name, 'dnMat', mt.met, mt.rough, rc.relief or 1, rc.alphaGain or 1)

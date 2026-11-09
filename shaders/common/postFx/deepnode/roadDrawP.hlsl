@@ -10,10 +10,13 @@
 //    with the engine's own diffuse light buffer and screen AO (packed into #deepnode_roadLit by
 //    roadLitP.hlsl, a < 0 = inside a vehicle box) and its sky SH9 (ambientSH9, set by the engine for every
 //    post effect). Measured: the material AO maps matter (mud_water's averages 0.21).
-//  * relight (dnLook.z 1): normal and opacity maps in slots 3-4; multiplies the scene (the road
-//    and everything under it) by the light of the normal blended towards the road's normal by
-//    its opacity over the light of the ground normal. The engine blends decal normals into the
-//    G-buffer before lighting, so a decal's relief shows on the ground under it as well.
+//  * relight (dnLook.z 1): normal and opacity maps in slots 3-4, the G-buffer normals
+//    (#prepass[RT0]) in slot 5; multiplies the scene (the road and everything under it) by the
+//    light of the ground's G-buffer normal blended towards the road's normal by its opacity over
+//    the light of the G-buffer normal. The engine blends decal normals into the G-buffer before
+//    lighting, so a decal's relief shows on the ground under it and the ground's own detail
+//    normals (sand ripples) fade out under it (2026-11-09: blending from the depth-derived
+//    normal kept the ripples on johnson_valley's sand).
 // A post effect has six texture slots: colour, opacity, normal and AO maps do not fit one pass.
 // Only on surfaces at or below the road's own height (the ground before the ruts) plus a
 // tolerance (not on kerbs), not on steep faces, not on vehicles (tyres and bodies marked by
@@ -30,7 +33,7 @@ uniform_sampler2D(roadMap, 1);
 uniform_sampler2D(litTex, 2);
 uniform_sampler2D(mapTex3, 3); // colour map (colour pass) / normal map (relight pass)
 uniform_sampler2D(opaTex, 4);
-uniform_sampler2D(aoTex, 5);   // material AO map (colour pass)
+uniform_sampler2D(aoTex, 5);   // material AO map (colour pass) / G-buffer normals (relight pass)
 
 #define DN_MAXL 8
 
@@ -126,10 +129,21 @@ float4 mainP(PFXVertToPix IN) : SV_Target
 
     bool relight = dnLook.z > 0.5;
     float3 Lg = lit.rgb + evalSHIrradiance(sh, ng) * lit.a;   // light of the ground (normal ng)
-    float sg = saturate(dot(ng, sunDirection));
     float3 accC = 0;
     float accA = 0;
-    float3 accM = 1;
+    // relight: the G-buffer normal (with the ground's detail normals) blended layer by layer
+    // towards the road's normal; the sun part of the light buffer scaled by N.L
+    float3 nB = ng;
+    float ndlG = 0, ndlB = 0;
+    if (relight) {
+        uint gw, gh;
+        aoTexTex.GetDimensions(gw, gh);
+        nB = decodeNormalXY(aoTexTex.Load(int3(IN.uv0 * float2(gw, gh), 0)).xy);
+        ndlG = saturate(dot(nB, sunDirection));
+        ndlB = ndlG;
+        Lg = lit.rgb + evalSHIrradiance(sh, nB) * lit.a;
+    }
+    float3 nG = nB;
     [unroll] for (int k = 0; k < DN_MAXL; k++) {
         if (k < nh) {
             int j = hit[k];
@@ -157,12 +171,10 @@ float4 mainP(PFXVertToPix IN) : SV_Target
                     float2 nm = (m3.rg * 2.0 - 1.0) * dnPass.z;
                     float2 Tu = t1.rg / max(length(t1.rg), 1e-6);
                     float2 Tv = t1.ba / max(length(t1.ba), 1e-6);
-                    float3 nr = normalize(ng + float3(nm.x * Tu + nm.y * Tv, 0.0) * saturate(ng.z));
-                    float3 nb = normalize(lerp(ng, nr, alpha * dnMat.z));
-                    float sb = saturate(dot(nb, sunDirection));
-                    float ratio = sg > 0.02 ? clamp(sb / sg, 0.3, 2.0) : 1.0;
-                    float3 Lb = lit.rgb * ratio + evalSHIrradiance(sh, nb) * lit.a;
-                    accM *= clamp(Lb / max(Lg, 1e-4), 0.3, 2.0);
+                    // dnMat.z (relief) scales the road's normal map
+                    float3 nr = normalize(ng + float3(nm.x * Tu + nm.y * Tv, 0.0) * saturate(ng.z) * dnMat.z);
+                    nB = normalize(lerp(nB, nr, alpha));
+                    ndlB = lerp(ndlB, saturate(dot(nr, sunDirection)), alpha);
                 } else if (alpha > 0.002) {
                     float3 alb = m3.rgb * dnTint.rgb;
                     float ao = dnLook.w > 0.5 ? sampleAniso(aoTexTex, aoTex_sampler_, tc, gx, gy).r : 1.0;
@@ -194,7 +206,12 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     }
     // relight: multiplies the scene (blend dest colour x source)
     if (relight) {
-        if (all(abs(accM - 1.0) < 0.002) || dbg > 0) discard;
+        if (dbg > 0) discard;
+        // sun light at this pixel on a face towards the sun (as rutOverlayP.hlsl)
+        float3 sunE = lit.rgb / max(ndlG, 0.1);
+        float3 Lb = lit.rgb + sunE * (ndlB - ndlG) + evalSHIrradiance(sh, nB) * lit.a;
+        float3 accM = clamp(Lb / max(Lg, 1e-4), 0.3, 2.0);
+        if (all(abs(accM - 1.0) < 0.002)) discard;
         return float4(accM, 1);
     }
     if (accA <= 0.002) discard;
