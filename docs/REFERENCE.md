@@ -657,7 +657,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `inViewTarget` / `outViewTarget` | 0.3 / 1.5 | Target latency (s) of a waiting rebuild in / out of the camera view: the queue serves the earliest deadline first after fresh rut fronts |
 | `outViewMaxDefer` | 4 | Deepening of a meshed tile out of view waits until it comes into view, at most this long (s; config.json 1) |
 | `bodyFreshHz` / `bodyFreshDist` | 20 / 20 | A fresh rut front in view under the vehicle body (front axle inside the footprint box) skips `bodyMaxWait` and rebuilds at this rate within this many m of the camera; 0 Hz = wait |
-| `digMaxPerFrame` | 6 | Rut-front (dig) tile uploads per frame at most; the rest go next frame. 16 made 20-50 ms frames between 10 ms ones (low1 27 vs 31, 4 trucks); 4 = +2 fps, front lag +20 ms |
+| `digMaxPerFrame` | 3 | Rut-front (dig) tile uploads per frame at most; the rest go next frame. 16 made 20-50 ms frames between 10 ms ones (low1 27 vs 31, 4 trucks); 4 = +2 fps, front lag +20 ms; 3 (8 trucks): +1.4 fps, low1 +3.9, no frames over 45 ms, rut lag +45 ms |
 | `deepenFast` | true | Ruts deepened in view by the axles behind (within `digNearDist`) take the fresh-front fast path instead of the shared budget |
 | `ownMeshRadius` | 3 | Untouched tiles this close to a footprint box get their own mesh ahead of the wheels |
 | `maxMeshBuildsPerSec` | 40 | Tile + sector mesh replaces per second at most (config.json 400; the kept collision memory is returned by collision compaction) |
@@ -790,10 +790,10 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `enabled` | true | Mud on tyres |
 | `texDir`, `texBase` | decal-road mud set | Mud texture where a layer has no texture of its own |
 | `coatMax` | 3.0 | Highest coat; 0..1 sets how much of the tyre is covered, 1..coatMax how thick |
-| `buildPerMeter` | 0.01 | Coat picked up per metre the tread rolls through mud (Percheron at 18 km/h: coverage ~0.6 after 7 s) |
+| `buildPerMeter` | 0.02 | Coat picked up per metre the tread rolls through mud (Percheron at 18 km/h: coverage ~0.6 after 7 s) |
 | `buildSpinGain` | 0.5 | Extra pick-up per m/s of wheel spin (at most x3) |
-| `looseShare` | 0.55 | Share of the coat that is loose while in mud |
-| `looseShedPerMeter` | 0.1 | Loose coat lost per metre after leaving the mud |
+| `looseShare` | 0.3 | Share of the coat that is loose while in mud |
+| `looseShedPerMeter` | 0.04 | Loose coat lost per metre after leaving the mud |
 | `packTime` | 6 | Seconds for the loose layer to pack down after leaving the mud |
 | `cleanDelay` | 1.0 | Time out of the mud before the tyre starts to clean |
 | `cleanPerMeter` | 0.02 | Packed coat lost per metre (times the coat below 1) |
@@ -846,6 +846,9 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `wetFilm` | false | Old water film layer on the tyre skin (replaced by `rubberWet`) |
 | `tyreLayer` | true | Tyre mud drawn as one more layer of the vehicle's own tyre material (SnowRunner-style layer of dirt: coverage masks tread first, the tyre's normal/AO maps stay); off or no free layer: the skin mesh |
 | `sectors` | 8 | Tyre perimeter arcs with their own coat / kind / colour / wetness (skin submesh + material each); arcs in the contact patch pick mud up by rolled distance, arcs under water get wet and washed; 0 = one coat per wheel |
+| `sectorRefStep` | 24 | Sector coverage thresholds snap to multiples of this (alphaRef): arcs with the same coat change level together |
+| `sectorColorStep`, `sectorWetStep` | 0.08, 0.25 | Sector colour / wetness change that flushes on its own (smaller drift rides along with coverage steps) |
+| `maxFlushPerSec` | 15 | Tyre material flushes per second for wheels beyond `lodNearDist` (a flush every frame cost ~0.8 ms plus ~1.5 ms engine ticking with 8 trucks); near wheels are not capped |
 | `layerMaxSectors` | 3 | With sectors: highest tyre-layer mask level (the layer is only the dirt on the rubber under the sectored skin) |
 | `layerAoTint` | 0.1 | Tyre layer: the tyre's AO map as colour detail on the mud (lug tops lighter, grooves darker) |
 | `rubberWet` | true | Wet tyres: the vehicle's own tyre materials (name contains tire/tyre) get lower roughness and a darker colour |

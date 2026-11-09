@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed
+- Wet tyre prints are left only once the tyre is out of the water, not on the bed under it.
+- Tyre sector coats drew unevenly and late: the flush queue was rebuilt only on coat ticks and
+  cleared every frame (~10-20 flushes/s for 48 arc materials, levels stuck 2.5 s, arcs up to 3
+  levels apart). The queue now persists, a busy budget lets the longest-waiting entry go, the
+  other arcs of a just-flushed wheel go next, and arc thresholds snap to shared levels
+  (`sectorRefStep` 24): all arcs of a wheel stay within one level and step every ~0.5 s.
+- Coat lost half of itself in the first metres out of the mud (loose share 0.55 -> 0.3, shed per
+  metre 0.1 -> 0.04); build-up faster (buildPerMeter 0.01 -> 0.02): coverage 0.92 stays 0.92.
+
+### Performance (8 Percherons, gridmap_v2, interleaved, run 2)
+- 31.7 -> 34.0 fps, low1 18.3 -> 22.3-24.1, frames over 45 ms 93 -> 0 per run, GE Lua 13.3 ->
+  10.7 ms; rut lag 0.105 -> 0.13-0.15 s. Changes: dig uploads per frame 6 -> 3; vehicle reports
+  on a per-vehicle phase (trucks reset together reported in one frame, ~4 ms bursts); tyre layer
+  with sectors only on/off (each shared tyre material reload is 18-21 ms with 8 trucks); flush
+  cap `maxFlushPerSec` 15 for wheels beyond lodNearDist (Ticking 2.7 -> 1.2 ms).
+
 ### Changed
 - Deeper ruts that keep a torn structure (Ural-4320 6x6, gridmap_v2 mud, 3.5 m/s): mud Bekker
   moduli kc 2000 -> 800, kphi 250000 -> 90000, sand 30000 / 2.6e6 -> 20000 / 1.6e6; sink depth

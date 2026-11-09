@@ -508,3 +508,21 @@ reload frames 16-17 ms each (8 trucks share the tyre material) also carried 4-11
 uploads (28-37 ms frames); reloads per run 18 -> 7 (requests coalesce while waiting up to 1 s).
 Interleaved with HEAD: fps 36.1 / 36.4 vs 35.7 / 37.5, low1 23.9 / 24.7 vs 22.6 / 23.3, rut lag
 0.134 vs 0.112-0.131 (same band).
+
+## 21. Tyre sectors and stutter, 8 trucks (2026-11-09, test)
+
+gridmap_v2, 8 Percherons (`gridmap_setup.lua`), orbit cam yaw 160 / pitch 14 / 16 m, user GUI
+settings, vsync off, limiter 240, `bench2.py <label> 2 clear`, run 2. Frame histogram from one more
+run with the spike logger (frames over 45 ms per run).
+
+| variant | fps | low1 | >45 ms | rut lag / front s | notes |
+|---|---|---|---|---|---|
+| 522dbe6 (sectors, dig 6) | 30.5 / 31.7 | 17.4 / 18.3 | 93-121 | 0.105 / 0.12 | Lua 13.3-18 ms |
+| sectors 0 (tyre layer only) | 33.5-34.3 | 20.0-20.7 | - | 0.10 | sector skins + flushes cost ~2.4 fps |
+| dig 6 -> 3 | 32.5 -> 33.7 / 34.0 | 18.4 -> 22.3 | 97-121 -> 0 | 0.10 -> 0.15 | |
+| final (dig 3, report phases, layer on/off, flush cap) | 34.0 / 34.0 / 33.6 | 22.3 / 22.8 / 24.1 | 0 | 0.13-0.16 | Lua 10.5-10.9, Ticking 1.2 |
+
+Findings: a material flush every frame (sector queue never empty) cost ~0.8 ms in Lua plus
+~1.5 ms in engine `Ticking`; a skin LOD (one submesh far away, coarse mesh) gained nothing and
+re-uploaded skins at every distance crossing (removed). Frames still alternate ~14 ms (no uploads)
+and 30-42 ms (dig upload frames): the per-upload engine cost dominates the rest.

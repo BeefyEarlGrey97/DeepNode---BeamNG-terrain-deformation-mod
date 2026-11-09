@@ -993,7 +993,7 @@ local function makeSectors(W, n)
     -- false (not nil) shadows the wheel's own fields a sector must never use
     local S = setmetatable({ s = s, dkind = false, dcol = false, film = false, filmDue = false,
       ref = 255, flushT = -huge, cap = W.cap or 3, mat = false, matName = false, matTex = false,
-      matKind = false, matCol = false, matWet = 0, listN = 0, matDirty = false }, mt)
+      matKind = false, matCol = false, matWet = 0, pend = false, matDirty = false, near = false }, mt)
     resetSector(S, W)
     sec[s] = S
   end
@@ -1275,7 +1275,11 @@ local function rubberPass(c, t_m)
       local col = wetColor(W, wheelColor(W))
       -- with sectored skins the layer is only the dirt on the rubber under them
       local kmax = W.sec and (c.layerMaxSectors or 3) or LAYER_K
-      mud = { k = min(layerLevel(W.dC), kmax), col = colorString(col), rough = wetRoughness(W, K), c3 = col, wet = W.wet or 0 }
+      -- with sectors the layer is on (kmax) or off: each reload of a shared tyre material
+      -- took 18-21 ms with 8 trucks (the sectors carry the coat's level and colour)
+      local k = layerLevel(W.dC)
+      if W.sec then k = k > 0 and kmax or 0 end
+      mud = { k = min(k, kmax), col = colorString(col), rough = wetRoughness(W, K), c3 = col, wet = W.wet or 0 }
       local a = R.mud
       -- a reload of a tyre material costs ~8 ms (every mesh of every vehicle using it,
       -- 4 Percherons): layer changes at most once per layerGap s, the first coat at once
@@ -1286,7 +1290,7 @@ local function rubberPass(c, t_m)
         -- wait
       elseif mud.k ~= a.k then
         score = max(score, 1 + abs(mud.k - a.k) * 0.1)
-      elseif colorDiff(mud.c3, a.c3) >= (c.colorStep or 0.03) or abs(mud.wet - a.wet) >= (c.wetStep or 0.1) then
+      elseif not W.sec and (colorDiff(mud.c3, a.c3) >= (c.colorStep or 0.03) or abs(mud.wet - a.wet) >= (c.wetStep or 0.1)) then
         score = max(score, 0.5)
       end
     elseif R.mudOn then
@@ -1630,6 +1634,8 @@ end
 
 local flushList = {}
 local one = {}
+local flushTokens = 0
+local lastFlushW = nil -- wheel of the last sector flush: its other arcs go next
 local updN = 0
 function M.update(dt)
   if not ctx or not enabled or not ctx.cfg.clods.enabled then return end
@@ -1637,7 +1643,9 @@ function M.update(dt)
   now = ctx.simTime()
   local c = ctx.cfg.clods
   local t_m = tm()
-  local nFlush = 0
+  -- the flush queue persists between frames (entries are added on coat ticks, flushed on
+  -- any frame); T.pend marks a queued wheel or sector
+  local nFlush = #flushList
   local meshW = nil
   for vid, V in pairs(vehs) do
     local veh = getObjectByID(vid)
@@ -1675,8 +1683,11 @@ function M.update(dt)
           if W.sec then
             -- per arc; the wheel shows the mean coverage and the lowest threshold
             local sum, wr, rr = 0, 255, 255
+            local q = c.sectorRefStep or 16
             for _, S in ipairs(W.sec) do
               local dC = followCover(S, c, vdt)
+              -- shared threshold levels: arcs with the same coat change level together
+              if S.wantRef < 255 then S.wantRef = clamp(floor(S.wantRef / q + 0.5) * q, 1, 254) end
               sum = sum + dC
               if S.wantRef < wr then wr = S.wantRef end
               if S.ref < rr then rr = S.ref end
@@ -1719,23 +1730,33 @@ function M.update(dt)
         -- material threshold to apply (the wheel's, or each sector's)
         local targets = W.sec
         if not targets then one[1] = W; targets = one end
+        -- a sector steps coarser (8 materials per wheel share the flush rate)
+        local tstep = W.sec and max(step, c.sectorRefStep or 16) or step
+        -- sectors: colour / wetness drift rides along with the coverage steps (8 materials
+        -- per wheel flushing for every colour step took ~0.9 ms each, 700 per run)
+        local cstep = W.sec and (c.sectorColorStep or 0.08) or (c.colorStep or 0.03)
+        local wstep = W.sec and (c.sectorWetStep or 0.25) or (c.wetStep or 0.1)
         for _, T in ipairs(targets) do
         if T.mat and not W.needMesh and not W.far and inView then
           local diff = abs(T.wantRef - T.ref)
           -- colour steps of a look fade: at most one per colorFlushGap s per wheel
           local kindChange = T.coat > 0 and (T.matKind ~= lookKind(T)
-            or (colorDiff(wheelColor(T), T.matCol) >= (c.colorStep or 0.03)
+            or (colorDiff(wheelColor(T), T.matCol) >= cstep
               and now - T.flushT >= (c.colorFlushGap or 0.1))
-            or abs((T.wet or 0) - (T.matWet or 0)) >= (c.wetStep or 0.1)
+            or abs((T.wet or 0) - (T.matWet or 0)) >= wstep
             or ((T.wet or 0) == 0 and (T.matWet or 0) > 0))
           -- per wheel at most one update every flushGap s (the coat jitters at its cap)
           local due = now - T.flushT >= (nearCam and (c.flushGap or 0.4) or (c.flushGap or 0.4) * 3)
-          if kindChange or (due and (diff >= step or (diff > 0 and (T.wantRef == 255 or T.wantRef <= 2)))) then
+          if kindChange or (due and (diff >= tstep or (diff > 0 and (T.wantRef == 255 or T.wantRef <= 2)))) then
             if T.wantRef ~= 255 or T.visible then
-              nFlush = nFlush + 1
-              flushList[nFlush] = T
-              T.listN = updN
+              if not T.pend then
+                nFlush = nFlush + 1
+                flushList[nFlush] = T
+                T.pend = true
+              end
               T.prio = diff + (now - T.flushT) * 20 + (kindChange and 120 or 0) + (T.ref == 255 and 300 or 0)
+                + (W == lastFlushW and 200 or 0) + (nearCam and 100 or 0)
+              T.near = nearCam
             end
           end
         end
@@ -1745,10 +1766,10 @@ function M.update(dt)
           local wet, fw = W.wet or 0, W.filmWet or 0
           if abs(wet - fw) >= (c.wetStep or 0.1) or (wet == 0 and fw > 0) or (fw == 0 and wet > 0.02) then
             W.filmDue = true
-            if W.listN ~= updN then
+            if not W.pend then
               nFlush = nFlush + 1
               flushList[nFlush] = W
-              W.listN = updN
+              W.pend = true
               W.prio = 150 + abs(wet - fw) * 100
             end
           end
@@ -1769,18 +1790,54 @@ function M.update(dt)
       end end
     end
   end
-  for k = nFlush + 1, #flushList do flushList[k] = nil end
+  -- drop entries of wheels / sectors that lost their material (removed vehicles)
+  do
+    local n = 0
+    for k = 1, nFlush do
+      local T = flushList[k]
+      if T.mat or rawget(T, 'film') then n = n + 1; flushList[n] = T else T.pend = false end
+    end
+    for k = n + 1, nFlush do flushList[k] = nil end
+    nFlush = n
+  end
 
   -- material flushes inside the upload budget, biggest change first; one per frame goes
   -- ahead anyway once its wheel waited flushWait s (tile uploads can hold the budget
   -- for seconds while digging: measured, the coverage then froze)
   if nFlush > 1 then table.sort(flushList, function(a, b) return a.prio > b.prio end) end
+  -- no budget: the one that waited longest goes ahead after flushWait (with 8 sectors per
+  -- wheel the top one had often just been flushed and the rest froze for seconds)
+  -- flush rate cap (clods.maxFlushPerSec): with sectors the queue never empties (512 arc
+  -- materials with 8 trucks) and a flush every frame cost ~0.8 ms plus ~1.5 ms of engine
+  -- ticking; the arcs of a wheel still go together (sibling priority). Wheels within
+  -- lodNearDist of the camera (the truck being watched) are not capped.
+  local fr = c.maxFlushPerSec or 0
+  local first, last = 1, nFlush
+  if fr > 0 then
+    flushTokens = min(2, flushTokens + fr * dt)
+    if flushTokens < 1 then
+      first, last = 1, 0
+      for k = 1, nFlush do
+        if flushList[k].near then first, last = k, k; break end
+      end
+    end
+  end
+  if last >= first and t_m and t_m.canUpload and not t_m.canUpload('M', 200) then
+    local old = nil
+    for k = first, last do
+      local T = flushList[k]
+      if now - T.flushT >= (c.flushWait or 0.25) and (not old or T.flushT < flushList[old].flushT) then old = k end
+    end
+    first, last = old or 1, old or 0
+  end
   local done = 0
-  for k = 1, nFlush do
+  for k = first, last do
     if done >= (c.flushPerFrame or 2) then break end
+    if done > 0 and t_m and t_m.canUpload and not t_m.canUpload('M', 200) then break end
     local W = flushList[k]
-    local room = not (t_m and t_m.canUpload) or t_m.canUpload('M', 200)
-    if not room and not (done == 0 and now - W.flushT >= (c.flushWait or 0.25)) then break end
+    W.pend = false
+    W.flushed = true
+    lastFlushW = rawget(W, 's') and getmetatable(W).__index or nil
     local timer = hptimer and hptimer()
     if W.filmDue then
       -- water film update (may come with a coat update of the same wheel)
@@ -1793,7 +1850,7 @@ function M.update(dt)
       W.filmWet = W.wet or 0
       counters.filmFlushes = (counters.filmFlushes or 0) + 1
     end
-    if W.matKind ~= lookKind(W) or colorDiff(wheelColor(W), W.matCol) > 0 or abs((W.wet or 0) - (W.matWet or 0)) > 0 then
+    if W.mat and (W.matKind ~= lookKind(W) or colorDiff(wheelColor(W), W.matCol) > 0 or abs((W.wet or 0) - (W.matWet or 0)) > 0) then
       local K = kindCfg(lookKind(W))
       local col = wheelColor(W)
       local tb, to, tn = kindTextures(lookKind(W))
@@ -1811,7 +1868,7 @@ function M.update(dt)
       W.matWet = W.wet or 0
       W.matDirty = true
     end
-    if W.wantRef ~= W.ref or W.matDirty then
+    if W.mat and (W.wantRef ~= W.ref or W.matDirty) then
       W.mat:setField('alphaRef', 0, tostring(W.wantRef))
       W.mat:flush()
       W.matDirty = nil
@@ -1823,6 +1880,15 @@ function M.update(dt)
     counters.flushes = counters.flushes + 1
     counters.flushMs = counters.flushMs + ms
     done = done + 1
+    if fr > 0 and not W.near then flushTokens = flushTokens - 1 end
+  end
+  if done > 0 then
+    local n = 0
+    for k = 1, nFlush do
+      local T = flushList[k]
+      if rawget(T, 'flushed') then T.flushed = nil else n = n + 1; flushList[n] = T end
+    end
+    for k = n + 1, nFlush do flushList[k] = nil end
   end
 
   -- one tyre mesh per frame at most (spawn / config change), inside the budget; a tyre

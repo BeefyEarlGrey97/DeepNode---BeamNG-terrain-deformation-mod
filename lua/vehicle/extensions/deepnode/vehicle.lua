@@ -783,7 +783,11 @@ local function onReset()
   ncand = 0
   ncandTri = 0
   guideT = -1
-  accCand, accReport = 0, 0
+  -- each vehicle on its own report phase: trucks reset together reported in the same GE
+  -- frame (8 reports, ~4 ms, every 4th frame: bench stutter, 2026-11-09)
+  local ph = (obj:getId() * 0.618034) % 1
+  accCand, accReport = ph * lod / (REP.candidateHz or 10), ph * lod / REP.rateHz
+  accBox = ph * lod / (REP.boxHz or 10)
   waterForce = true -- new wheel tables start dry: send the real state once
   if configured then
     collectWheels()

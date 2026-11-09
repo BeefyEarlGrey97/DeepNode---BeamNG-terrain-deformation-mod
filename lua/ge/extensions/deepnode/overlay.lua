@@ -802,7 +802,8 @@ local function onWheel(vid, W)
   -- snow leaves no stain on hard ground (it melts off), firm ground builds no coat
   local carry = cc.enabled and coat >= cc.minCoat and W.kind ~= 'snow' and W.kind ~= 'firm'
   local wt = oc.wetTracks
-  local wetness = wt.enabled and max(W.wet or 0, W.water or 0) or 0
+  -- wet prints only once the tyre is out of the water (none on the bed under it)
+  local wetness = wt.enabled and (W.water or 0) <= 0.02 and (W.wet or 0) or 0
   local wetTrack = not carry and wetness >= wt.minWet
   if hard and (carry or wetTrack or tr.enabled) and win.set then
     local q = W.ovCarry

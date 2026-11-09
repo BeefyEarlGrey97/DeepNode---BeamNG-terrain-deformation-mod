@@ -484,7 +484,11 @@ drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
 - Ural-4320 (uralivannq mod) on gridmap_v2 only. Not benched with 8 trucks: the sectored skin
   costs 8 materials per wheel (48 per 6x6) and up to one flush per frame while coats change,
   plus 8 draw calls per wheel. Bench before merging to main.
-- Sand / snow / water sectors untested in game (same code path as mud).
+- Sand / snow / water sectors untested in game (same code path as mud); the wet-print fix
+  (no prints while in water) is untested in game too.
+- 8 trucks: sector skins still cost ~2 fps against the tyre layer alone (skin draw + flushes);
+  frames alternate ~14 ms and 30-42 ms (dig upload frames). User GUI perf.uploadMsMax 6 lets
+  more upload work into one frame than the default 4.
 - Mod tyres whose UVs are not the common strip layout (Ural: one disc atlas, lugs in a corner)
   get the tyre-layer masks in the wrong places; the sectored skin (own UVs) carries the look.
   The clean Ural tyre itself is a flat 256 px texture (asset, not the mod).
