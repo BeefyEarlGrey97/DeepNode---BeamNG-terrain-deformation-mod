@@ -23,7 +23,7 @@ local M = {}
 local ffi = require('ffi')
 local bit = require('bit')
 
-local floor, min, max, sqrt = math.floor, math.min, math.max, math.sqrt
+local floor, min, max, sqrt, abs = math.floor, math.min, math.max, math.sqrt, math.abs
 local sfmt = string.format
 
 -- Split a submesh before it reaches this many vertices. The engine uses 16-bit
@@ -85,6 +85,17 @@ local function hash01(ix, iy, salt)
   return band(h, 0xffff) / 65535
 end
 M.hash01 = hash01
+
+-- smooth value noise (0..1) on a lattice of unit cells: rounded clods instead of the
+-- one-vertex spikes of a per-vertex hash
+local function vnoise(x, y, salt)
+  local ix, iy = floor(x), floor(y)
+  local fx, fy = x - ix, y - iy
+  fx, fy = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)
+  local a, b = hash01(ix, iy, salt), hash01(ix + 1, iy, salt)
+  local c, d = hash01(ix, iy + 1, salt), hash01(ix + 1, iy + 1, salt)
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy
+end
 
 -------------------------------------------------------------------------------
 -- object pool
@@ -850,9 +861,10 @@ function M.emitTileCells(b, t, zOff, rule, stride)
   local flush = t.anyFlush and t.sqFlush or nil
 
   -- torn berm crests (render only, the physics floor follows the rut codes): a berm
-  -- vertex moves by its berm height x stamp.bermCrumble x a skewed clump noise (fine cell
-  -- hash + 2x2-cell clumps; mostly a little down, now and then a clod sticking up), at most
-  -- bermCrumbleMax. Smooth round berms read as soft dunes next to torn mud (reference).
+  -- vertex moves by its berm height x stamp.bermCrumble x a skewed clump noise (smooth
+  -- value noise, 0.6 m clods + 0.3 m lumps; mostly a little down, now and then a clod
+  -- sticking up), at most bermCrumbleMax. Smooth round berms read as soft dunes next to
+  -- torn mud (reference); a per-vertex hash drew rows of pyramids (user: "jaggy", 2026-11-09).
   local crumble, crumbleMax = st.bermCrumble or 0, st.bermCrumbleMax or 0.12
   -- torn rut walls and floor (render only): a dug vertex moves by its depth x
   -- stamp.rutCrumble x a two-scale clump noise (+-), at most rutCrumbleMax: sheared lumps
@@ -868,7 +880,7 @@ function M.emitTileCells(b, t, zOff, rule, stride)
         local bh = z - rest[idx]
         if bh > 0.005 then
           local gx, gy = gcx0 + i, gcy0 + j
-          local n = hash01(gx, gy, 17) * 0.55 + hash01(floor(gx / 2), floor(gy / 2), 19) * 0.45
+          local n = vnoise(gx * cell / 0.6, gy * cell / 0.6, 17) * 0.65 + vnoise(gx * cell / 0.3, gy * cell / 0.3, 19) * 0.35
           n = n * n * 2.2 - 0.55
           z = z + (bh < crumbleMax and bh or crumbleMax) * crumble * n
         end
@@ -876,7 +888,7 @@ function M.emitTileCells(b, t, zOff, rule, stride)
         local dh = rest[idx] - z
         if dh > 0.01 then
           local gx, gy = gcx0 + i, gcy0 + j
-          local n = hash01(gx, gy, 23) * 0.6 + hash01(floor(gx / 2), floor(gy / 2), 29) * 0.4 - 0.5
+          local n = vnoise(gx * cell / 0.5, gy * cell / 0.5, 23) * 0.6 + vnoise(gx * cell / 0.25, gy * cell / 0.25, 29) * 0.4 - 0.5
           z = z + (dh < rCrumbleMax and dh or rCrumbleMax) * rCrumble * 2 * n
         end
       end
@@ -1102,10 +1114,18 @@ function M.emitTileCells(b, t, zOff, rule, stride)
         if soft[cjm * N + cim] ~= 0 and sqMat[q] == m and not (flush and flush[q] ~= 0 and plain[q + 1]) then
           local a, bb = vtx(ci0, cj0), vtx(ci1, cj0)
           local c, d = vtx(ci0, cj1), vtx(ci1, cj1)
-          -- (0,0)->(0,1)->(1,1) and (0,0)->(1,1)->(1,0): clockwise seen from above
-          s:tri(a, c, d)
-          s:tri(a, d, bb)
           local ga, gb, gc, gd = cj0 * W + ci0, cj0 * W + ci1, cj1 * W + ci0, cj1 * W + ci1
+          -- split along the diagonal whose ends lie closer in height: a ridge or rut wall
+          -- running across the grid stays a ridge instead of a row of teeth (one fixed
+          -- diagonal drew saw teeth on berms of a track 12 deg off the grid, 2026-11-09)
+          -- clockwise seen from above either way
+          if abs(zbuf[ga] - zbuf[gd]) <= abs(zbuf[gb] - zbuf[gc]) then
+            s:tri(a, c, d)
+            s:tri(a, d, bb)
+          else
+            s:tri(a, c, bb)
+            s:tri(c, d, bb)
+          end
           recQuad(s, a, bb, c, d, ga, gb, gc, gd, dadj[ga], dadj[gb], dadj[gc], dadj[gd])
         end
       end

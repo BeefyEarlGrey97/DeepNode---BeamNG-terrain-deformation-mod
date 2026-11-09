@@ -8,8 +8,8 @@
   "layers": {
     "defaultSinkDepth": 0.3,
     "sinkDepthByMatch": {
-      "mud": 0.35,
-      "sand": 0.2
+      "mud": 0.45,
+      "sand": 0.25
     },
     "featherVerts": 4,
     "edgeDip": 0.04,
@@ -161,7 +161,7 @@
     "autoMaxTiles": 8
   },
   "stamp": {
-    "flowBack": 0.22,
+    "flowBack": 0.15,
     "liquid": {
       "enabled": true,
       "kinds": {
@@ -172,7 +172,7 @@
       "hz": 20,
       "gravity": 9.81,
       "depthRef": 0.15,
-      "yield": 0.15,
+      "yield": 0.45,
       "damping": 2.0,
       "life": 1.2,
       "minStep": 0.01,
@@ -193,8 +193,8 @@
     "relaxHz": 5,
     "relaxTime": 3,
     "relaxWindow": 0.3,
-    "relaxKeep": 0.75,
-    "relaxKeepBerm": 0.8,
+    "relaxKeep": 0.88,
+    "relaxKeepBerm": 0.9,
     "shoulderFactor": 0.25,
     "maxSweep": 3,
     "bodyRadius": 0.16,
@@ -205,18 +205,23 @@
     "trackSpinGain": 0.08,
     "trackDepthGain": 2,
     "spinDigRate": 0.012,
-    "spinDigMax": 0.12,
+    "spinDigMax": 0.16,
     "refWheelLoad": 3500,
     "jitterZ": 0.015,
     "jitterXY": 0.03,
     "leadTime": -1,
     "leadMin": 0.015,
     "leadMax": 0.06,
-    "bermCrumble": 0.6,
-    "bermCrumbleMax": 0.12,
-    "rutCrumble": 0,
-    "rutCrumbleMax": 0.06,
-    "bearing": false
+    "bermCrumble": 0.9,
+    "bermCrumbleMax": 0.16,
+    "rutCrumble": 0.3,
+    "rutCrumbleMax": 0.04,
+    "bearing": false,
+    "kinds": {
+      "mud": {
+        "bermWidthFactor": 1.8
+      }
+    }
   },
   "report": {
     "rateHz": 40,
@@ -423,14 +428,14 @@
     "heavy": {
       "groundModels": {
         "mud": {
-          "defaultDepth": 0.25,
+          "defaultDepth": 0.22,
           "flowConsistencyIndex": 17000,
           "fluidDensity": 20000,
           "staticFrictionCoefficient": 0.35,
           "slidingFrictionCoefficient": 0.32
         },
         "sand": {
-          "defaultDepth": 0.14,
+          "defaultDepth": 0.12,
           "flowConsistencyIndex": 7500,
           "fluidDensity": 30000
         }
@@ -451,7 +456,7 @@
         "maxSlope": 1.0,
         "edge": 0.05
       },
-      "floorSoftShare": 0
+      "floorSoftShare": 0.5
     }
   }
 }

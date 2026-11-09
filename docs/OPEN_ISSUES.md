@@ -345,6 +345,9 @@ centre but not all stripes (unfinished). Fade default must change (cost) once th
 
 ## 32. Pre-bearing depth back (2026-11-09, f94874a)
 
+Same day, later: user found it too soft; middle values set (CHANGELOG). Remaining: a periodic lump
+pattern on the ridge between the wheel tracks; sand / snow and the 8-truck bench not checked.
+
 User chose the mud depth / berm / liquid behaviour from before the bearing model, with the floor
 timing fixes kept. Comes back with it: tyres sink a soft layer (0.25 m mud) below the drawn rut
 (the reason for the bearing model: parked sink 0.45 m, tyre bottom under the mesh), softer

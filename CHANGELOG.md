@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Changed
+- Mud balance between the firm (bearing) and the soft (pre-bearing) setups, against a SnowRunner
+  reference (deep truck, firm sculpted rut walls, broad torn berms): liquid `yield` 0.45,
+  `flowBack` 0.15, `relaxKeep` 0.88 / 0.9, sink limit mud 0.45 / sand 0.25, soft layer mud 0.22 /
+  sand 0.12, `floorSoftShare` 0.5, `spinDigMax` 0.16, berm crumble 0.9 / 0.16, `rutCrumble`
+  0.3 / 0.04, mud `bermWidthFactor` 1.8 (crest was one vertex wide: rows of teeth on a track
+  across the grid). Ural, gridmap_v2 mud pit, throttle 0.7 from standstill: 12 km/h, 40 m in
+  15 s, body 0.33 m down; rut 0.24 m, berms 0.09 m with a 0.25 m wide crest.
+- Rut mesh: each cell quad splits along the diagonal whose corners lie closer in height (ridges
+  across the grid stay ridges); berm / rut crumble use smooth value noise (0.6 / 0.3 m and 0.5 /
+  0.25 m) instead of a per-vertex hash (one-vertex spikes).
 - Mud depth and look back to the state before the bearing model (e1362a0), keeping the floor
   timing fixes (`floorGap`, floor written outside the upload budget): `stamp.bearing` false (rut
   carved to the tyre bottom), `physics.heavy.floorSoftShare` 0 (floor just under the rut: tyres
