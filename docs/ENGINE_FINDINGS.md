@@ -27,6 +27,9 @@ They explain most design decisions; please extend this file when you measure som
   one object x 40 sizes: 10-28 MB; deleted meshed object: 110-330 KB; created and deleted without
   createMesh: 0. Engine flags seen in the exe (not tested): `-nogfxgpudriven`, `-nogfxgpuupload`,
   `-nogfxbindless`, `-nogfxbindlesscbv`, `-nogfxindirectconstants`.
+- `updatePhysicsCollision` (0x1401abf80, decompiled 2026-11-09) returns early only when the CPU
+  index copy or the CPU vertex copy is empty; there is no flag or field check, so no live mesh can
+  skip its collision build.
 - Malformed face tables (corners without `n`/`u`) crash the game in C++. Never test that live.
 - A submesh with more than 65535 face corners hangs the game (16-bit counter).
 - Collision of a ProceduralMesh only enters physics on `be:reloadCollision()` (~370 ms on gridmap_v2).

@@ -399,7 +399,7 @@
     "growStep": 16,
     "mode": "pair",
     "hideFrames": 3,
-    "tileClasses": 6,
+    "tileClasses": 24,
     "decalMinCorners": 96
   },
   "gui": {

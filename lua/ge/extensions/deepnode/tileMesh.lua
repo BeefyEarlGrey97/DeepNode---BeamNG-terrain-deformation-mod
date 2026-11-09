@@ -384,7 +384,7 @@ function M.uploadCensus(reset)
   return r
 end
 -- size classes (pool.tileClasses, pool.decalMinCorners; set in M.setContext)
-local TILE_CLASSES, DEC_MIN_CORNERS = 6, 96
+local TILE_CLASSES, DEC_MIN_CORNERS = 24, 96
 local function decalMod() return extensions and extensions.deepnode_decals end
 local function padMeshes(chunk, meshes)
   local tileN = not chunk.sx and chunk.N
@@ -1276,7 +1276,7 @@ function M.setContext(main)
   ctx = main
   local pc = main and main.cfg and main.cfg.pool or {}
   growStep = pc.growStep or 16
-  TILE_CLASSES = max(1, floor(pc.tileClasses or 6))
+  TILE_CLASSES = max(1, floor(pc.tileClasses or 24))
   DEC_MIN_CORNERS = pow2(max(24, pc.decalMinCorners or 96), 24)
 end
 

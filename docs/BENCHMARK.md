@@ -530,3 +530,26 @@ Findings: a material flush every frame (sector queue never empty) cost ~0.8 ms i
 ~1.5 ms in engine `Ticking`; a skin LOD (one submesh far away, coarse mesh) gained nothing and
 re-uploaded skins at every distance crossing (removed). Frames still alternate ~14 ms (no uploads)
 and 30-42 ms (dig upload frames): the per-upload engine cost dominates the rest.
+
+## 22. johnson_valley, 6 trucks, upload size classes (2026-11-09, test)
+
+JV circles (`jv_setup.lua`, zones.json, 6 Percherons on circles 1-6, 40 km/h), the user's Ural
+parked at (-1183, 263). Orbit cam on truck 1 (yaw 160, pitch 14, 16 m), vsync off, cap 240.
+Per-frame recorder (user-folder `dnFrameMet.lua`), 90 s per run. low1 = fps over the slowest 1 %.
+
+| run | fps | low1 | p50 / p95 / p99 ms | > 33 ms | notes |
+|---|---|---|---|---|---|
+| base run 2 (tileClasses 6) | 51.0 | 35.6 | 17.5 / 24.4 / 27.2 | 0 | after the road relight fix |
+| A1 / A2 (6, live) | 58.2 / 51.7 | 32.9 / 31.6 | 16.8-18.9 / 23.5-27.7 / 28.7-30.1 | 0 / 1 | interleaved |
+| B1 / B2 (24, live) | 48.4 / 50.4 | 28.1 / 31.6 | 19.3-19.9 / 27.0-29.0 / 30.6-34.4 | 50 / 0 | interleaved |
+| final run 1 / 2 (24, after reload) | 45.1 / 48.3 | 32.5 / 32.8 | 20.6 / 26.7 / 29.6 | 0 | PreRender 0.95 ms vs 0.19 before (see below) |
+
+The circle bench drifts +-4 fps with the convoy's phase (A1 vs A2), so fps cannot separate the
+variants. The upload census can: tileClasses 24 pads 13-15 % of corners (6: 20-29 %), learned
+cost 0.0029-0.0031 ms per real vertex (6: 0.0036-0.0041), ~1.75 vs ~1.9 ms per upload; engine
+growth per upload 59-76 KB (6: 64-92). Kept 24.
+Upload frames: frame time is GPU-bound at ~18 ms; the slowest 5 % are upload frames (mod 5.8-6.5
+ms, of it createMesh 3.7-4.3; RenderShadows +2.5-3 ms first-draw cost; Lua 8-9 ms). No frame over
+33 ms in the final runs. After the last reload `PreRender` sat at ~0.95 ms (0.19 in the runs
+before); toggling the road passes, the GUI and tileClasses live did not change it: not explained.
+

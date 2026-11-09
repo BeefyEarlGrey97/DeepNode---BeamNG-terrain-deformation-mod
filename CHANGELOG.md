@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- `pool.tileClasses` 6 -> 24: tile meshes padded to 1/24 steps of the largest tile (padding 13-15 %
+  of corners instead of 20-29 %; ~8 % less createMesh time per upload, JV 6 trucks, BENCHMARK 22).
 - Tyre mud is drawn by the tyre shader (`overlay.tyreCoat` on by default; MudRunner-style build-up).
   wheelMud keeps 32 perimeter arcs per wheel (`W.bins`): the wheel's one coat model (kind, colour,
   loose layer, fling, wash) hands its gain per tick to the arcs that swept through the contact

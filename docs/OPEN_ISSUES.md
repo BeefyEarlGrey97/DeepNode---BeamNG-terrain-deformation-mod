@@ -343,6 +343,14 @@ mud_large drawn as if water were on top). Suspect: `mud_large` has `alphaTest` 1
 render in an earlier bin than the other translucent copies; alphaTest 1 on every clone fixed the
 centre but not all stripes (unfinished). Fade default must change (cost) once the stack is right.
 
+## 31. Upload stutter, johnson_valley 6 trucks (2026-11-09)
+
+BENCHMARK 22: no frame over 33 ms, but the slowest 5 % are upload frames (createMesh ~4 ms,
+RenderShadows +2.5-3 ms first draw, Lua 8-9 ms) against ~18 ms GPU-bound frames. createMesh always
+rebuilds the mesh's physics collision (ENGINE_FINDINGS ProceduralMesh: no switch). Open: the
+`PreRender` rise to ~0.95 ms after a GE reload (unexplained); a mod-off reference on JV (stopping
+the mod with sunk trucks wedges them).
+
 ## 26. Road shader (`roads.mode` 'shader', 2026-11-08, first version)
 
 Replaces the copies in the GUI (OPEN_ISSUES 14 / 23 hold their history). Measured on gridmap_v2

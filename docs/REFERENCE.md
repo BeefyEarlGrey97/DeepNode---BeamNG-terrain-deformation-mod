@@ -881,7 +881,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `pool.initial` | 200 | Smallest number of pooled mesh objects (more are made when the map needs them) |
 | `pool.growStep` | 16 | Objects added if the pool ever runs out (logged) |
 | `pool.hideFrames` | 3 | Frames a replaced mesh stays visible next to its replacement (1 flickered) |
-| `pool.tileClasses` | 6 | Tile meshes are padded to k/tileClasses of the largest tile (fewer classes: less engine memory per upload, more createMesh time) |
+| `pool.tileClasses` | 24 | Tile meshes are padded to k/tileClasses of the largest tile (fewer classes: less engine memory per upload, more createMesh time) |
 | `pool.decalMinCorners` | 96 | Smallest size class of decal overlay submeshes (doubling classes from here) |
 | `pool.mode` | pair | 'pair': each chunk alternates between two objects of its own (no flicker, least engine memory); 'swap': a fresh pooled object per upload |
 | `memory.gcStepKB` | 0 | >0: a Lua GC step of this size every frame (GUI: Steady GC) |

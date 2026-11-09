@@ -760,8 +760,9 @@ local defaults = {
     -- showed through for a frame while chunks rebuilt)
     hideFrames = 3,
     -- mesh size classes (tileMesh padMeshes): engine memory grows per distinct mesh
-    -- size, createMesh time per padded corner
-    tileClasses = 6,
+    -- size, createMesh time per padded corner; collision compaction frees that memory, so
+    -- 24 (pad 13-15 %, was 20-29 % at 6: ~8 % less upload time, JV 6 trucks 2026-11-09)
+    tileClasses = 24,
     decalMinCorners = 96,
   },
   gui = {
