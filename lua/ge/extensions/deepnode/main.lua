@@ -1120,32 +1120,27 @@ function M.matName(m)
 end
 
 -- rut code: 0 = floor, 128 = rest surface, 255 = rest + bermMax
--- One branch (min compiles branch-free): side traces off the old three-way branch failed
--- in LuaJIT ("register coalescing too complex", jit.v, thousands per bench run).
+-- Branch-free (min / max compile without side exits): side traces off a branch here failed
+-- in LuaJIT ("register coalescing too complex", jit.v, hundreds per 5 s with 8 trucks) and
+-- ran the rest of the caller's loop iteration in the interpreter. Same values (a berm cell
+-- adds to f + (r - f), which can differ from r by one float ulp).
 local function decodeZ(t, idx)
-  local c = t.rut[idx]
-  local r = t.rest[idx]
-  if c <= 128 then
-    local f = min(t.floor[idx], r)
-    return f + (r - f) * c * 0.0078125
-  end
-  return r + (c - 128) / 127 * bermMax
+  local c, r = t.rut[idx], t.rest[idx]
+  local f = min(t.floor[idx], r)
+  return f + (r - f) * min(c, 128) * 0.0078125 + max(c - 128, 0) / 127 * bermMax
 end
 M.decodeZ = decodeZ
 
+-- branch-free like decodeZ: the berm code and the rut code are both computed (one of them
+-- is 128 = rest) and summed; identical results to the old z >= rest / z < rest branches
 local function encodeZ(t, idx, z)
   local r = t.rest[idx]
-  if z >= r then
-    local c = 128 + floor((z - r) / bermMax * 127 + 0.5)
-    return c > 255 and 255 or c
-  end
-  local f = t.floor[idx]
-  if f > r then f = r end
+  local up = min(255, 128 + floor(max(z - r, 0) / bermMax * 127 + 0.5))
+  local f = min(t.floor[idx], r)
   local span = r - f
-  if span < 1e-4 then return 128 end
-  local c = floor((z - f) / span * 128 + 0.5)
-  if c < 0 then c = 0 elseif c > 128 then c = 128 end
-  return c
+  if span < 1e-4 then return up end
+  local dn = max(0, min(128, floor((min(z, r) - f) / span * 128 + 0.5)))
+  return up + dn - 128
 end
 M.encodeZ = encodeZ
 
@@ -4422,7 +4417,7 @@ function P.prepareTile(tx, ty)
     ts = TS, cps = CPS, N = N, cell = CELL,
     vRest = vRest, vFloor = vFloor, vMem = vMem, sqPatched = sqPatched, sqMat = sqMat, preSq = preSq,
     rest = rest, floor = flo, rut = rut, track = track, soft = soft,
-    peakLo = peakLo, peakHi = peakHi, relaxing = false,
+    peakLo = peakLo, peakHi = peakHi, relaxing = false, bermMaxC = 0,
     passN = passN, passKey = passKey, passT = passT, z1 = z1,
     matList = matList, rutted = false, dirty = true, state = 'active',
     lastUse = simTime, lastBuild = -huge, obj = nil, built = false,
@@ -4965,19 +4960,16 @@ local function writeOne(tx, ty, i, j, z, tr)
     -- settled at once: the share of the deepest rut / highest berm that relaxation
     -- keeps (stamp.relaxKeep*). The separate settling pass re-meshed every tile once
     -- or twice more after the tyres left it (~7 uploads/s with one truck).
-    local st = cfg.stamp
-    if c < 128 then
-      local lo = t.peakLo[idx]
-      if c < lo then t.peakLo[idx] = c; lo = c end
-      local target = floor(128 - st.relaxKeep * (128 - lo) + 0.5)
-      if c < target then c = target end
-    elseif c > 128 then
-      -- berms: the peak only; clamping every write to relaxKeepBerm x the new peak held a
-      -- berm built from many small deposits at ~4 deposits (2-3 cm, measured 2026-11-08).
-      -- It settles once when the tile freezes (P.finishRelax).
-      if c > t.peakHi[idx] then t.peakHi[idx] = c end
-      t.bermPeak = true
-    end
+    -- (branch-free: peakLo <= 128 <= peakHi always, so min / max leave the other side as
+    -- it was; the rut / berm branches here aborted LuaJIT side traces, see decodeZ)
+    -- berms: the peak only; clamping every write to relaxKeepBerm x the new peak held a
+    -- berm built from many small deposits at ~4 deposits (2-3 cm, measured 2026-11-08).
+    -- It settles once when the tile freezes (P.finishRelax; bermMaxC > 128 marks a berm).
+    local lo = min(t.peakLo[idx], c)
+    t.peakLo[idx] = lo
+    c = max(c, floor(128 - cfg.stamp.relaxKeep * (128 - lo) + 0.5))
+    t.peakHi[idx] = max(t.peakHi[idx], c)
+    t.bermMaxC = max(t.bermMaxC, c)
   end
   if c == old and tr <= t.track[idx] then return end
   -- a visible step (first tyre through, new berm) or only a few mm (the axles behind
@@ -4993,9 +4985,9 @@ local function writeOne(tx, ty, i, j, z, tr)
   end
   t.rut[idx] = c
   -- remember the deepest rut / highest berm reached: relaxation keeps a share of it
-  if c < t.peakLo[idx] then t.peakLo[idx] = c end
-  if c > t.peakHi[idx] then t.peakHi[idx] = c end
-  if tr > t.track[idx] then t.track[idx] = tr end
+  t.peakLo[idx] = min(t.peakLo[idx], c)
+  t.peakHi[idx] = max(t.peakHi[idx], c)
+  t.track[idx] = max(t.track[idx], tr)
   t.rutted = true
   -- liquid flow is not a tyre: its tiles rebuild at the settling rate (as tyre-dug ones
   -- they rebuilt at the dig rate for the whole flow life, +20 % uploads, 4 trucks)
@@ -5050,8 +5042,8 @@ end
 
 -- carve one vertex towards `bottom`; returns the removed height
 local function carve(gcx, gcy, t, idx, bottom, tr, dig, digFloor, fb)
-  local rest, fl = t.rest[idx], t.floor[idx]
-  if fl > rest then fl = rest end
+  local rest = t.rest[idx]
+  local fl = min(t.floor[idx], rest)
   -- soil memory (stamp.soil): this pass may carve down to z1 x N^e at most
   local soil = P.soil
   if soil and t.passN then
@@ -5063,31 +5055,27 @@ local function carve(gcx, gcy, t, idx, bottom, tr, dig, digFloor, fb)
       if n == 0 or pk ~= soil.key or age > soil.gap then
         local w = 4
         if n > 0 and floor(pk / 32) == floor(soil.key / 32) and age < soil.trainGap then w = soil.trainW end
-        n = n + w
-        if n > 255 then n = 255 end
+        n = min(255, n + w)
         t.passN[idx] = n
         t.passKey[idx] = soil.key
       end
       t.passT[idx] = simTime
       -- first pass: z1 follows the deepest point of the tyre's own passage
       if n <= 4 then
-        local q = ceil(want / 0.0025)
-        if q > 255 then q = 255 end
-        if q > t.z1[idx] then t.z1[idx] = q end
+        t.z1[idx] = max(t.z1[idx], min(255, ceil(want / 0.0025)))
       else
         local np = n * 0.25
         local allowed = t.z1[idx] * 0.0025 * np ^ soil.e * (1 + soil.soften * (np - 1))
-        if want > allowed then bottom = rest - allowed end
+        bottom = max(bottom, rest - allowed)
       end
     end
   end
   local cur = decodeZ(t, idx)
   -- spinning tyre: dig below the current surface, at most down to digFloor
   if dig and dig > 0 then
-    local d = max(cur - dig, digFloor or bottom)
-    if d < bottom then bottom = d end
+    bottom = min(bottom, max(cur - dig, digFloor or bottom))
   end
-  local target = bottom > fl and bottom or fl -- never below the floor
+  local target = max(bottom, fl) -- never below the floor
   -- under 2 mm (one rut code step is ~2.7 mm): the flow-back rest of an earlier pass, nothing
   -- to draw; skipping it lets the slump pass be skipped too
   if target >= cur - 0.002 then return 0 end
@@ -5707,7 +5695,7 @@ end
 
 -- settle a tile to its end shape at once (it freezes now: frozen ruts do not settle)
 function P.finishRelax(t)
-  if not (t.relaxing or t.bermPeak) then return end
+  if not (t.relaxing or t.bermMaxC > 128) then return end
   local st = cfg.stamp
   local keepLo, keepHi = st.relaxKeep, st.relaxKeepBerm
   local rut, lo, hi = t.rut, t.peakLo, t.peakHi
@@ -5721,7 +5709,7 @@ function P.finishRelax(t)
       if c > target then rut[k] = target end
     end
   end
-  t.relaxing, t.bermPeak = false, nil
+  t.relaxing, t.bermMaxC = false, 0
   t.dirty = true
 end
 
@@ -7795,7 +7783,7 @@ function M.clearRuts()
       ffi.fill(t.peakLo, NW * NW, 128)
       ffi.fill(t.peakHi, NW * NW, 128)
       if t.passN then ffi.fill(t.passN, NW * NW, 0); ffi.fill(t.z1, NW * NW, 0) end
-      t.relaxing, t.bermPeak = false, nil
+      t.relaxing, t.bermMaxC = false, 0
       t.rutted = false
       t.dirty = true
       P.changedTiles[t.key] = true

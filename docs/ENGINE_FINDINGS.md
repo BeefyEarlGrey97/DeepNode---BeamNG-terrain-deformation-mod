@@ -599,3 +599,18 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   also adds ~1.5 ms of engine `Ticking` (8 trucks, sector tyre materials).
 - `ProceduralMesh:setMaterial(submesh, name)` on a live tyre skin CRASHED the game (fatal). Never
   call it on DeepNode meshes.
+
+## Where the 8-truck dig frames go (2026-11-09, per-frame `Engine.Debug.getLastPerformanceMetrics`)
+
+gridmap_v2, 8 Percherons digging vs idle frames: GE Lua 16.1 vs 0.8 ms (mod 9.3, of it uploads
+6.4; vehicle reports ~4), RenderShadows 9.1 vs 4.1, Render 5.3 vs 2.6, RenderReflections 2.75
+vs 0.6, Ticking 1.8 vs 0.1 (material flushes). The digging phase is uniformly slow (every frame
+uploads), the >45 ms frames are dig batches plus a reload / floor write in the same frame.
+- LuaJIT (jit.v, 5 s while digging): hundreds of "NYI: register coalescing too complex" side-
+  trace aborts in carve / writeOne (inlined under onMudReport's big wheel loop: snapshots carry
+  the caller frames' live slots). Branch-free decodeZ / encodeZ / settle (exact) and a two-pass
+  stampFootprint did not remove them or change stamp cost (~74 us per stampWheel call);
+  `jit.opt -sink` made stamping 40-75 % slower.
+- Mud ProceduralMesh uploads already skip invisible changes (ring.minVisibleChange 6 mm on
+  screen) and padding is ~8 % of corners (6 tile classes): no visual-neutral upload cut left
+  there.

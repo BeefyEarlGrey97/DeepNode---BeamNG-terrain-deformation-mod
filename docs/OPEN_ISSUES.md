@@ -490,6 +490,10 @@ drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
   frames alternate ~14 ms and 30-42 ms (dig upload frames), dig bursts reach 45-55 ms. Backend
   routes still open: cheaper per-sector coverage than a Material flush (setMaterial crashes),
   fewer engine uploads per rut change without lag.
+  Measured 2026-11-09 (docs/ENGINE_FINDINGS.md "Where the 8-truck dig frames go"): the rest is
+  engine time per upload (shadows / reflections / render first draw) and LuaJIT side-trace aborts
+  under onMudReport; removing those needs the wheel loop split so stamps run outside its frame
+  (keeping rut-guide order), not tried yet.
 - Mod tyres whose UVs are not the common strip layout (Ural: one disc atlas, lugs in a corner)
   get the tyre-layer masks in the wrong places; the sectored skin (own UVs) carries the look.
   The clean Ural tyre itself is a flat 256 px texture (asset, not the mod).
