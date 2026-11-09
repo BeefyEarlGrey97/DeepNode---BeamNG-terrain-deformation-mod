@@ -12,12 +12,12 @@
 - Coat lost half of itself in the first metres out of the mud (loose share 0.55 -> 0.3, shed per
   metre 0.1 -> 0.04); build-up faster (buildPerMeter 0.01 -> 0.02): coverage 0.92 stays 0.92.
 
-### Performance (8 Percherons, gridmap_v2, interleaved, run 2)
-- 31.7 -> 34.0 fps, low1 18.3 -> 22.3-24.1, frames over 45 ms 93 -> 0 per run, GE Lua 13.3 ->
-  10.7 ms; rut lag 0.105 -> 0.13-0.15 s. Changes: dig uploads per frame 6 -> 3; vehicle reports
-  on a per-vehicle phase (trucks reset together reported in one frame, ~4 ms bursts); tyre layer
-  with sectors only on/off (each shared tyre material reload is 18-21 ms with 8 trucks); flush
-  cap `maxFlushPerSec` 15 for wheels beyond lodNearDist (Ticking 2.7 -> 1.2 ms).
+### Performance (backend only)
+- Vehicle reports on a per-vehicle phase: trucks reset together reported in one frame (~4 ms
+  bursts every 4th frame with 8 trucks).
+- Visual trade-offs tried in the 8-truck bench and reverted (user rule: no visual compromise):
+  digMaxPerFrame 3 (no frames over 45 ms, but rut lag +45 ms), a flush cap for far tyres, the tyre
+  layer on/off only, coarser sector colour / coverage steps.
 
 ### Changed
 - Deeper ruts that keep a torn structure (Ural-4320 6x6, gridmap_v2 mud, 3.5 m/s): mud Bekker

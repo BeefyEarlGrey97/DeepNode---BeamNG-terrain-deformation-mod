@@ -522,6 +522,10 @@ run with the spike logger (frames over 45 ms per run).
 | dig 6 -> 3 | 32.5 -> 33.7 / 34.0 | 18.4 -> 22.3 | 97-121 -> 0 | 0.10 -> 0.15 | |
 | final (dig 3, report phases, layer on/off, flush cap) | 34.0 / 34.0 / 33.6 | 22.3 / 22.8 / 24.1 | 0 | 0.13-0.16 | Lua 10.5-10.9, Ticking 1.2 |
 
+Reverted after the user's rule (no visual compromise): dig 3, the flush cap, layer on/off and
+the coarser sector steps; kept: report phases, the persistent flush queue. Not re-benched yet
+(game crashed on a ProceduralMesh:setMaterial test).
+
 Findings: a material flush every frame (sector queue never empty) cost ~0.8 ms in Lua plus
 ~1.5 ms in engine `Ticking`; a skin LOD (one submesh far away, coarse mesh) gained nothing and
 re-uploaded skins at every distance crossing (removed). Frames still alternate ~14 ms (no uploads)

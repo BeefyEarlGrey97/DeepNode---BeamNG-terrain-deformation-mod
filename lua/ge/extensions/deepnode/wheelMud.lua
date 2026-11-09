@@ -1275,11 +1275,7 @@ local function rubberPass(c, t_m)
       local col = wetColor(W, wheelColor(W))
       -- with sectored skins the layer is only the dirt on the rubber under them
       local kmax = W.sec and (c.layerMaxSectors or 3) or LAYER_K
-      -- with sectors the layer is on (kmax) or off: each reload of a shared tyre material
-      -- took 18-21 ms with 8 trucks (the sectors carry the coat's level and colour)
-      local k = layerLevel(W.dC)
-      if W.sec then k = k > 0 and kmax or 0 end
-      mud = { k = min(k, kmax), col = colorString(col), rough = wetRoughness(W, K), c3 = col, wet = W.wet or 0 }
+      mud = { k = min(layerLevel(W.dC), kmax), col = colorString(col), rough = wetRoughness(W, K), c3 = col, wet = W.wet or 0 }
       local a = R.mud
       -- a reload of a tyre material costs ~8 ms (every mesh of every vehicle using it,
       -- 4 Percherons): layer changes at most once per layerGap s, the first coat at once
@@ -1290,7 +1286,7 @@ local function rubberPass(c, t_m)
         -- wait
       elseif mud.k ~= a.k then
         score = max(score, 1 + abs(mud.k - a.k) * 0.1)
-      elseif not W.sec and (colorDiff(mud.c3, a.c3) >= (c.colorStep or 0.03) or abs(mud.wet - a.wet) >= (c.wetStep or 0.1)) then
+      elseif colorDiff(mud.c3, a.c3) >= (c.colorStep or 0.03) or abs(mud.wet - a.wet) >= (c.wetStep or 0.1) then
         score = max(score, 0.5)
       end
     elseif R.mudOn then
@@ -1634,7 +1630,6 @@ end
 
 local flushList = {}
 local one = {}
-local flushTokens = 0
 local lastFlushW = nil -- wheel of the last sector flush: its other arcs go next
 local updN = 0
 function M.update(dt)
@@ -1683,7 +1678,7 @@ function M.update(dt)
           if W.sec then
             -- per arc; the wheel shows the mean coverage and the lowest threshold
             local sum, wr, rr = 0, 255, 255
-            local q = c.sectorRefStep or 16
+            local q = c.sectorRefStep or 8
             for _, S in ipairs(W.sec) do
               local dC = followCover(S, c, vdt)
               -- shared threshold levels: arcs with the same coat change level together
@@ -1730,12 +1725,9 @@ function M.update(dt)
         -- material threshold to apply (the wheel's, or each sector's)
         local targets = W.sec
         if not targets then one[1] = W; targets = one end
-        -- a sector steps coarser (8 materials per wheel share the flush rate)
-        local tstep = W.sec and max(step, c.sectorRefStep or 16) or step
-        -- sectors: colour / wetness drift rides along with the coverage steps (8 materials
-        -- per wheel flushing for every colour step took ~0.9 ms each, 700 per run)
-        local cstep = W.sec and (c.sectorColorStep or 0.08) or (c.colorStep or 0.03)
-        local wstep = W.sec and (c.sectorWetStep or 0.25) or (c.wetStep or 0.1)
+        -- sectors snap to sectorRefStep levels (shared by the arcs of a wheel)
+        local tstep = W.sec and max(step, c.sectorRefStep or 8) or step
+        local cstep, wstep = c.colorStep or 0.03, c.wetStep or 0.1
         for _, T in ipairs(targets) do
         if T.mat and not W.needMesh and not W.far and inView then
           local diff = abs(T.wantRef - T.ref)
@@ -1807,21 +1799,7 @@ function M.update(dt)
   if nFlush > 1 then table.sort(flushList, function(a, b) return a.prio > b.prio end) end
   -- no budget: the one that waited longest goes ahead after flushWait (with 8 sectors per
   -- wheel the top one had often just been flushed and the rest froze for seconds)
-  -- flush rate cap (clods.maxFlushPerSec): with sectors the queue never empties (512 arc
-  -- materials with 8 trucks) and a flush every frame cost ~0.8 ms plus ~1.5 ms of engine
-  -- ticking; the arcs of a wheel still go together (sibling priority). Wheels within
-  -- lodNearDist of the camera (the truck being watched) are not capped.
-  local fr = c.maxFlushPerSec or 0
   local first, last = 1, nFlush
-  if fr > 0 then
-    flushTokens = min(2, flushTokens + fr * dt)
-    if flushTokens < 1 then
-      first, last = 1, 0
-      for k = 1, nFlush do
-        if flushList[k].near then first, last = k, k; break end
-      end
-    end
-  end
   if last >= first and t_m and t_m.canUpload and not t_m.canUpload('M', 200) then
     local old = nil
     for k = first, last do
@@ -1880,7 +1858,6 @@ function M.update(dt)
     counters.flushes = counters.flushes + 1
     counters.flushMs = counters.flushMs + ms
     done = done + 1
-    if fr > 0 and not W.near then flushTokens = flushTokens - 1 end
   end
   if done > 0 then
     local n = 0

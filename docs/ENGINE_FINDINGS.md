@@ -591,3 +591,11 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   the vanilla decals: 0.1-1.9 % mean / 2.5 % std at 6 m, 0.7 % / 1.8 % at 3 m.
 - The mod's sim clock (`deepnode_main.simTime`) advances with `dtSim` only: it stands still while
   `be:setPhysicsRunning(false)`; timeouts during a physics pause must use real time (`os.clock`).
+
+## Material updates (2026-11-09, 0.40.5)
+
+- Per Material, after `setField('alphaRef', ...)`: `flush()` 0.52-0.61 ms, `reload()` 0.58 ms,
+  `postApply()` 1.1 ms; `inspectUpdate()` costs nothing and applies nothing. A flush every frame
+  also adds ~1.5 ms of engine `Ticking` (8 trucks, sector tyre materials).
+- `ProceduralMesh:setMaterial(submesh, name)` on a live tyre skin CRASHED the game (fatal). Never
+  call it on DeepNode meshes.

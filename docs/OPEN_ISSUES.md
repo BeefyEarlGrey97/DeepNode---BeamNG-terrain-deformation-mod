@@ -487,8 +487,9 @@ drawn low), `stamp.bearing` (Bekker rigid-wheel depth). Open:
 - Sand / snow / water sectors untested in game (same code path as mud); the wet-print fix
   (no prints while in water) is untested in game too.
 - 8 trucks: sector skins still cost ~2 fps against the tyre layer alone (skin draw + flushes);
-  frames alternate ~14 ms and 30-42 ms (dig upload frames). User GUI perf.uploadMsMax 6 lets
-  more upload work into one frame than the default 4.
+  frames alternate ~14 ms and 30-42 ms (dig upload frames), dig bursts reach 45-55 ms. Backend
+  routes still open: cheaper per-sector coverage than a Material flush (setMaterial crashes),
+  fewer engine uploads per rut change without lag.
 - Mod tyres whose UVs are not the common strip layout (Ural: one disc atlas, lugs in a corner)
   get the tyre-layer masks in the wrong places; the sectored skin (own UVs) carries the look.
   The clean Ural tyre itself is a flat 256 px texture (asset, not the mod).

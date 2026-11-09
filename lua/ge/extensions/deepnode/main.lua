@@ -6845,9 +6845,8 @@ function P.rebuildTiles()
   -- 6, not 16: a burst of dig uploads made frames of 20-50 ms between frames under 13
   -- (4 Percherons, gridmap_v2, 2026-11-08: 16 -> 6 = 49.6 -> 52.5 fps, low1 27 -> 31, same
   -- rut lag; with a 60 fps cap 45.7 -> 45.8, low1 28 -> 31; 4: +2 fps more, front lag +20 ms)
-  -- 3 (8 Percherons, 2026-11-09): 32.5 -> 33.9 fps, low1 18.4 -> 22.3, frames over 45 ms
-  -- 97-121 -> 0 per run, rut lag 0.10 -> 0.15 s
-  local digMax = cfg.ring.digMaxPerFrame or 3
+  -- (3: no frames over 45 ms with 8 trucks but rut lag +45 ms: rejected, visuals first)
+  local digMax = cfg.ring.digMaxPerFrame or 6
   local digDone = 0
   -- Every frame that draws a freshly uploaded mesh costs the engine ~1 ms (shadow pass,
   -- measured; size does not matter): dig uploads only every digEvery-th frame, all
