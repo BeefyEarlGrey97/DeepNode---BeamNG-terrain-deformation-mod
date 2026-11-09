@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Changed
+- Mud depth and look back to the state before the bearing model (e1362a0), keeping the floor
+  timing fixes (`floorGap`, floor written outside the upload budget): `stamp.bearing` false (rut
+  carved to the tyre bottom), `physics.heavy.floorSoftShare` 0 (floor just under the rut: tyres
+  sink a soft layer into it), soft-layer depth mud 0.25 / sand 0.14, sink limit mud 0.35 /
+  sand 0.2, liquid `yield` 0.15, `flowBack` 0.22, `relaxKeep` 0.75 / 0.8, `spinDigMax` 0.12,
+  berm crumble 0.6 / 0.12, `rutCrumble` 0 (the rut clump noise made the ruts jaggy).
+  gridmap_v2 mud pit, Ural-4320, throttle 0.7 from a standstill after 8 s parked: crawls at
+  10-12 km/h, 40 m in 15 s, body 0.40 m down (before: 22 km/h, 66 m, 0.32 m); rolling in at
+  23 km/h it holds 20 km/h (before 23).
+- Tyre coat builds slower: `clods.buildPerMeter` 0.02 -> 0.01 (`looseShare` 0.55,
+  `looseShedPerMeter` 0.1), and the shader's coverage is linear in the coat (`coat x 0.6`, was
+  `sqrt(coat) x 1.3`, which covered the whole tread at coat 0.4, ~30 m of mud).
+- Tyre coat colour: the shader coat no longer multiplies the ground colour by the kind's
+  `groundGain` (1.3-1.4, tuned for the textured skin); with the dried lift it drew dried arcs
+  ~2x the ground's brightness.
 - `pool.tileClasses` 6 -> 24: tile meshes padded to 1/24 steps of the largest tile (padding 13-15 %
   of corners instead of 20-29 %; ~8 % less createMesh time per upload, JV 6 trucks, BENCHMARK 22).
 - Tyre mud is drawn by the tyre shader (`overlay.tyreCoat` on by default; MudRunner-style build-up).

@@ -133,7 +133,9 @@ float coatReach(float4 pb[4], float a01, float across, float radK, float R, floa
     float order = orderLow + 0.15 * nB;
     // the cake's thickness follows the coarse order only (fine noise there drew worm-like ridges)
     thick = saturate((pr.x - 0.25 - 0.5 * orderLow) / 1.5);
-    return sqrt(pr.x) * 1.3 - order;
+    // linear in the coat: sqrt(coat) x 1.3 covered the whole tread at coat 0.4 (~30 m of mud,
+    // user: "built up too fast", 2026-11-09); now the tread fills around coat 1.5
+    return pr.x * 0.6 - order;
 }
 
 // cake height (m) over the tyre for a reach and thickness: a wide ramp (a steep one drew a

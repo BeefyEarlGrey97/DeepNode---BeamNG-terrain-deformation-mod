@@ -2162,6 +2162,12 @@ function M.coatAlbedo(W)
   local col = wheelColor(W)
   local b = (ctx and ctx.cfg.clods.tyreBrightness) or 1
   local m = texMeanOf(lookKind(W))
+  -- the shader darkens fresh and lifts dried mud itself: groundGain (tuned for the textured
+  -- skin) made dried arcs ~2x the ground's brightness (2026-11-09)
+  if ctx.cfg.clods.groundColor ~= false then
+    local K = kindCfg(lookKind(W))
+    m = m / max(0.05, K.groundGain or K.wet or 1)
+  end
   return clamp(col[1] * b * m, 0, 1), clamp(col[2] * b * m, 0, 1), clamp(col[3] * b * m, 0, 1)
 end
 
