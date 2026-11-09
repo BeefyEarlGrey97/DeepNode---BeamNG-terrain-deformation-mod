@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon/deepnode-icon.svg" alt="DeepNode logo" width="160"></p>
+
 # DeepNode
 
 Terrain deformation for BeamNG.drive 0.40: deep mud and sand that sink, rut and remember every tyre.

@@ -626,8 +626,28 @@ local selectTab = nil
 -- console: deepnode_main.gui.selectTab('Debug')
 function M.selectTab(name) selectTab = name; M.open() end
 
+-- window header: the logo beside the name; false = texture failed to load, skip it
+local LOGO = '/art/deepnode/deepnode_logo.png'
+local logo = nil
+local function header()
+  if logo == nil then
+    local ok, t = pcall(function() return require('ui/imguiUtils').texObj(LOGO) end)
+    logo = ok and t or false
+    -- all args cached: the wrapper builds the missing ones every frame
+    st.logoArgs = { im.ImVec2(40, 40), im.ImVec2(0, 0), im.ImVec2(1, 1), im.ImVec4(1, 1, 1, 1), im.ImVec4(0, 0, 0, 0) }
+  end
+  if not logo then return end
+  local a = st.logoArgs
+  im.Image(logo.tex:getID(), a[1], a[2], a[3], a[4], a[5])
+  im.SameLine()
+  im.SetCursorPosY(im.GetCursorPosY() + (40 - im.GetTextLineHeight()) / 2)
+  im.TextUnformatted('DeepNode')
+  im.SameLine(); ctext('dim', 'terrain deformation')
+end
+
 local function body(m)
   local err = nil
+  header()
   if im.BeginTabBar('deepnodeTabs') then
     local sel = selectTab
     selectTab = nil

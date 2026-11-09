@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- DeepNode logo (docs/icon/deepnode-icon.svg): shown at the top of the README and in the
+  DeepNode window header (art/deepnode/deepnode_logo.png, 128 px).
+
 ## [0.8.0] — 2026-11-09 — road shader, liquid mud, shader tyre coat, SnowRunner ruts
 
 ### Changed
