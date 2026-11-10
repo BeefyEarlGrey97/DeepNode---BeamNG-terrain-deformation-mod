@@ -391,6 +391,35 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
   - Limits of the ghost route: only two slots, both translucent forward passes (no G-buffer, no engine lighting, no shadow:
     the shader must light itself), per-draw data only from the scene cbuffer (time, camera) and
     the vertices; custom constants (`highlightAlpha` only, slot 2) and textures not tested.
+- GPU height map for the own slot: research 2026-11-10 (static only: stock shaders, 0.40.5 exe,
+  the 11-07 shader cache). Goal: upload each tile once and displace it in the VS from a PostEffect
+  target, so deepening needs no `createMesh`.
+  - Texture access: a bindless shader can index ONE global 2D texture table,
+    `materialTextures2D[65536]` at t26 space0 (`materialInputBindless.h.hlsl`, cube table at
+    t65562), plus its own material block (`getMaterialData()`, `customDataOffets[]`; the engine puts
+    the custom cubemap's index in `[1]`). A shader in the `ParallaxInteriorShaderData` slot includes
+    the same headers, so it can sample any texture whose table index it knows. That index is the
+    missing link: nothing found yet hands it to a custom material.
+  - Named targets in materials: the bindless material init (0x1407fb4a0, gated by a global flag)
+    takes a texture reference whose name starts with `#`, resolves it with `NamedTexTarget::find`
+    (0x1407ed3d0) and stores the target's texture. The legacy binding path (0x1407ef370) handles
+    `#` and `$` names too. Which Material / CustomMaterial field feeds the bindless one is not
+    resolved.
+  - Shadow pass: `ShadowMaterialHook::init` (0x1404cb370) swaps in `AL_DefaultShadowMaterial`
+    unless the material's virtual +0x1b8 is true. For a CustomMaterial that is the bindless flag the
+    ParallaxInterior slot sets (0x1407be400 reads `[mat+0xb28]+0xf1`). So in our slot the shadow
+    instance should be built from our own material and run our VS. Not proven: the 11-07 cache
+    holds colour, prepass (`MFT_PrePassConditioner`) and reflection (`MFT_ClipPlane0`) permutations
+    of `dnBindless.hlsl` / `dnTex.hlsl`, but nothing shadow-like. Stock shadow casters compile
+    with almost no features (`MFT_MATERIAL_LAYER_COUNT` [+ `MFT_MaterialDeprecated`,
+    `MFT_ParaboloidVertTransform`]). The prepass permutation shows that the G-buffer pass DID run
+    our shader, which corrects "no G-buffer variant" above.
+  - Risk for an in-place vertex buffer write: `bindlessArena.h.hlsl` says a bindless mesh draws its
+    vertex stream from the arena (t10), not from a vertex buffer. A lock/unlock of the static VB may
+    therefore not change what is drawn, unless the VB lives inside the arena. Not checked.
+  - Next step needs the game: a probe with a named target, a standard Material using it as a
+    texture, and our slot's shader scanning the texture table. A shadow permutation in the cache
+    after a sunlit frame answers the shadow question.
 - GPU work available to Lua: compute PostEffects (`ShaderData.DXComputShaderName`, e.g.
   `postFx/passthru.cs.hlsl`, writes the `pfxOut` UAV of the target texture). Compute that writes
   mesh vertices exists only engine-internal (`skinning.cs.hlsl`, `dynamicDecals/processMesh.cs.hlsl`),
