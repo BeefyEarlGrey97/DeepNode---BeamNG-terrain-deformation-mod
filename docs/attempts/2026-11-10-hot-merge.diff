@@ -1,0 +1,524 @@
+diff --git a/lua/ge/extensions/deepnode/main.lua b/lua/ge/extensions/deepnode/main.lua
+index fdb55d8..870c8dd 100644
+--- a/lua/ge/extensions/deepnode/main.lua
++++ b/lua/ge/extensions/deepnode/main.lua
+@@ -4587,6 +4587,7 @@ end
+ 
+ function P.demote(t)
+   local sk = P.sectorKeyOfTile(t.tx, t.ty)
++  P.mod('tileMesh').hotSettle(t) -- out of its vehicle's hot group: an object of its own
+   local o = t.obj
+   P.act[t.key] = nil
+   t.pendSince, t.visSince = nil, nil -- rut lag readout: the sector takes it over
+@@ -5010,7 +5011,7 @@ local function writeOne(tx, ty, i, j, z, tr)
+   t.rutted = true
+   -- liquid flow is not a tyre: its tiles rebuild at the settling rate (as tyre-dug ones
+   -- they rebuilt at the dig rate for the whole flow life, +20 % uploads, 4 trucks)
+-  if P.liqWriting then t.liqDirty = true else t.lastStamp = simTime; t.stampDirty = true end
++  if P.liqWriting then t.liqDirty = true else t.lastStamp = simTime; t.stampDirty = true; t.hotVeh = P.curVid end
+   local pd = P.poolDirty
+   if pd then pd[t] = true end
+   t.pendSince = t.pendSince or simTime
+@@ -6165,6 +6166,7 @@ function M.onMudReport(vid, w, nodes, tris)
+   if not running then return end
+   local vs = P.vehs[vid]
+   if not vs then return end
++  P.curVid = vid -- tiles remember who digs them (hot groups, tileMesh pool.hotMerge)
+   local st = cfg.stamp
+   local phys = P.isPhysical(vid)
+   P.printOnly = not phys
+@@ -6718,6 +6720,7 @@ function P.shownChange(t)
+ end
+ 
+ P.rebuildList = {}
++P.rideList = {}
+ -- tiles built without their decal copies while dug (tileMesh.buildTile) rebuild once quiet
+ function P.decalQuiet()
+   P.decalCheckT = (P.decalCheckT or 0) + 1
+@@ -6771,6 +6774,10 @@ function P.rebuildTiles()
+   local freshWin = cfg.ring.freshWindow or 0.25
+   local deepenGap = 1 / max(0.5, cfg.ring.deepenRebuildHz or 8)
+   local digNear = cfg.ring.digNearDist or 50
++  local deepenFast = cfg.ring.deepenFast ~= false
++  -- tiles of a hot group that are dirty but not due yet: they ride along when their group
++  -- uploads anyway this frame (a submesh more in that createMesh, no call of their own later)
++  local ride, nr = P.rideList, 0
+   P.updateViewCone()
+   for pass = 1, 2 do for _, t in pairs(pass == 1 and P.act or P.own) do
+     -- a frozen tile that kept its own mesh still gets the rebuild it was waiting for
+@@ -6806,7 +6813,8 @@ function P.rebuildTiles()
+         if not t.digNow then gap = max(gap, deepenGap) end
+         -- new ruts all under a vehicle body (front/middle axles) are hidden by it: wait
+         -- until they come out behind it (rut lag counts from then), at most bodyMaxWait
+-        local wait = false
++        local wait, bodyHold = false, false
++        t.ride = nil
+         if t.obj and not t.bigChange and t.pendSince and simTime - t.pendSince < smallWait then
+           wait = true
+         elseif t.ndsq and t.ndsq > 0 and t.obj and P.dirtyHidden(t) then
+@@ -6814,7 +6822,7 @@ function P.rebuildTiles()
+           -- a side or chase camera (the front axle lies inside the box, so the rut showed
+           -- only once it came out at mid truck); it rebuilds at bodyFreshHz instead
+           if t.digNow and bodyFreshGap and dc <= bodyFreshDist then gap = max(gap, bodyFreshGap)
+-          else wait = simTime - (t.pendSince or simTime) < bodyWait end
++          else wait = simTime - (t.pendSince or simTime) < bodyWait; bodyHold = wait end
+         elseif t.pendSince and not t.visSince then
+           t.visSince = simTime
+         end
+@@ -6834,10 +6842,35 @@ function P.rebuildTiles()
+             local target = inView and (cfg.ring.inViewTarget or 0.3) or (cfg.ring.outViewTarget or 1.5)
+             t.prio = 1e5 + (since + target - simTime) * 1e3 + dc + (dug and 0 or 1e7)
+           end
++        elseif type(t.obj) == 'table' and gap < huge and not bodyHold
++          and t.stampDirty and simTime - t.lastStamp <= 0.3 then
++          -- only tiles a tyre changed just now. Not the ones held under a vehicle body or out
++          -- of view (those uploads are saved), nor settling / liquid flow (they keep their slow
++          -- rates: riding along, every tile behind the truck went into every group upload,
++          -- 4.7 submeshes per call, 2 Urals, gridmap_v2)
++          nr = nr + 1
++          ride[nr] = t
+         end
+       end
+     end
+   end end
++  if nr > 0 then
++    for k = 1, n do
++      local t = P.rebuildList[k]
++      if t.digNow or deepenFast and t.seenDeepen then tm.hotGo(t, t.hotVeh) end
++    end
++    for k = 1, nr do
++      local t = ride[k]
++      ride[k] = nil
++      if tm.hotGoing(t) then
++        n = n + 1
++        P.rebuildList[n] = t
++        t.sortD = P.tileMinDist2(t.tx, t.ty, true)
++        t.prio = P.camDist2(t)
++        t.ride = true
++      end
++    end
++  end
+   for k = n + 1, #P.rebuildList do P.rebuildList[k] = nil end
+   if n == 0 then return end
+   table.sort(P.rebuildList, P.byPrio)
+@@ -6866,10 +6899,9 @@ function P.rebuildTiles()
+   -- ruts deepened in view by the axles behind take the fast path too (ring.deepenFast):
+   -- through the shared budget they waited 0.6 s on average behind the fresh fronts
+   -- (8 trucks, gridmap_v2, 2026-11-07), which read as ruts lagging the truck
+-  local deepenFast = cfg.ring.deepenFast ~= false
+   for k = 1, n do
+     local t = P.rebuildList[k]
+-    local dig = t.digNow and t.prio <= digR2 or deepenFast and t.seenDeepen
++    local dig = t.ride or t.digNow and t.prio <= digR2 or deepenFast and t.seenDeepen
+     if dig then
+       if digDone >= digMax then break end
+     elseif done >= cfg.ring.maxTileBuildsPerFrame or (done > 0 and timer:stop() > cfg.ring.meshBudgetMs) then
+@@ -6911,7 +6943,7 @@ function P.rebuildTiles()
+         meshes = tm.buildTile(t, P.borderRule(t, false), t.decalForce)
+         t.decalForce = nil
+       end
+-      if meshes and tm.present(t, meshes) then
++      if meshes and tm.present(t, meshes, dig and t.hotVeh or nil) then
+         if minVis > 0 and t.obj then P.snapshotShown(t) end
+         -- rut lag readout: visible changes only, from when they were made (or came out
+         -- from under the vehicle)
+@@ -7938,6 +7970,7 @@ function P.onUpdate(dtReal, dtSim, dtRaw)
+   P.updateMudBounds(dtReal)
+   P.timed('tiles', P.rebuildTiles)
+   P.timed('stream', P.streamTiles)
++  P.timed('hot', tm.flushHot, simTime) -- after the stream: tiles it demoted have left their group
+   if fm then P.timed('sectors', fm.update, dtReal or dt, camx, camy, P.vehCenters) end
+   tclear(P.changedTiles)
+   if wm then P.timed('clods', wm.update, dt) end
+diff --git a/lua/ge/extensions/deepnode/tileMesh.lua b/lua/ge/extensions/deepnode/tileMesh.lua
+index d7e2be1..f11e45b 100644
+--- a/lua/ge/extensions/deepnode/tileMesh.lua
++++ b/lua/ge/extensions/deepnode/tileMesh.lua
+@@ -204,8 +204,11 @@ local function acquire(key)
+ end
+ M.acquire = acquire
+ 
++-- hot groups (pool.hotMerge, see below): a grouped tile holds a proxy table, not an object
++local hotLeave, hotPresent
+ local function release(o)
+   if not o then return end
++  if type(o) == 'table' then return hotLeave(o) end
+   o:setHidden(true)
+   -- pitfall 12: never let a recycled object carry a transform into a world-space mesh
+   if identity then o:setTransform(identity) end
+@@ -228,6 +231,7 @@ function M.reuseStats() return reuse.hit, reuse.fresh, reuse.steal, nKeyed, reus
+ local deferredChunk = {}
+ local function deferRelease(o)
+   if not o then return end
++  if type(o) == 'table' then return hotLeave(o) end
+   deferred[#deferred + 1] = o
+   deferredFrame[#deferredFrame + 1] = frameNo
+   deferredChunk[#deferred] = false
+@@ -400,6 +404,17 @@ local function decalMod() return extensions and extensions.deepnode_decals end
+ local function padMeshes(chunk, meshes)
+   local tileN = not chunk.sx and chunk.N
+   local key = #meshes
++  -- a hot group (chunk.classes): every tile padded to the class of its biggest one, so the
++  -- signature is only (tiles, class)
++  local uni = nil
++  if chunk.classes and tileN then
++    local cls, mV, mC = chunk.classes, (tileN + 1) * (tileN + 1), 6 * tileN * tileN
++    uni = 1
++    for i = 1, #meshes do
++      local nv, nc = #meshes[i].verts, #meshes[i].faces
++      if nv <= mV and nc <= mC then uni = max(uni, math.ceil(cls * nv / mV), math.ceil(cls * nc / mC)) end
++    end
++  end
+   for i = 1, #meshes do
+     local m = meshes[i]
+     local nv, nc = #m.verts, #m.faces
+@@ -420,8 +435,9 @@ local function padMeshes(chunk, meshes)
+       -- TILE_CLASSES tile classes (k/TILE_CLASSES of the largest tile): createMesh costs
+       -- ~0.3 ms + 0.2-0.3 us per corner; padding every tile to the largest one cost +35 %,
+       -- to thirds +30 % (measured 1.41 vs 1.08 ms for a 590-vertex rut tile)
+-      local k = max(math.ceil(TILE_CLASSES * nv / maxV), math.ceil(TILE_CLASSES * nc / maxC), 1)
+-      capV, capC = math.ceil(maxV * k / TILE_CLASSES), math.ceil(maxC * k / TILE_CLASSES)
++      local cls = chunk.classes or TILE_CLASSES
++      local k = uni or max(math.ceil(cls * nv / maxV), math.ceil(cls * nc / maxC), 1)
++      capV, capC = math.ceil(maxV * k / cls), math.ceil(maxC * k / cls)
+     else
+       -- one (verts, corners) pair per class: corners 3072 * 2^k, verts a quarter of that
+       -- (a grid mesh has ~5 corners per vertex), so sizes do not combine freely
+@@ -451,9 +467,44 @@ local function unpadMeshes(meshes)
+   end
+ end
+ 
++-- createMesh of `meshes` into a hidden pooled object that is shown at once; the object it
++-- replaces is hidden on a later frame (pool.hideFrames).
++local function uploadChunk(chunk, meshes)
++  local mode = ctx and ctx.cfg.pool and ctx.cfg.pool.mode or 'pair'
++  local timer = hptimer and hptimer()
++  local key = padMeshes(chunk, meshes)
++  local o = nil
++  if mode == 'pair' and chunk.spare then
++    -- the chunk's own spare only when its buffers have this mesh's sizes
++    if objKey[chunk.spare] == key then
++      o = chunk.spare
++      reuse.hit = reuse.hit + 1
++    else
++      release(chunk.spare)
++    end
++    chunk.spare = nil
++  end
++  o = o or acquire(key)
++  if not o then unpadMeshes(meshes); return false end
++  census.uploads = census.uploads + 1
++  o:createMesh({ meshes })
++  objKey[o] = key
++  unpadMeshes(meshes)
++  local nv = setGeometry(o, meshes)
++  M.recordUpload(chunk.sx and 'S' or 'T', nv, timer and timer:stop() or 1)
++  chunk.lastVerts = nv
++  o:setHidden(false)
++  if chunk.obj then
++    if mode == 'pair' then deferSpare(chunk.obj, chunk) else deferRelease(chunk.obj) end
++  end
++  chunk.obj = o
++  return true
++end
++
+ -- Show `meshes` (array of submeshes) for a chunk that owns at most one pooled
+ -- object in chunk.obj. nil = rejected build (keep the old mesh), {} = nothing to draw.
+-function M.present(chunk, meshes)
++-- `gid` (a vehicle id): the tile is being dug by that vehicle and may join its hot group.
++function M.present(chunk, meshes, gid)
+   if meshes == nil then
+     stats.rejected = stats.rejected + 1
+     return false
+@@ -467,7 +518,6 @@ function M.present(chunk, meshes)
+   -- is hidden on the next frame. Replacing the geometry of the visible object in place
+   -- left the chunk undrawn for a frame (measured in game: the rut tile vanished in every
+   -- other frame while rebuilding, i.e. flicker).
+-  local mode = ctx and ctx.cfg.pool and ctx.cfg.pool.mode or 'pair'
+   -- A rebuild that comes out identical to the shown mesh (a neighbour or timer asked for
+   -- it, nothing visible changed: ~5 % of uploads, gridmap_v2 8 trucks) is not uploaded:
+   -- every upload costs createMesh time, engine memory and a shadow-pass refresh. The
+@@ -499,33 +549,12 @@ function M.present(chunk, meshes)
+     stats.builds = stats.builds + 1
+     return true
+   end
+-  local timer = hptimer and hptimer()
+-  local key = padMeshes(chunk, meshes)
+-  local o = nil
+-  if mode == 'pair' and chunk.spare then
+-    -- the chunk's own spare only when its buffers have this mesh's sizes
+-    if objKey[chunk.spare] == key then
+-      o = chunk.spare
+-      reuse.hit = reuse.hit + 1
+-    else
+-      release(chunk.spare)
+-    end
+-    chunk.spare = nil
+-  end
+-  o = o or acquire(key)
+-  if not o then unpadMeshes(meshes); return false end
+-  census.uploads = census.uploads + 1
+-  o:createMesh({ meshes })
+-  objKey[o] = key
+-  unpadMeshes(meshes)
+-  local nv = setGeometry(o, meshes)
+-  M.recordUpload(chunk.sx and 'S' or 'T', nv, timer and timer:stop() or 1)
+-  chunk.lastVerts = nv
+-  o:setHidden(false)
+-  if chunk.obj then
+-    if mode == 'pair' then deferSpare(chunk.obj, chunk) else deferRelease(chunk.obj) end
++  if type(chunk.obj) == 'table' or (gid and M.hotOn and not chunk.sx) then
++    return hotPresent(chunk, meshes, gid)
+   end
+-  chunk.obj = o
++  -- a hot group still draws this tile's last mesh: it uploads without it this frame
++  if chunk.hotGhost then chunk.hotGhost.dirty = true end
++  if not uploadChunk(chunk, meshes) then return false end
+   stats.builds = stats.builds + 1
+   return true
+ end
+@@ -544,6 +573,7 @@ function M.destroyAll(objectsAlive)
+   geo = setmetatable({}, { __mode = 'k' })
+   geoVerts, geoCorners = 0, 0
+   stats.inUse, stats.created, stats.peakInUse = 0, 0, 0
++  M.hotReset()
+ end
+ 
+ function M.stats()
+@@ -1259,9 +1289,14 @@ function M.emitTerrainSquares(b, tx, ty, zOff)
+ end
+ 
+ -- Build the mesh of an active tile: pixels when untouched, full cells when rutted.
+-local tileBuilder = nil
++local sharedBuilder = nil
++-- the last build and the builder that holds its arrays (hot groups keep them)
++local lastTileMeshes, lastTileBuilder = nil, nil
+ function M.buildTile(t, rule, forceDecal)
+-  tileBuilder = tileBuilder or M.newBuilder()
++  sharedBuilder = sharedBuilder or M.newBuilder()
++  -- a grouped tile builds into its own back builder: the shared one reuses its arrays
++  local px = t.obj
++  local tileBuilder = type(px) == 'table' and px.back or sharedBuilder
+   tileBuilder:reset()
+   rec.n = 0
+   if t.rutted then
+@@ -1289,13 +1324,218 @@ function M.buildTile(t, rule, forceDecal)
+       t.decalWait = t.lastStamp + quiet
+     end
+   end
+-  return tileBuilder:finish()
++  lastTileBuilder = tileBuilder
++  lastTileMeshes = tileBuilder:finish()
++  return lastTileMeshes
++end
++
++-------------------------------------------------------------------------------
++-- hot groups (pool.hotMerge)
++-------------------------------------------------------------------------------
++-- The engine charges the shadow pass (+0.75 ms on the upload frame) and 0.36 ms of
++-- createMesh per CALL; a submesh costs 0.46 ms (256 vertices; measured 2026-11-10, gridmap_v2,
++-- dntestEng cases k<N> / m<N>). Two trucks made ~100 calls per second, 2.2 per vehicle report.
++-- So the tiles one vehicle is digging upload together, as submeshes of one object per vehicle
++-- (the group). A grouped tile holds a proxy table in t.obj (no engine object) and keeps its
++-- last meshes in its own pair of builders. It gets its own object back, with the same mesh,
++-- in the frame the group uploads without it after it missed more than HOT_MISS group uploads
++-- (measured, 2 Urals: a tile that skips an upload changes again at the next one in 219 of
++-- 310 cases, else mostly after 10 and more: carry it once, 0.46 ms, then split, one call), or
++-- one tile per frame once the group has not uploaded for HOT_IDLE s. Same vertices on screen;
++-- a tile that rides along with its group is only ever updated earlier than on its own.
++local HOT_MISS, HOT_IDLE = 1, 0.25
++-- Engine memory grows when an object gets other buffer sizes than its last mesh (see the
++-- size classes above), and a group's size signature is the combination of its tiles' sizes:
++-- with the 24 tile classes in member order nearly every group upload had a new signature
++-- (+205 MB in a 20 s run, 2 Urals; +2 MB with one object per tile). So a group pads all its
++-- tiles to one of HOT_CLASSES sizes, the class of its biggest tile (padMeshes): a signature
++-- is just (tiles, class).
++local HOT_CLASSES = 8
++local hot = {} -- gid -> { gid, N, members = {proxy}, ghosts = {tile}, obj, spare, dirty, last }
++local freeBuilders = {}
++local Proxy = {}
++Proxy.__index = Proxy
++function Proxy.setHidden() end
++function Proxy.isHidden() return false end
++M.hotOn = false
++M.hotMiss = HOT_MISS
++-- fresh = tiles that changed in a group upload (the rest were carried); gaps[n] = times a
++-- tile changed again after n group uploads without a change
++M.hotStats = { uploads = 0, subs = 0, joins = 0, splits = 0, fresh = 0, gaps = {} }
++
++local function takeBuilder() return table.remove(freeBuilders) or M.newBuilder() end
++
++local function hotRemove(px)
++  local ms = px.grp.members
++  for i = 1, #ms do if ms[i] == px then table.remove(ms, i); break end end
++  px.grp = nil
++end
++
++local function hotFree(px)
++  if px.b then freeBuilders[#freeBuilders + 1] = px.b end
++  if px.back then freeBuilders[#freeBuilders + 1] = px.back end
++  px.b, px.back, px.meshes = nil, nil, nil
++end
++
++-- the tile gave up its mesh (deferRelease / release of its proxy)
++hotLeave = function(px)
++  local G = px.grp
++  if not G then return end
++  hotRemove(px)
++  if px.old then deferRelease(px.old); px.old = nil end
++  hotFree(px)
++  G.dirty = true -- the group uploads without it (or goes) at the next flush
++end
++
++-- the tile gets its own object back, with the mesh the group shows for it
++local function hotSplit(px)
++  local G, t = px.grp, px.tile
++  hotRemove(px)
++  if t.obj == px then
++    t.obj = nil
++    if px.meshes and uploadChunk(t, px.meshes) then
++      -- the group object draws the same mesh until its next upload
++      t.hotGhost = G
++      G.ghosts[#G.ghosts + 1] = t
++    else
++      t.dirty, t.geoN = true, nil -- no object to be had: its own rebuild brings it back
++    end
++  end
++  if px.old then deferRelease(px.old); px.old = nil end
++  hotFree(px)
++  M.hotStats.splits = M.hotStats.splits + 1
++end
++
++local function hotClearGhosts(G)
++  local gs = G.ghosts
++  for i = #gs, 1, -1 do
++    if gs[i].hotGhost == G then gs[i].hotGhost = nil end
++    gs[i] = nil
++  end
++end
++
++local function hotRetire(G)
++  if G.obj then deferRelease(G.obj); G.obj = nil end
++  M.dropSpare(G)
++  hotClearGhosts(G)
++  if hot[G.gid] == G then hot[G.gid] = nil end
++end
++
++-- before a tile's mesh object goes somewhere else (sector handover, frozen own mesh)
++function M.hotSettle(t)
++  local px = t.obj
++  if type(px) ~= 'table' or not px.grp then return end
++  local G = px.grp
++  hotSplit(px)
++  G.dirty = true
++end
++
++hotPresent = function(t, meshes, gid)
++  local px = type(t.obj) == 'table' and t.obj or nil
++  if meshes ~= lastTileMeshes or lastTileBuilder ~= (px and px.back or sharedBuilder) then
++    -- not this tile's last build (its arrays cannot be kept): plain upload
++    if px then M.hotSettle(t) end
++    if not uploadChunk(t, meshes) then return false end
++    stats.builds = stats.builds + 1
++    return true
++  end
++  lastTileMeshes = nil
++  if px then
++    px.b, px.back = px.back, px.b
++  else
++    local G = hot[gid]
++    if not G then
++      G = { gid = gid, N = t.N, classes = HOT_CLASSES, members = {}, ghosts = {}, subs = {}, last = 0 }
++      hot[gid] = G
++    end
++    -- the tile takes the shared builder (it holds this build); its old object stays shown
++    -- until the group has uploaded
++    px = setmetatable({ tile = t, grp = G, old = t.obj, b = sharedBuilder, back = takeBuilder() }, Proxy)
++    sharedBuilder = takeBuilder()
++    G.members[#G.members + 1] = px
++    M.dropSpare(t)
++    t.obj = px
++    M.hotStats.joins = M.hotStats.joins + 1
++  end
++  px.meshes, px.fresh = meshes, true
++  px.miss = px.miss or 0
++  px.grp.dirty = true
++  -- another group still draws this tile's older mesh
++  if t.hotGhost and t.hotGhost ~= px.grp then t.hotGhost.dirty = true end
++  local nv = 0
++  for i = 1, #meshes do nv = nv + #meshes[i].verts end
++  t.lastVerts = nv
++  stats.builds = stats.builds + 1
++  return true
++end
++
++-- a tile of this group is about to be presented: other dirty tiles of the group can ride along
++function M.hotGo(t, gid)
++  local px = t.obj
++  local G = type(px) == 'table' and px.grp or (M.hotOn and gid and hot[gid]) or nil
++  if G then G.goFrame = frameNo end
++end
++function M.hotGoing(t)
++  local px = t.obj
++  return type(px) == 'table' and px.grp ~= nil and px.grp.goFrame == frameNo
++end
++
++-- Once per frame, after the tile rebuilds: one createMesh per group that changed.
++function M.flushHot(now)
++  for _, G in pairs(hot) do
++    local ms = G.members
++    if G.dirty then
++      for i = #ms, 1, -1 do
++        local px = ms[i]
++        if px.fresh then
++          local hs = M.hotStats
++          hs.fresh = hs.fresh + 1
++          if px.miss > 0 then hs.gaps[px.miss] = (hs.gaps[px.miss] or 0) + 1 end
++          px.fresh, px.miss = false, 0
++        else
++          px.miss = px.miss + 1
++          if px.miss > M.hotMiss then hotSplit(px) end
++        end
++      end
++      if #ms == 0 then
++        hotRetire(G)
++      else
++        local subs, n = G.subs, 0
++        for i = 1, #ms do
++          local m = ms[i].meshes
++          for k = 1, #m do n = n + 1; subs[n] = m[k] end
++        end
++        for k = #subs, n + 1, -1 do subs[k] = nil end
++        if uploadChunk(G, subs) then
++          G.dirty, G.last = false, now
++          for i = 1, #ms do
++            local px = ms[i]
++            if px.old then deferRelease(px.old); px.old = nil end
++          end
++          hotClearGhosts(G)
++          M.hotStats.uploads = M.hotStats.uploads + 1
++          M.hotStats.subs = M.hotStats.subs + n
++        end
++      end
++    elseif #ms == 0 then
++      hotRetire(G)
++    elseif now - G.last > HOT_IDLE then
++      hotSplit(ms[#ms])
++      if #ms == 0 then hotRetire(G) end
++    end
++  end
++end
++
++function M.hotReset()
++  hot = {}
++  lastTileMeshes, lastTileBuilder = nil, nil
+ end
+ 
+ function M.setContext(main)
+   ctx = main
+   local pc = main and main.cfg and main.cfg.pool or {}
+   growStep = pc.growStep or 16
++  M.hotOn = pc.hotMerge == true
+   TILE_CLASSES = max(1, floor(pc.tileClasses or 24))
+   DEC_MIN_CORNERS = pow2(max(24, pc.decalMinCorners or 96), 24)
+ end

@@ -605,6 +605,26 @@ frames without a report (the governor spreads one report's tiles over the next f
 uploads near the camera average 265 vertices / 1385 face corners.
 
 Engine probe (ENGINE_FINDINGS, ProceduralMesh): the shadow-pass cost and 0.36 ms of createMesh
-are per call, 0.46 ms per 256-vertex submesh. Uploading the tiles that are due in one frame as
-one object would cut the calls from 2010 to 1190 (to ~610 with one call per report frame):
-estimated 0.5-1.1 s of the 19.6 s run (3-6 % fps) and half as many slow frames. Not built.
+are per call, 0.46 ms per 256-vertex submesh.
+
+Merged uploads, built and dropped the same day (diff: docs/attempts/2026-11-10-hot-merge.diff).
+One "hot" object per vehicle holds the tiles that vehicle is digging as submeshes (a tile keeps
+a proxy handle and its own pair of mesh builders; dirty tiles of the group ride along with its
+upload; a tile that missed two group uploads gets its own object back in the frame the group
+uploads without it; every tile padded to the group's biggest size class). Interleaved, run 2
+of 2 each, same session:
+
+| variant | fps | low1 | p99 ms | createMesh calls / submeshes per run |
+|---|---|---|---|---|
+| one object per tile (main) | 122.8 / 119.8 / 120.1 / 125.3 / 124.4 = 122.5 | 90.6 | 11.1 | 1880 / 1880 |
+| hot groups | 120.5 / 122.8 / 121.0 / 120.3 / 124.9 / 121.6 = 121.9 | 87.7 | 11.5 | 1000 / 2940 |
+
+No gain. The calls halve (650 group uploads + 150 hand-backs + sectors), `RenderShadows` falls
+1.19 -> 1.05 ms and `RenderReflections` 0.82 -> 0.70 ms, but createMesh time rises 0.92 -> 1.05-1.14
+ms per frame: a vehicle report dirties ~3.6 tiles (both wheel tracks straddle tile borders) and the
+per-tile path uploads only 2.2 of them (deepening tiles are rate-limited), while a group sends all
+of them plus the carried ones, 4.5 submeshes per call, each 0.46 ms + 0.24 ms of Lua mesh build.
+What else was seen: with the 24 tile size classes kept per member nearly every group upload had a
+new size signature (365 new pool objects, +205 MB in a 20 s run; one class per group fixed that);
+without the hand-back rule a group grew to 9 tiles; a tile that skips one group upload changes
+again at the next one in ~70 % of the cases, otherwise after 10 or more.

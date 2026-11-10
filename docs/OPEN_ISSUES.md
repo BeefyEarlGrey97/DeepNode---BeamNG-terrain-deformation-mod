@@ -46,11 +46,12 @@ truck body for 3 s gives 64-66 fps but ruts then lag under the wheels in a side 
 
 2026-11-10 (2 Urals, BENCHMARK 24): 117-121 fps vs 158 with the mod off; ~100 uploads per second
 are most of the gap. New engine fact: the shadow-pass cost and 0.36 ms of `createMesh` are paid
-per call, not per submesh. Idea, not built: upload the tiles that are due in the same frame as
-submeshes of one "hot" object per vehicle (or per frame), hand a tile back to its own object at
-its freeze upload. To check first: the two-frame show / hide overlap for the handover, engine
-memory growth of an object whose submesh sizes change every upload, shadow / reflection culling
-of the bigger bounding box.
+per call, not per submesh. Built and dropped the same day: one "hot" object per vehicle with its
+dug tiles as submeshes halves the calls (1880 -> 1000 per run) but uploads 2940 submeshes instead
+of 1880, and fps / low1 / p99 come out the same or slightly worse (122.5 vs 121.9 fps, 5 + 6
+interleaved runs). Diff in docs/attempts/2026-11-10-hot-merge.diff. It could only win where
+several tiles of ONE vehicle upload in the same frame anyway (8 trucks: not tested) or if a tile
+could leave a shared object without a new upload (the engine has no per-submesh hide).
 
 ## 2. Deepening lag under load
 

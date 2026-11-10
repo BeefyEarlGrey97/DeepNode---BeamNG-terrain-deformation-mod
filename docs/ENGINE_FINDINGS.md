@@ -59,7 +59,8 @@ They explain most design decisions; please extend this file when you measure som
   +0.75 ms each. `createMesh` time: k = 0.77 ms per mesh (0.83 / 1.54 / 2.32 / 3.06 ms), m =
   0.36 ms per call + 0.46 ms per submesh (1.28 / 1.72 / 2.20 ms). `RenderReflections`: k4 +0.34,
   m4 +0.07 ms. So tiles uploaded together as submeshes of one object save ~0.3 ms of createMesh
-  and ~0.5 ms of shadow pass per avoided call. Not built into the mod yet (OPEN_ISSUES 1).
+  and ~0.5 ms of shadow pass per avoided call. In the mod this did not pay with 2 trucks
+  (BENCHMARK 24): a shared object must resend every tile it shows, so more submeshes go up.
 - `PSSMLightShadowMap.lastSplitCastersEnabled = false`: no change (1.68 vs 1.69 ms per upload frame).
 - ProceduralMesh has object type bits 0 and 8 (`SOTStaticObject`, `SOTStaticShape`), the same as
   TSStatic: a render view's `shadowCasterObjectTypeBlacklistMask` cannot leave only the mud out.
