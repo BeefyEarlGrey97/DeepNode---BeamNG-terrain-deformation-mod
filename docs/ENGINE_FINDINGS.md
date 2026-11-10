@@ -52,6 +52,14 @@ They explain most design decisions; please extend this file when you measure som
 - Several uploads in one frame (same objects re-uploaded, k per frame): `RenderShadows` +0.80 /
   +1.24 / +2.33 / +4.13 ms for k = 1 / 2 / 4 / 8, ~0.5-0.6 ms each: nearly linear. Batching
   uploads into fewer frames does not cut this cost; fewer uploads do.
+- The first-draw cost is per `createMesh` CALL, not per submesh (2026-11-10, gridmap_v2, 0.40.5,
+  256-vertex grids, 24 samples per case, `dntestEng` cases `k<N>` = N objects / N calls and
+  `m<N>` = the same N grids as N submeshes of one object in one call). Upload-frame
+  `RenderShadows` over idle: k1 +0.74, k2 +1.23, k3 +1.70, k4 +2.29 ms, but m2 / m3 / m4
+  +0.75 ms each. `createMesh` time: k = 0.77 ms per mesh (0.83 / 1.54 / 2.32 / 3.06 ms), m =
+  0.36 ms per call + 0.46 ms per submesh (1.28 / 1.72 / 2.20 ms). `RenderReflections`: k4 +0.34,
+  m4 +0.07 ms. So tiles uploaded together as submeshes of one object save ~0.3 ms of createMesh
+  and ~0.5 ms of shadow pass per avoided call. Not built into the mod yet (OPEN_ISSUES 1).
 - `PSSMLightShadowMap.lastSplitCastersEnabled = false`: no change (1.68 vs 1.69 ms per upload frame).
 - ProceduralMesh has object type bits 0 and 8 (`SOTStaticObject`, `SOTStaticShape`), the same as
   TSStatic: a render view's `shadowCasterObjectTypeBlacklistMask` cannot leave only the mud out.

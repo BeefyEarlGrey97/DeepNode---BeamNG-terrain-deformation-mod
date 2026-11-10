@@ -92,16 +92,26 @@ local function upload(case)
   local kk = tonumber(case:match('^k(%d+)$'))
   if kk then
     S.kObjs = S.kObjs or {}
-    local t = hptimer()
+    local subs = {}
     for q = 1, kk do
-      local ob = S.kObjs[q]
-      if not ob then
-        ob = newObj(string.format('dntestEng_k_%d_%d', S.session, q))
-        ob:createMesh({ { gridMesh(S.px + q * 0.01, S.py, S.pz, S.cells, S.cell, S.mat) } })
-        S.kObjs[q] = ob
+      subs[q] = gridMesh(S.px + q * 0.01, S.py, S.pz, S.cells, S.cell, S.mat)
+      if not S.kObjs[q] then
+        S.kObjs[q] = newObj(string.format('dntestEng_k_%d_%d', S.session, q))
+        S.kObjs[q]:createMesh({ { subs[q] } })
       end
-      ob:createMesh({ { gridMesh(S.px + q * 0.01, S.py, S.pz, S.cells, S.cell, S.mat) } })
     end
+    local t = hptimer() -- createMesh only: the Lua tables are built before
+    for q = 1, kk do S.kObjs[q]:createMesh({ { subs[q] } }) end
+    return t:stop(), nil
+  end
+  -- 'm<N>': the same N grids as N submeshes of ONE object in ONE createMesh call (vs 'k<N>')
+  local mm = tonumber(case:match('^m(%d+)$'))
+  if mm then
+    S.mObj = S.mObj or newObj('dntestEng_m_' .. S.session)
+    local subs = {}
+    for q = 1, mm do subs[q] = gridMesh(S.px + q * 0.01, S.py, S.pz, S.cells, S.cell, S.mat) end
+    local t = hptimer()
+    S.mObj:createMesh({ subs })
     return t:stop(), nil
   end
   if case == 'same' then
@@ -180,6 +190,7 @@ function M.cleanup()
   for _, o in ipairs(S.objs) do if o then o:delete() end end
   if S.sameObj then S.sameObj:delete() end
   for _, o in ipairs(S.kObjs or {}) do o:delete() end
+  if S.mObj then S.mObj:delete() end
   for _, m in ipairs(S.mats) do if m then m:delete() end end
   S = nil
 end

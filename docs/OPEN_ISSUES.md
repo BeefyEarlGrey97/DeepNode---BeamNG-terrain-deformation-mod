@@ -44,6 +44,14 @@ now skips the sub-6 mm ones). The remaining fix is engine side: an in-place Proc
 truck body for 3 s gives 64-66 fps but ruts then lag under the wheels in a side view: rejected
 (BENCHMARK.md section 10). Idea: a camera-aware occlusion test for P.dirtyHidden.
 
+2026-11-10 (2 Urals, BENCHMARK 24): 117-121 fps vs 158 with the mod off; ~100 uploads per second
+are most of the gap. New engine fact: the shadow-pass cost and 0.36 ms of `createMesh` are paid
+per call, not per submesh. Idea, not built: upload the tiles that are due in the same frame as
+submeshes of one "hot" object per vehicle (or per frame), hand a tile back to its own object at
+its freeze upload. To check first: the two-frame show / hide overlap for the handover, engine
+memory growth of an object whose submesh sizes change every upload, shadow / reflection culling
+of the bigger bounding box.
+
 ## 2. Deepening lag under load
 
 2026-10-31: deadline-first queue (`ring.inViewTarget` / `outViewTarget`, out-of-view deepening

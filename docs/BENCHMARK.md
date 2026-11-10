@@ -576,3 +576,35 @@ every vertex there), so sector loading follows the car: ~10 new sector uploads/s
 uploads/s. The GUI window open or closed: no difference.
 Not movable to other threads: createMesh and the render cost are main-thread engine work; the
 Lua parts the vehicle VMs could take (stamping, reports) are ~0.2 ms.
+
+## 24. Two trucks, gridmap_v2, cost split and merged-upload probe (2026-11-10, test a0ea9b5)
+
+Research pass, no mod change. Two Ural-4320 (mod `uralivannq`, `Bort.pc`; the Percheron did not
+spawn that day: a third-party Percheron mod broke its jbeam), one in the mud pit and one in the
+sand pit (spawn 2 and 6 of the 8-truck list), `dntestRun` 110 m at 12.5 m/s asked (the Urals bog:
+19.6 s, end speed 3.8 m/s), orbit cam 160 / 14 / 16 m, user GUI settings (heavy physics, road
+shader, overlay on), vsync / limiter off, per-frame `dnFrameMet`, `dntestProf` in its own run.
+
+| variant | fps (run 2) | low1 | frame ms mean / p95 / p99 / max |
+|---|---|---|---|
+| mod off | 157.8 | 151.4 | 6.3 (GPU-bound: `FramePresent` 2.3 ms) |
+| mod on | 117.3 / 119.8 / 121.4 | 80.9 / 87.7 / 89.2 | 8.2-8.5 / 10.7-11.2 / 11.2-12.4 / 11.6-13.5 |
+
+Run to run the mod-on mean varied 110-129 fps over one session. Engine metrics, mod on vs off
+(ms per frame): Lua 2.27 vs 0.66, LuaPre 0.49 vs 0.23 (overlay.frame 0.19 + wheelMud.preRender
+0.04), Render 1.73 vs 1.21, RenderShadows 1.41 vs 0.64, RenderReflections 0.81 vs 0.38. Within
+a run the frame grows from 6.9 ms (no uploads yet) to 10.9 ms at the deepest part (uploads in 73 %
+of the frames, RenderShadows 1.95, RenderReflections 1.05, `Render` flat).
+
+Mod Lua per frame (`dntestProf`): rebuildTiles 1.17 ms (createMesh 0.85, buildTile 0.18),
+overlay 0.19, reports 0.15 (stampWheel 0.13), tyre mud 0.10, sectors 0.05, liquid 0.04, floor 0.02.
+
+Uploads: 2010 per run (~100 per second, 2.2 per vehicle report), in 1190 frames: 608 frames
+with 1, 401 with 2, 132 with 3, 41 with 4, 8 with 5 (1.69 per upload frame); 857 of them in
+frames without a report (the governor spreads one report's tiles over the next frames). Dig
+uploads near the camera average 265 vertices / 1385 face corners.
+
+Engine probe (ENGINE_FINDINGS, ProceduralMesh): the shadow-pass cost and 0.36 ms of createMesh
+are per call, 0.46 ms per 256-vertex submesh. Uploading the tiles that are due in one frame as
+one object would cut the calls from 2010 to 1190 (to ~610 with one call per report frame):
+estimated 0.5-1.1 s of the 19.6 s run (3-6 % fps) and half as many slow frames. Not built.
