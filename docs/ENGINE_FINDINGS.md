@@ -61,6 +61,30 @@ They explain most design decisions; please extend this file when you measure som
   m4 +0.07 ms. So tiles uploaded together as submeshes of one object save ~0.3 ms of createMesh
   and ~0.5 ms of shadow pass per avoided call. In the mod this did not pay with 2 trucks
   (BENCHMARK 24): a shared object must resend every tile it shows, so more submeshes go up.
+- WHY the first-draw cost is per call (decompiled 2026-11-10, 0.40.5 exe, static only, not
+  measured): `createMesh` deletes every material instance of the object (the MatInstance list at
+  obj+0x240, emptied once at the start and once at the end, unconditionally). The next
+  prepRenderImage (vtable +0x240, 0x1401aa2b0) sees the empty list and calls `updateMaterial`
+  (0x1401abc20), which makes one new MatInstance per distinct material name. Each pass then builds
+  its hook for that new instance on first use: `ShadowMaterialHook::init` (0x1404cb370) collects
+  the shadow features, allocates a new `ShadowMatInstance` (0x788 B) and runs its init (process
+  material, state blocks); prepass and reflection-depth hooks work the same way. No cache is keyed by
+  material, and no field or console variable skips it: same object, same size and same material
+  still pays, as measured above. The sun cascades have no static-caster cache. The "still caster
+  keeps its cached depth" settings in the exe are for local-light (cluster) shadows only. Lua cannot
+  keep the instances across a `createMesh`. The only way around this cost is to not call it.
+- Other per-call work in `createMesh`: `resetWorldBox` (0x140934aa0) then SceneContainer
+  `checkBins` (octree move) and zone-dirty queueing (0x14095ebd0); then `updatePhysicsCollision`.
+- Vertex buffers (decompiled 2026-11-10): `createMesh` allocates each submesh VB through the device
+  (vtable +0xe0) with buffer type 0 (static), stride 44, then lock (VB vtable +0x68) / memcpy /
+  unlock (+0x78) on the frame command list. On D3D12 (`GFXd3d12VertexBuffer`, vtable 0x1421abb48)
+  a static VB is NOT immutable: lock (0x140e09e40) hands out an upload-heap staging block of
+  stride x count bytes; unlock (0x140e09f60) records barriers + `CopyBufferRegion` into the GPU
+  buffer. The index buffer (`GFXd3d12PrimitiveBuffer`, vtable 0x1421a9758) has the same lock/unlock
+  slots. So a same-size rewrite of an existing tile's buffers is possible in the engine. It would
+  skip the MatInstance rebuild, the collision and the world-box update. The CPU copies (ray casts at
+  obj+0x388 / +0x3a0) and the bounds would go stale. Lua has no API for this: it would need native
+  calls into engine objects. Not built.
 - `PSSMLightShadowMap.lastSplitCastersEnabled = false`: no change (1.68 vs 1.69 ms per upload frame).
 - ProceduralMesh has object type bits 0 and 8 (`SOTStaticObject`, `SOTStaticShape`), the same as
   TSStatic: a render view's `shadowCasterObjectTypeBlacklistMask` cannot leave only the mud out.
