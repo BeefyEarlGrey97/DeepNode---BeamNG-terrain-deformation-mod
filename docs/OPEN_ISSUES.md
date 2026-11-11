@@ -53,6 +53,13 @@ interleaved runs). Diff in docs/attempts/2026-11-10-hot-merge.diff. It could onl
 several tiles of ONE vehicle upload in the same frame anyway (8 trucks: not tested) or if a tile
 could leave a shared object without a new upload (the engine has no per-submesh hide).
 
+2026-11-11 (live probe, ENGINE_FINDINGS "GPU height map for the own slot"): the GPU height-map
+route (upload each tile once, displace in our slot's VS) has no texture input. The slot compiles
+without `MFT_Bindless`, and its legacy texture table (t14 space2) stays empty for every
+CustomMaterial `sampler` value, named target or file. `castShadows = 1` on a slot material
+crashed the game. Without a new texture channel, all three createMesh routes of the 11-10
+handoff are closed for Lua.
+
 ## 2. Deepening lag under load
 
 2026-10-31: deadline-first queue (`ring.inViewTarget` / `outViewTarget`, out-of-view deepening

@@ -417,9 +417,31 @@ loaded from the user folder (`/shaders/...` is visible to the VFS).
   - Risk for an in-place vertex buffer write: `bindlessArena.h.hlsl` says a bindless mesh draws its
     vertex stream from the arena (t10), not from a vertex buffer. A lock/unlock of the static VB may
     therefore not change what is drawn, unless the VB lives inside the arena. Not checked.
-  - Next step needs the game: a probe with a named target, a standard Material using it as a
-    texture, and our slot's shader scanning the texture table. A shadow permutation in the cache
-    after a sunlit frame answers the shadow question.
+  - LIVE probe 2026-11-11 (gridmap_v2, D3D12, RTX 5070; `tools/dev/slotTableScan.hlsl`): the
+    route is blocked at the texture input.
+    - Correction: the slot does NOT draw on the bindless path. Every cached permutation of our slot
+      shader (`dnTex.hlsl`, 11-07) lacks `MFT_Bindless` (stock defaultMat permutations carry it),
+      so `materialTextures2D` at t26 is not ours to read. The slot compiles the legacy layout:
+      `Texture2D materialTexture[32]` at t14 `materialSpace` (space2), as `defaultMat.hlsl`.
+    - Reading t14 space2 from the slot is safe: the 8 x 8 cell scan of all 32 slots (GetDimensions
+      + texel 0) drew, no crash. All 32 slots were null (0 x 0) in every variant: no sampler,
+      `sampler dnTex = '#dnH'`, and `sampler dnTex = 'core/art/white.color.png'` (a texture the
+      level already has loaded). CustomMaterial `sampler` fields never reach this slot's table,
+      for named targets or for files. No log line about it.
+    - The named target itself was fine: `#dnH` (64 x 32 RGBA16F, written by a PostEffect at
+      `PFXBeforeBin ObjTranslucentBin`) saved by `createScreenshotTracked({bufferType = 'dnH'})`
+      held the magic texel exactly (223, 16, 143, 64).
+    - Stock Material with `#name` maps was already dead (11-07 spike: "Failed to load 'diffuse'
+      map"), so no Material route either.
+    - **`castShadows = 1` on a slot CustomMaterial crashed the game** (C++ access violation on
+      the main thread, ~150 ms after the first `createMesh` with it). By elimination: the same
+      setup with `castShadows = 0` ran in three variants. The crash did not repeat with shadows
+      alone (not retried, to spare a restart). The only minidump written
+      (`%LOCALAPPDATA%/CrashDumps`) is from a process with 9 threads and no GPU driver loaded
+      (start-up / shutdown), so it does not show this crash. Keep `castShadows = 0` in this slot.
+    - Left untested: the CustomMaterial `cubemap` field (t10 space2, our permutations have
+      `MFT_CubeMap`) and the ParallaxInterior texture array. Both take files, not per-frame GPU
+      data, so neither gives a dynamic height map.
 - GPU work available to Lua: compute PostEffects (`ShaderData.DXComputShaderName`, e.g.
   `postFx/passthru.cs.hlsl`, writes the `pfxOut` UAV of the target texture). Compute that writes
   mesh vertices exists only engine-internal (`skinning.cs.hlsl`, `dynamicDecals/processMesh.cs.hlsl`),
