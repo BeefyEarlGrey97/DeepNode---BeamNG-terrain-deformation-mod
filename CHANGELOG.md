@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Added
+- Belly support (`stamp.bellySupport`, default on): the physics floor follows what the
+  tyres carved (new per-tile `sup` codes), not body / hull dents. Dents are still drawn
+  (terrain drawn low there) but hold the floor, so a truck that digs its wheels down
+  rests on the mud between them instead of carving its own way down. From a real Ural
+  6x6 bog-down video (2026-11-11).
+- Mud rut span 0.35 -> 0.65 m in heavy mode (`physics.heavy.sinkDepth.mud`, floorLift mud
+  0.3 -> 0.6: undug floor stays 5 cm down as before) and `kinds.mud.spinDigMax` 0.3, so
+  repeated passes / rocking dig belly-deep. Ural on gridmap_v2, rocking 4 s fwd / 4 s rev
+  at full throttle on fresh mud, 60 s: tyre sink 0.22 -> 0.54 m (old span capped ~0.38);
+  belly support on vs off 0.537 vs 0.548 m at the end (up to 6 cm higher mid-run). First
+  pass unchanged (0.22-0.28 m). The truck still never gets stuck (see OPEN_ISSUES 33).
 - DeepNode logo (docs/icon/deepnode-icon.svg): shown at the top of the README and in the
   DeepNode window header (art/deepnode/deepnode_logo.png, 128 px).
 

@@ -209,7 +209,11 @@ local function wantedLift(gx, gy, k, h)
   local R = max(1, floor((h.floorReach or 0.3) * cps + 0.5))
   local cx0, cy0 = gx * cps, gy * cps
   local zmin = huge
-  local decodeZ = ctx.decodeZ
+  local carved = false
+  local decodeZ, decodeCode = ctx.decodeZ, ctx.decodeCode
+  -- stamp.bellySupport: only tyre-carved levels (t.sup) pull the floor down; a body or
+  -- hull dent is drawn (carved, so the terrain still goes low there) but holds the floor
+  local supOn = P.supOn
   for cy = cy0 - R, cy0 + R do
     local ty = floor(cy / N)
     local rowBase = (cy - ty * N) * (N + 1)
@@ -221,13 +225,23 @@ local function wantedLift(gx, gy, k, h)
         -- only carved cells pull the floor down: untouched mud and berms keep it, so the
         -- terrain stays at the surface there (terrain-first drawing, main.squareFlush)
         if t.rut[idx] < 128 then
+          carved = true
           local z = decodeZ(t, idx)
+          if supOn then
+            local s = t.sup and t.sup[idx] or 128
+            if s < 128 then
+              local zs = decodeCode(t, idx, s)
+              if zs > z then z = zs end
+            else
+              z = huge
+            end
+          end
           if z < zmin then zmin = z end
         end
       end
     end
   end
-  if zmin == huge then return lift0, false end
+  if zmin == huge then return lift0, carved end
   local ter = ctx.ter
   local V = P.sinkBase[k] + (ter.localZ and ter.oz or 0) -- full sink level (absolute)
   local l = zmin - floorMarginAt(gx, gy, h) - V
@@ -235,6 +249,8 @@ local function wantedLift(gx, gy, k, h)
   if l > lift0 then return lift0, true end
   return l, true
 end
+
+M.wantedLiftForTests = wantedLift
 
 -- Stopped vehicles keep their floor. While a vehicle drives, the floor writes trail it
 -- (floorHz, upload budget), so it rides on the undug terrain; once it stops they caught up

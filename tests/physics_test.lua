@@ -45,6 +45,33 @@ expect(math.abs(D.staticFrictionCoefficient - 0.35) < 1e-6, 'DIRT with a default
 kindAt = { 'mud', true }
 expect(math.abs(ph.initialLift(0, 0, 0.35) - 0.35) < 1e-6, 'hand-ticked layer gets the kind floor lift (terrain stays at the surface)')
 
+-- belly support: the floor follows tyre-carved levels (t.sup), not body dents
+do
+  local NW = 11
+  local function dec(t, idx, c) local r, f = t.rest[idx], t.floor[idx]; return f + (r - f) * math.min(c, 128) / 128 end
+  local t = { rest = {}, floor = {}, rut = {} }
+  for i = 0, NW * NW - 1 do t.rest[i], t.floor[i], t.rut[i] = 0, -0.65, 128 end
+  main.N, main.cps, main.KEY, main.tiles = 10, 5, 1000, { [0] = t }
+  main.ter = { localZ = false, oz = 0 }
+  main.decodeZ = function(tt, idx) return dec(tt, idx, tt.rut[idx]) end
+  main.decodeCode = dec
+  main.private.sinkLift0, main.private.sinkBase = { [1] = 0.6 }, { [1] = -0.65 }
+  local h = { floorReach = 0.3, floorMargin = 0.03 }
+  local idx = 5 * NW + 5
+  t.rut[idx] = 64 -- drawn at -0.325 (a body dent)
+  main.private.supOn = true
+  local l, carved = ph.wantedLiftForTests(1, 1, 1, h)
+  expect(carved and math.abs(l - 0.6) < 1e-6, 'body dent only: carved (drawn low) but the floor stays up')
+  t.sup = {}
+  for i = 0, NW * NW - 1 do t.sup[i] = 128 end
+  t.sup[idx] = 80 -- the tyre was at -0.24375
+  l = ph.wantedLiftForTests(1, 1, 1, h)
+  expect(math.abs(l - (-0.24375 - 0.03 + 0.65)) < 1e-6, 'tyre level under a deeper dent: floor at the tyre level')
+  main.private.supOn = false
+  l = ph.wantedLiftForTests(1, 1, 1, h)
+  expect(math.abs(l - (-0.325 - 0.03 + 0.65)) < 1e-6, 'bellySupport off: floor follows the drawn dent')
+end
+
 ph.stop()
 expect(math.abs(G.defaultDepth - 0.05) < 1e-6 and math.abs(G.staticFrictionCoefficient - 0.61) < 1e-6, 'stop puts GRASS back')
 os.exit(fails == 0 and 0 or 1)

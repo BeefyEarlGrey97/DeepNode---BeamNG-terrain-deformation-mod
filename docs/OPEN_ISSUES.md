@@ -359,6 +359,13 @@ mud_large drawn as if water were on top). Suspect: `mud_large` has `alphaTest` 1
 render in an earlier bin than the other translucent copies; alphaTest 1 on every clone fixed the
 centre but not all stripes (unfinished). Fade default must change (cost) once the stack is right.
 
+## 33. Trucks dig belly-deep but never bog (2026-11-11, test)
+Belly support + 0.65 m mud span let a rocking Ural dig to 0.54 m, but it never gets stuck: wheel
+spin stays 0.1-0.3 m/s, the wheels keep the full ~100 kN and it reaches 3.5 m/s every rock. The
+spin dig (`kinds.mud.spinDigMax`) therefore barely runs. The real truck (video) bogs because the
+tyres pack slick and the axle / bumper plowing mud resists. Levers left: grip loss from the tyre
+coat, more drag on body nodes in the soft layer, lower mud friction. Gameplay call for the user.
+
 ## 32. Pre-bearing depth back (2026-11-09, f94874a)
 
 Same day, later: user found it too soft; middle values set (CHANGELOG). Remaining: a periodic lump

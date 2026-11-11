@@ -219,7 +219,7 @@ BeamNG's own physics:
   viscosity 7500 (5000), density 30000 (25000).
   Measured on gridmap_v2, 85 m from standstill, full throttle:
   Percheron 8x8 mud 56 -> 30 km/h (rear drive only 25, low range 32), sand 55 -> 48 km/h.
-* Rut floor (mud, and sand since 2026-10-31): under undisturbed ground the hard floor stays `floorLift` (0.3 m) above the
+* Rut floor (mud, and sand since 2026-10-31): under undisturbed ground the hard floor stays `floorLift` (mud 0.6 m of a 0.65 m span, `physics.heavy.sinkDepth`) above the
   full sink. Where ruts are dug, the terrain under them is lowered to the rut surface,
   so rut walls are real terrain. Terrain squares are 0.75-1 m, so the walls are coarse
   and gentle: they hold a light steering input for a while and can be climbed. Terrain
@@ -757,6 +757,8 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `kinds.<kind>.soften` | mud 0.1, sand 0 | Allowed depth x (1 + soften x (passes - 1)): mud softens with passes |
 | `kinds.<kind>.slipBeta` | mud 0.2, sand 1.0 | Slip sinkage: the stamp's hub is lowered by beta x s / (s + 0.2) x immersion (s = slip ratio) |
 | `kinds.<kind>.spinDig` | mud 0.8, sand 1.4 | Factor on `spinDigRate` / `spinDigMax` |
+| `kinds.<kind>.spinDigMax` | mud 0.3 | Replaces `spinDigMax` for the kind (belly-deep spin holes in mud) |
+| `bellySupport` | true | Physics floor follows tyre-carved levels only: body / hull dents are drawn but hold the floor (high-centring) |
 | `soil.enabled` | true | Soil memory: pass N carves at most z1 x N^(2/(2n+1)) deep (z1 = first pass depth) |
 | `soil.passGap` | 0.6 | The same wheel over a cell again after this many seconds is a new pass |
 | `soil.trainGap` / `soil.trainWeight` | 10 / 0.25 | A following wheel of the same vehicle within trainGap s of the last touch adds trainWeight of a pass (tandem axles; quarter steps) |

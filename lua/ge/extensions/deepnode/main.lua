@@ -377,6 +377,10 @@ local defaults = {
     torqueDigStart = 0.25,
     refWheelLoad = 3500,    -- N per wheel (about a 1400 kg car on 4 wheels)
     bearing = true,         -- rut depth from Bekker bearing sinkage (kinds.*.kc/kphi), not the tyre bottom
+    -- the physics floor follows what the tyres carved, not body / hull dents: a truck that
+    -- spins its wheels down comes to rest on its belly on the mud between them (real Ural
+    -- 6x6 bogging in clay, video study 2026-11-11). false: dents lower the floor as well
+    bellySupport = true,
     jitterZ = 0.015,        -- clumpy vertical jitter at full track intensity (m)
     jitterXY = 0.03,        -- horizontal jitter at full track intensity (m)
     -- Per soft-ground kind (the kind of the terrain square under the hub; values missing
@@ -392,10 +396,12 @@ local defaults = {
     --  slipBeta: slip sinkage, the tyre carves beta x s / (s + 0.2) x its immersion deeper
     --    (s = slip ratio; Reece 1965: strong in sand, weak in clay; values to tune)
     --  spinDig: factor on spinDigRate / spinDigMax
+    --  spinDigMax: replaces stamp.spinDigMax for the kind (mud: a spinning truck digs
+    --    itself down to its belly, ~0.6 m with a 6x6 in clay)
     --  kc, kphi: Bekker moduli (N/m^(n+1), N/m^(n+2)) for the bearing sinkage (stamp.bearing):
     --    game-soft values, Percheron wheel (18 kN, 0.39 m wide, R 0.6) ~0.2 m in mud, ~0.1 m in sand
     kinds = {
-      mud = { bermFraction = 0.85, maxSlope = 1.0, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8,
+      mud = { bermFraction = 0.85, maxSlope = 1.0, soilN = 0.5, soften = 0.1, slipBeta = 0.2, spinDig = 0.8, spinDigMax = 0.3,
               kc = 800, kphi = 90000,
               rimDepth = 0, bermCap = 0.2, bermPeak = 0.4, bermWidthFactor = 1.0, bow = 0.45, bowLen = 0.75 },
       sand = { bermFraction = 0.5, maxSlope = 0.7, bermDepthRef = 0.1, soilN = 1.1, soften = 0, slipBeta = 1.0, spinDig = 1.4,
@@ -679,7 +685,11 @@ local defaults = {
       -- terrain draws undug ground). Sand too since 2026-10-31: same truck times through the
       -- gridmap_v2 sand pit (5.9 / 9.1 / 11.8 s to 30 / 60 / 90 m), same fps, engine memory
       -- per 4 runs 15.9 -> 4.9 MB (the floor follows the dug ruts, as for mud)
-      floorLift = { mud = 0.3, sand = 0.3, snow = 0.2, firm = 1.0 },
+      floorLift = { mud = 0.6, sand = 0.3, snow = 0.2, firm = 1.0 },
+      -- m drawn rut span per kind in heavy mode (replaces layers.sinkDepthByMatch): mud
+      -- 0.65 with lift 0.6 keeps the undug floor 5 cm down as with 0.35 / 0.3, but a truck
+      -- spinning in place can dig its wheels belly-deep (stamp.bellySupport)
+      sinkDepth = { mud = 0.65 },
       floorReach = 0.3,    -- squares round a terrain vertex whose ruts lower it
       floorMargin = 0.03,  -- m the terrain stays under the rut surface (hidden by the mesh)
       floorHz = 5,         -- rut floor recomputes per second
@@ -1137,6 +1147,12 @@ local function decodeZ(t, idx)
   return f + (r - f) * min(c, 128) * 0.0078125 + max(c - 128, 0) / 127 * bermMax
 end
 M.decodeZ = decodeZ
+-- z of any rut code at a vertex (t.sup holds codes like t.rut)
+function M.decodeCode(t, idx, c)
+  local r = t.rest[idx]
+  local f = min(t.floor[idx], r)
+  return f + (r - f) * min(c, 128) * 0.0078125 + max(c - 128, 0) / 127 * bermMax
+end
 
 -- branch-free like decodeZ: the berm code and the rut code are both computed (one of them
 -- is 128 = rest) and summed; identical results to the old z >= rest / z < rest branches
@@ -2752,7 +2768,9 @@ function P.initTerrain()
       end
       -- layers ticked by hand: the depth of their kind
       L.sinkDepth = L.sinkDepth or tonumber((cfg.layers.sinkDepthByMatch or {})[L.kind]) or cfg.layers.defaultSinkDepth
-      L.sinkDepth = L.sinkDepth * (tonumber(cfg.layers.depthScale) or 1)
+      -- heavy physics: the kind's own depth (physics.heavy.sinkDepth), room for belly-deep ruts
+      local hd = cfg.physics and cfg.physics.mode == 'heavy' and cfg.physics.heavy and cfg.physics.heavy.sinkDepth
+      L.sinkDepth = (hd and tonumber(hd[L.kind]) or L.sinkDepth) * (tonumber(cfg.layers.depthScale) or 1)
     end
   end
 
@@ -3304,6 +3322,7 @@ function P.sinkPass()
   local t0 = newTimer()
   if ter.K > 1 then
     P.liftOn = true -- terrain-first: unlowered ground is drawn by the terrain
+    P.supOn = cfg.stamp.bellySupport ~= false
     P.sinkCount, P.shortfall = 0, {}
     local n = P.coarseSink(P.regionData)
     sinkApplied = true
@@ -3322,6 +3341,7 @@ function P.sinkPass()
   local ph = P.mod('physics')
   if ph and not ph.floorOn() then ph = nil end
   P.liftOn = ph ~= nil
+  P.supOn = P.liftOn and cfg.stamp.bellySupport ~= false
   -- grass next to soft ground (physics.heavy.grassLowDraw): interior soft vertices of the
   -- clusters near grass are drawn at the full sink level and get their floor height back
   -- for physics only (far dummy box) after the update below; the mesh draws those squares
@@ -5041,6 +5061,32 @@ local function writeVertex(gcx, gcy, z, tr)
   if i == 0 and j == 0 then writeOne(tx - 1, ty - 1, N, N, z, tr) end
 end
 
+-- Wheel support (stamp.bellySupport): the deepest level a tyre carved a vertex to, in rut
+-- codes (128 = none). The physics floor follows it, not the drawn surface, so a body or
+-- hull dent is drawn but does not lower the floor: a truck that digs its wheels down comes
+-- to rest on its belly on the mud between them (high-centred), as a real one does.
+local function supOne(tx, ty, i, j, z)
+  local t = tiles[ty * KEY + tx]
+  if not t or t.state ~= 'active' then return end
+  local idx = j * (N + 1) + i
+  local s = t.sup
+  if not s then
+    s = ffi.new('uint8_t[?]', (N + 1) * (N + 1))
+    ffi.fill(s, (N + 1) * (N + 1), 128)
+    t.sup = s
+  end
+  local c = encodeZ(t, idx, z)
+  if c < s[idx] then s[idx] = c end
+end
+local function supVertex(gcx, gcy, z)
+  local tx, ty = floor(gcx / N), floor(gcy / N)
+  local i, j = gcx - tx * N, gcy - ty * N
+  supOne(tx, ty, i, j, z)
+  if i == 0 then supOne(tx - 1, ty, N, j, z) end
+  if j == 0 then supOne(tx, ty - 1, i, N, z) end
+  if i == 0 and j == 0 then supOne(tx - 1, ty - 1, N, N, z) end
+end
+
 local bermGX, bermGY, bermW = {}, {}, {}
 
 function P.distributeBerm(nB, wsum, amount)
@@ -5095,13 +5141,20 @@ local function carve(gcx, gcy, t, idx, bottom, tr, dig, digFloor, fb)
     bottom = min(bottom, max(cur - dig, digFloor or bottom))
   end
   local target = max(bottom, fl) -- never below the floor
+  local sup = P.supOn and not P.bodyStamp
   -- under 2 mm (one rut code step is ~2.7 mm): the flow-back rest of an earlier pass, nothing
   -- to draw; skipping it lets the slump pass be skipped too
-  if target >= cur - 0.002 then return 0 end
+  if target >= cur - 0.002 then
+    -- a tyre rolling through a deeper body dent rests at its own bottom there
+    if sup and target < rest - 0.002 then supVertex(gcx, gcy, target) end
+    return 0
+  end
   local nz = target + (fb or cfg.stamp.flowBack) * (cur - target)
   writeVertex(gcx, gcy, nz, tr)
+  local now = decodeZ(t, idx)
+  if sup then supVertex(gcx, gcy, now) end
   -- what was really removed (instantSettle stores less than nz, or nothing)
-  return cur - decodeZ(t, idx)
+  return cur - now
 end
 
 -- smooth bump 0..1..0 over u in 0..1 (berm cross-section without a ridge), highest at
@@ -5495,6 +5548,7 @@ function P.stampBody(x0, y0, z0, x1, y1, z1)
   local l2 = sx * sx + sy * sy
   local removed, nB, wsum = 0, 0, 0
   local tr = floor(clamp(st.trackBase, 0, 1) * 255)
+  P.bodyStamp = true
   for gcy = gy0, gy1 do
     local y = ter.oy + gcy * CELL
     for gcx = gx0, gx1 do
@@ -5522,6 +5576,7 @@ function P.stampBody(x0, y0, z0, x1, y1, z1)
       end
     end
   end
+  P.bodyStamp = false
   P.distributeBerm(nB, wsum, removed * st.bodyBermFraction)
   P.slump(gx0 - 1, gy0 - 1, gx1 + 1, gy1 + 1)
 end
@@ -5609,6 +5664,7 @@ function P.stampHull(vs, tris)
   local last = vs.lastTri
   if not last then last = {}; vs.lastTri = last end
   local bx0, by0, bx1, by1 = huge, huge, -huge, -huge
+  P.bodyStamp = true
   for k = 1, #tris - 9, 10 do
     local id = tris[k]
     local ok = isFinite(id)
@@ -5659,6 +5715,7 @@ function P.stampHull(vs, tris)
       P.stats.hullStamps = (P.stats.hullStamps or 0) + 1
     end
   end
+  P.bodyStamp = false
   if bx0 <= bx1 then P.slump(bx0 - 1, by0 - 1, bx1 + 1, by1 + 1) end
 end
 
@@ -6238,7 +6295,7 @@ function M.onMudReport(vid, w, nodes, tris)
           local ls = clamp((isFinite(load) and load > 0) and load / ref or 1, 0.3, 3)
           local rdt = prev and clamp(simTime - prev.t, 0, 0.1) or (1 / 30)
           local dig = (st.spinDigRate or 0) * spin * rdt * ls
-          local digMax = (st.spinDigMax or 0) * sqrt(ls)
+          local digMax = sqrt(ls)
           -- drive torque digs: a driven wheel pulling hard (traction force over its load
           -- above torqueDigStart) churns the mud under it even before it spins, so under
           -- hard throttle the driven axle (the rear of a rear-wheel-drive car) squats into
@@ -6251,6 +6308,7 @@ function M.onMudReport(vid, w, nodes, tris)
           end
           -- ground kind under the hub: berms, wall slope, soil memory, slip sinkage
           local K = P.setStampKind(P.kindAtWorld(px, py), d, (vid % 2000) * 32 + wi % 32)
+          digMax = digMax * (K and K.spinDigMax or st.spinDigMax or 0)
           if K then
             local sd = K.spinDig or 1
             dig, digMax = dig * sd, digMax * sd
@@ -6338,7 +6396,7 @@ function M.onMudReport(vid, w, nodes, tris)
   -- later stamps (relax, other callers) use the global rules
   P.soil, P.kBerm, P.kSlope, P.kRim = nil, nil, nil, nil
   P.kBermCap, P.kPeak, P.kBow, P.kBowLen, P.bermAtWall, P.kBermW = nil, nil, nil, nil, nil, nil
-  P.printOnly = false
+  P.printOnly, P.bodyStamp = false, false
 end
 
 -------------------------------------------------------------------------------
@@ -7697,7 +7755,7 @@ function P.stop(objectsAlive)
   if ov then ov.stop(objectsAlive) end
   -- decal roads hidden while off are shown again
   if objectsAlive ~= false then P.coverRoads(false) else P.roadsHidden = {} end
-  P.liftOn = false
+  P.liftOn, P.supOn = false, false
   P.floorTiles = {}
   for _, t in pairs(tiles) do t.obj = nil end
   -- the preload mesh lives in the object group: delete it before the group goes
@@ -7808,6 +7866,7 @@ function M.clearRuts()
       ffi.fill(t.peakLo, NW * NW, 128)
       ffi.fill(t.peakHi, NW * NW, 128)
       if t.passN then ffi.fill(t.passN, NW * NW, 0); ffi.fill(t.z1, NW * NW, 0) end
+      t.sup = nil
       t.relaxing, t.bermMaxC = false, 0
       t.rutted = false
       t.dirty = true
