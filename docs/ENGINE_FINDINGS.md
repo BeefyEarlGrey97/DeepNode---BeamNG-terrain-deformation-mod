@@ -708,3 +708,8 @@ uploads), the >45 ms frames are dig batches plus a reload / floor write in the s
   per tile at the end of onMudReport): bit-identical to the old path (6 trials, 48672 values
   each, 0 differences) and fewer trace aborts, but not faster (interleaved 74.9 / 81.2 vs
   71.9 / 74.3 us per call). Reverted. The stamp cost is not the trace aborts.
+- Tyre grip at runtime (2026-11-11): `obj:setNodeFrictionSlidingCoefs(cid, static, sliding)` on a
+  wheel's tread nodes (base = v.data.nodes[cid].frictionCoef, default 1) changes the vehicle's
+  grip at once (obj:getStaticFrictionCoef 0.367 -> 0.0735 at x0.2). In the heavy mud ground model
+  (soft layer 0.2 m, flowConsistency 17000) cutting tread friction by 70 % barely changed a
+  rocking Ural's speed: traction there comes from the soft layer's drag on submerged nodes.

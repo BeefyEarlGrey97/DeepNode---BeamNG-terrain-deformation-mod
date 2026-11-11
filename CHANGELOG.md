@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- Slick tyres (`clods.grip`): a mud-coated tyre grips less. wheelMud sends each wheel's factor
+  1 - 0.45 x min(1, coat) (mud) to the vehicle, which scales its tread nodes' jbeam friction
+  with `obj:setNodeFrictionSlidingCoefs` (vanilla's deflated-tyre path; deflated tyres are
+  skipped, reset / unload / mod stop restore). Verified: obj:getStaticFrictionCoef 0.367 ->
+  0.234 at coat 0.7. Rocking Ural 150 s: barely any effect on bogging (end speed fwd/rev 1.8/0.6
+  m/s with it, 1.7/0.4 without, 2.0/0.7 at loss 0.7): in deep mud the traction comes from
+  the ground model's drag on the submerged tread nodes, not friction.
 - Belly support (`stamp.bellySupport`, default on): the physics floor follows what the
   tyres carved (new per-tile `sup` codes), not body / hull dents. Dents are still drawn
   (terrain drawn low there) but hold the floor, so a truck that digs its wheels down

@@ -790,6 +790,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | true | Mud on tyres |
+| `grip` | mud 0.45, snow 0.2, sand 0.1 | Slick tyres: tread node friction x (1 - kinds[coat kind] x min(1, coat)), sent `hz` 4 times/s when it moved by `step` 0.03 (`enabled` false = off) |
 | `texDir`, `texBase` | decal-road mud set | Mud texture where a layer has no texture of its own |
 | `coatMax` | 3.0 | Highest coat; 0..1 sets how much of the tyre is covered, 1..coatMax how thick |
 | `buildPerMeter` | 0.02 | Coat picked up per metre the tread rolls through mud (Percheron at 18 km/h: coverage ~0.6 after 7 s) |

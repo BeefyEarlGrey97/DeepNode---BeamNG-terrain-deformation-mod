@@ -365,6 +365,10 @@ spin stays 0.1-0.3 m/s, the wheels keep the full ~100 kN and it reaches 3.5 m/s 
 spin dig (`kinds.mud.spinDigMax`) therefore barely runs. The real truck (video) bogs because the
 tyres pack slick and the axle / bumper plowing mud resists. Levers left: grip loss from the tyre
 coat, more drag on body nodes in the soft layer, lower mud friction. Gameplay call for the user.
+Update 2026-11-11: slick tyres (`clods.grip`) built and verified, but grip is not the limiter in deep
+mud (150 s rocking: same slow-down with or without, loss 0.45 or 0.7). Over 150 s the truck does
+bog gradually from the deep holes alone: top speed per rock 3.5 -> 1.7-2.0 m/s fwd, 0.4-0.7 rev,
+spin up to 2 m/s, sink 0.6 m. Lever left: drag on the body nodes in the soft layer.
 
 ## 32. Pre-bearing depth back (2026-11-09, f94874a)
 

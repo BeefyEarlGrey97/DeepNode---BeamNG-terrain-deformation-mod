@@ -456,6 +456,10 @@ local defaults = {
   },
   clods = {
     enabled = true,
+    -- slick tyres: packed mud fills the tread, so a coated tyre grips less (the real Ural in
+    -- the bog video spins on clay-packed tyres). Tread node friction x (1 - kinds[coat kind]
+    -- x min(1, coat)), sent hz times per s when it moved by step (wheelMud sendGrip)
+    grip = { enabled = true, hz = 4, step = 0.03, kinds = { mud = 0.45, snow = 0.2, sand = 0.1 } },
     -- clod texture: BeamNG's decal-road mud set
     texDir = '/assets/materials/decalroad/mud/mud_large/',
     texBase = 't_mud_large',

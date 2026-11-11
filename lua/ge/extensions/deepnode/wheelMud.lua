@@ -1514,6 +1514,7 @@ function M.onVehicleReset(vid)
   for _, W in pairs(V.wheels) do
     resetCoat(W)
     hideWheel(W)
+    W.gripSent = nil -- the vehicle put its tyres back on reset
   end
 end
 
@@ -1539,9 +1540,19 @@ local function clearChunks()
   for i = #chunks, 1, -1 do freeChunk(i) end
 end
 
+-- every vehicle's tyres back to their own friction (mod off / stop; clods.grip)
+local function restoreGrip()
+  for vid, V in pairs(vehs) do
+    local veh = getObjectByID(vid)
+    if veh then veh:queueLuaCommand('if deepnode_vehicle and deepnode_vehicle.setGrip then deepnode_vehicle.setGrip() end') end
+    for _, W in pairs(V.wheels) do W.gripSent = nil end
+  end
+end
+
 function M.setEnabled(on)
   enabled = on and true or false
   if not enabled then
+    restoreGrip()
     M.cleanWheels()
     clearChunks()
     restoreRubber(true)
@@ -1723,6 +1734,22 @@ local flushList = {}
 local one = {}
 local lastFlushW = nil -- wheel of the last sector flush: its other arcs go next
 local updN = 0
+-- Slick tyres (clods.grip): packed mud fills the tread, so a coated tyre grips less. Each
+-- wheel's factor 1 - kinds[coat kind] x min(1, coat) goes to the vehicle (deepnode_vehicle
+-- .setGrip scales the tread nodes' friction) when it moved by `step`; force: all wheels.
+local function sendGrip(veh, V, gc, force)
+  local flat = nil
+  for idx, W in pairs(V.wheels) do
+    local f = 1 - (gc.kinds and gc.kinds[W.kind] or 0) * min(1, max(0, W.coat))
+    if force or abs(f - (W.gripSent or 1)) >= (gc.step or 0.03) or (f == 1 and (W.gripSent or 1) ~= 1) then
+      flat = flat or {}
+      flat[#flat + 1] = sfmt('%d,%.3f', idx, f)
+      W.gripSent = f
+    end
+  end
+  if flat then veh:queueLuaCommand('if deepnode_vehicle and deepnode_vehicle.setGrip then deepnode_vehicle.setGrip({' .. table.concat(flat, ',') .. '}) end') end
+end
+
 function M.update(dt)
   if not ctx or not enabled or not ctx.cfg.clods.enabled then return end
   updN = updN + 1
@@ -1738,6 +1765,11 @@ function M.update(dt)
     if not veh then
       M.onVehicleRemoved(vid)
     else
+      local gc = c.grip
+      if gc and gc.enabled ~= false then
+        V.gripAcc = (V.gripAcc or 0) + dt
+        if V.gripAcc >= 1 / max(1, gc.hz or 4) then V.gripAcc = 0; sendGrip(veh, V, gc, false) end
+      end
       local nearCam = (V.camD or 0) <= (c.lodNearDist or 20)
       local step = nearCam and (c.refStepNear or 4) or (c.refStepFar or 16)
       -- material updates only for vehicles in the camera view: every flush also costs the
@@ -2070,6 +2102,7 @@ function M.start(main)
 end
 
 function M.stop(objectsAlive)
+  restoreGrip()
   if objectsAlive then
     for _, V in pairs(vehs) do
       for _, W in pairs(V.wheels) do if W.obj then W.obj:delete(); W.obj = nil end end

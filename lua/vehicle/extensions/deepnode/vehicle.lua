@@ -720,6 +720,34 @@ function M.setGuide(flat)
   guideT = 0
 end
 
+-- Slick tyres (clods.grip): GE sends a grip factor per wheel from its mud coat (packed mud
+-- fills the tread). It scales the tread nodes' jbeam friction coefficients, the way vanilla
+-- beamstate lowers them for a deflated tyre (which then owns them: skipped here).
+local grip = {}    -- [wheel list index] = factor applied (absent = jbeam values)
+local function applyGrip(i, f)
+  local w = wheelList[i]
+  if not w or w.wd.isTireDeflated then grip[i] = nil; return end
+  f = max(0.2, min(1, f))
+  for _, cid in ipairs(w.treadNodes or {}) do
+    local n = v.data.nodes[cid]
+    local fc = n and tonumber(n.frictionCoef) or 1
+    local sc = n and tonumber(n.slidingFrictionCoef) or fc
+    obj:setNodeFrictionSlidingCoefs(cid, fc * f, sc * f)
+  end
+  grip[i] = f < 1 and f or nil
+end
+-- flat {index, factor, ...}; nil = every wheel back to its jbeam friction
+function M.setGrip(flat)
+  if type(flat) ~= 'table' then
+    for i in pairs(grip) do applyGrip(i, 1) end
+    return
+  end
+  for k = 1, #flat - 1, 2 do
+    local i, f = flat[k], flat[k + 1]
+    if isFinite(i) and isFinite(f) then applyGrip(floor(i), f) end
+  end
+end
+
 local gvec = nil
 local function applyGuide(dt)
   if guideT < 0 then return end
@@ -780,6 +808,7 @@ local function onBeamBroke()
 end
 
 local function onReset()
+  M.setGrip(nil) -- GE resends from the fresh (clean) coat
   ncand = 0
   ncandTri = 0
   guideT = -1
@@ -802,6 +831,7 @@ end
 
 M.updateGFX = updateGFX
 M.onReset = onReset
+M.onExtensionUnloaded = function() M.setGrip(nil) end
 M.onBeamBroke = onBeamBroke
 
 return M
