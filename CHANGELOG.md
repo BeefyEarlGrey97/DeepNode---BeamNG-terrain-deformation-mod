@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-11-12 — physics tune-up
+
 ### Added
 - Slick tyres (`clods.grip`): a mud-coated tyre grips less. wheelMud sends each wheel's factor
   1 - 0.45 x min(1, coat) (mud) to the vehicle, which scales its tread nodes' jbeam friction
