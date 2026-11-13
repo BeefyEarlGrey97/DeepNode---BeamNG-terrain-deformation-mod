@@ -1,5 +1,5 @@
-// DeepNode rut map: copies #deepnode_rutTmp back into #deepnode_rut after a stamp pass
-// (see rutStampP.hlsl).
+// DeepNode road map: copies the tmp map back into the map after a road stamp pass
+// (roadStampP.hlsl; the rut map is stamped in place, rutStampC.cs.hlsl).
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
 

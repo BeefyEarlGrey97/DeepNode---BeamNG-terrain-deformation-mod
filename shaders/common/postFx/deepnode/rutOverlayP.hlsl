@@ -1,5 +1,5 @@
 // DeepNode rut overlay: tyre prints on the ground where the rut map (#deepnode_rut, see
-// rutStampP.hlsl) holds them. Runs after the opaque scene is lit (PFXBeforeBin
+// rutStampC.cs.hlsl) holds them. Runs after the opaque scene is lit (PFXBeforeBin
 // ObjTranslucentBin) and rewrites the scene colour (read from $backBuffer):
 //  * a universal print relief (no tread pattern, so it suits any wheel, small or big): smear
 //    streaks along the track, irregular stick-slip ripples across it and a lip of mud squeezed
@@ -162,14 +162,16 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float4 g = decodeGBuffer(TEX_SAMPLER(prepassDepthTex), TEX_SAMPLER(prepassTex), IN.uv0, projParams);
     float3 wp = eyePosWorld + IN.wsEyeRay * g.w;
     float2 uv = (wp.xy - dnWin.xy) / dnWin.z;
-    float4 r = tex2Dlod(rutMap, float4(uv, 0, 0));
-    int2 ti = clamp((int2)floor(uv * dnMask.w), 0, (int)dnMask.w - 1);
+    // the map wraps (rutStampC.cs.hlsl): its address is the world position modulo the span
+    float2 mu = frac(wp.xy / dnWin.z);
+    float4 r = tex2Dlod(rutMap, float4(mu, 0, 0));
+    int2 ti = clamp((int2)floor(mu * dnMask.w), 0, (int)dnMask.w - 1);
     float4 rp = rutMapTex.Load(int3(ti, 0));
     float kindF = round(rp.a / 4.0);
     // kind 11: a pre-rutted road's wheel line (overlay.lua preFeed): mud with the wet trench
     // floor and pools only, no tyre print (no streaks, lip, crumbs or churned stripe)
     bool plainP = kindF > 10.5;
-    // pooled water stored in the texel (rutStampP.hlsl): level below the undisturbed ground
+    // pooled water stored in the texel (rutStampC.cs.hlsl): level below the undisturbed ground
     bool poolT = rp.g < -0.5;
     float poolLevel = rp.g + 1.0;
     // interpolated lateral position; where texels of other kinds blend in, the interpolated
@@ -296,7 +298,7 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     float edgeFade = inside;
     // carried mud is a thin stain on hard ground: no pressed relief
     float2 grad = (carried || splat || wetT) ? float2(0, 0) : dnWorldGrad(drx, dry, dpx.xy, dpy.xy);
-    // splat blob cover (shaped in the stamp pass, rutStampP.hlsl splatCover)
+    // splat blob cover (shaped in the stamp pass, rutStampC.cs.hlsl splatCover)
     float splatC = splat ? str : 0.0;
     float reliefK = kind == 1 ? dnKindX.x : (pressed ? dnPress.w : 1.0); // sand, hard ground: softer
     grad *= reliefK;

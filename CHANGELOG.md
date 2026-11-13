@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- Tread-print map (`#deepnode_rut`) is stamped by one compute pass in place
+  (`rutStampC.cs.hlsl`) instead of a pixel stamp into a temp map plus a copy back. Only the
+  texels in the box round the frame's prints are read and written, the temp map (32 MB of video
+  memory) is gone, and the map wraps (texel = world position modulo 128 m), so a window move
+  clears the strip that enters it instead of copying the whole map. Same prints, texel for
+  texel (stroke test byte-identical; a 4-truck run 97 % overlap, as two runs of the old code).
+  No fps change measurable on the 4-truck bench (CPU-bound).
+- `tools/dev/shadercheck.sh` also compiles the `*.cs.hlsl` compute shaders.
+
 ## [0.8.1] — 2026-11-12 — physics tune-up
 
 ### Added

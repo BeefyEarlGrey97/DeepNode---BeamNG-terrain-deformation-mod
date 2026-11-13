@@ -1,9 +1,12 @@
 // DeepNode rut map: paints tyre prints into the world-space map #deepnode_rut.
-// One full-target pass per frame while prints are queued (deepnode/overlay.lua): reads the
-// map, writes every texel (old value or new print) to #deepnode_rutTmp; rutCopyP.hlsl
-// copies it back. A pass that draws into a target does not keep its old content, even
-// with PFXTargetClear_None (measured 2026-10-31), hence the copy.
-// Texel (u,v) covers world (x0 + u*span, y0 + v*span). Channels:
+// Compute pass, in place: a compute PostEffect keeps its named target between frames
+// (measured 2026-11-13), so texels away from this frame's prints (outside dnBox) return
+// without touching memory. Full frames (dnMode.x: clear, window move, dry pass) visit every
+// texel.
+// The map wraps: texel (i, j) holds world x = i*texel + k*span (y alike), the k that puts it
+// inside the window, so a window move needs no copy: texels that were outside the old window
+// (dnShift.xy, dnMode.y) are cleared, the others keep their prints, ground z rebased.
+// Channels:
 //   r = print strength (0 = untouched; a berm's intensity outside the tyre),
 //   g = along-track coordinate (phase units, overlay.phasePerMetre per m, mod 64),
 //   b = undisturbed ground z (the surface before the rut) - baseZ (m),
@@ -19,11 +22,11 @@
 // The phase continues from one wheel report to the next (arc length at the segment start
 // comes from Lua), so the print pattern continues along curved tracks.
 // A newer print replaces what was under it; a berm only covers untouched ground or berms.
+#define PFX_COMPUTE 1
+
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"
 #include "dnCommon.h.hlsl"
-
-uniform_sampler2D(prevMap, 0);
 
 cbuffer perDraw : register(b0)
 {
@@ -32,12 +35,14 @@ cbuffer perDraw : register(b0)
     POSTFX_UNIFORMS
     uniform float4 dnWin;   // x0, y0, span, baseZ
     uniform float4 dnCtl;   // segment count, clear (> 0.5), edge softness (m), phase per metre
-    uniform float4 dnShift; // window moved: texel offset x, y into the old map, z base change (m), erase rects
+    uniform float4 dnShift; // old window x0, y0 (window moved, dnMode.y), z base change (m), erase rects
     uniform float4 dnClr0;  // erase rects (x0, y0, x1, y1): rut tiles DeepNode reset
     uniform float4 dnClr1;
     uniform float4 dnClr2;
     uniform float4 dnClr3;
     uniform float4 dnTime;  // time (s, mod 64), drying time of wet tracks (s)
+    uniform float4 dnBox;   // world x0, y0, x1, y1 around this frame's prints and erase rects
+    uniform float4 dnMode;  // x: full frame (> 0.5), y: window moved
     uniform float4 dnA0;
     uniform float4 dnA1;
     uniform float4 dnA2;
@@ -89,12 +94,7 @@ cbuffer perDraw : register(b0)
 };
 
 #include "../postFx.hlsl"
-
-#ifdef SHADER_STAGE_VS
-    #define mainV main
-#else
-    #define mainP main
-#endif
+#include "shaders/common/postFx/postFxCompute.h.hlsl"
 
 // mud splat blob over the stamped capsule: ragged edge, holes where thin (texels outside the
 // blob keep what was there, so a berm under a splat's edge stays a berm; a splat over a print
@@ -164,20 +164,27 @@ float storedLat(float a)
         }                                                                              \
     }
 
-float4 mainP(PFXVertToPix IN) : SV_Target
+PFX_NUMTHREADS
+void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
-    if (accumTime < -1.0e9 || rtParams0.x < -1.0e9) discard;
-    if (dnCtl.y > 0.5) return float4(0, 0, 0, 0);
-    int n = (int)dnCtl.x;
-    float2 p = dnWin.xy + IN.uv0 * dnWin.z;
-    // old content, shifted when the window moved (outside the old window: empty)
-    int2 src = (int2)IN.hpos.xy + (int2)dnShift.xy;
+    uint2 sp;
+    if (!postFxComputeThread(dispatchThreadID, sp)) return;
+    if (accumTime < -1.0e9 || rtParams0.x < -1.0e9) return;
     uint w, h;
-    prevMapTex.GetDimensions(w, h);
-    float4 res = 0;
-    if (all(src >= 0) && src.x < (int)w && src.y < (int)h) {
-        res = prevMapTex.Load(int3(src, 0));
-        if (res.r > 0.0) res.b += dnShift.z;
+    pfxOut.GetDimensions(w, h);
+    float span = dnWin.z;
+    if (dnCtl.y > 0.5) { pfxOut[sp] = float4(0, 0, 0, 0); return; }
+    int n = (int)dnCtl.x;
+    // the world position this texel stands for inside the window (the map repeats every span m)
+    float2 q = (float2(sp) + 0.5) / float2(w, h) * span - dnWin.xy;
+    float2 p = dnWin.xy + q - span * floor(q / span);
+    if (dnMode.x < 0.5 && (any(p < dnBox.xy) || any(p > dnBox.zw))) return;
+    float4 res = pfxOut[sp];
+    float4 old = res;
+    if (dnMode.y > 0.5) {
+        // window moved: a texel outside the old window held prints from span m away
+        if (any(p < dnShift.xy) || any(p >= dnShift.xy + span)) res = 0;
+        else if (res.r > 0.0) res.b += dnShift.z;
     }
     // wet tracks dry: erase them once older than the drying time
     if (res.r > 0.0 && round(res.a / 4.0) == 7.0) {
@@ -208,10 +215,5 @@ float4 mainP(PFXVertToPix IN) : SV_Target
     SEG(13)
     SEG(14)
     SEG(15)
-    return res;
-}
-
-PFXVertToPix mainV(PFXVert IN)
-{
-    return processPostFxVert(IN);
+    if (any(res != old)) pfxOut[sp] = res;
 }

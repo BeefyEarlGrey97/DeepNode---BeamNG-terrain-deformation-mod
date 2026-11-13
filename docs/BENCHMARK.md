@@ -628,3 +628,20 @@ What else was seen: with the 24 tile size classes kept per member nearly every g
 new size signature (365 new pool objects, +205 MB in a 20 s run; one class per group fixed that);
 without the hand-back rule a group grew to 9 tiles; a tile that skips one group upload changes
 again at the next one in ~70 % of the cases, otherwise after 10 or more.
+
+## 2026-11-13: compute in-place rut stamp (gridmap_v2, 4 trucks)
+
+`bench2.py <label> 3 clear`, orbit cam yaw 160 / pitch 14 / 16 m, interleaved old, new, new, old.
+Runs fall into two states in both variants (about 65 fps and about 51 fps, Lua 4.8 vs 6-7 ms
+per frame; cause not found, not the variant). Fresh-rut lag (`front`) follows the state, not the
+variant: 0.03-0.05 s mean at ~65 fps, 0.06-0.09 s at ~51 fps.
+
+| variant | fast-state runs fps | slow-state runs fps |
+|---|---|---|
+| pixel stamp + copy (old) | 65.3 / 65.6 / 63.6 / 66.8 | 49.3 / 46.9 |
+| compute in place (new) | 64.8 / 68.7 | 53.5 / 53.3 / 54.3 / 50.1 |
+
+No difference beyond the noise: the bench is CPU-bound (cpu ~10 ms vs gpu ~6 ms per frame), so
+the saved GPU work (a full-map stamp + copy per painting frame, ~64 MB of memory traffic, and
+the 32 MB temp map) does not show in fps here. The GPU timers were frozen, see ENGINE_FINDINGS.
+

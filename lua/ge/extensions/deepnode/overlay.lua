@@ -3,10 +3,11 @@
 -- Tyre prints go to a world-space map on the GPU, #deepnode_rut (RGBA16F, cfg.overlay.mapSize
 -- texels over cfg.overlay.span m around the camera). PostEffects, shaders in
 -- shaders/common/postFx/deepnode/:
---  * rutStampP.hlsl paints up to 16 queued print segments per frame: it reads the map and
---    writes all texels to #deepnode_rutTmp, rutCopyP.hlsl copies them back (a pass that draws
---    into a target loses its old content). Lua only sends the segments as shader constants;
---    both passes are skipped while nothing is queued, and the map keeps its content.
+--  * rutStampC.cs.hlsl (compute) paints up to 16 queued print segments per frame into the
+--    map in place: a compute pass keeps its target (measured 2026-11-13), so only texels in
+--    the box round this frame's prints are read and written. Clear, window-move and dry
+--    frames visit all texels. Lua only sends the segments as shader constants; the pass runs
+--    every frame (a skipped compute pass loses its target), with an empty box when idle.
 --    A print stores its surface kind (mud, sand, or mud / sand dust carried onto hard ground
 --    by a coated tyre) and paints a berm band beside the tyre.
 --  * rutOverlayP.hlsl runs after the opaque scene is lit (PFXBeforeBin ObjTranslucentBin)
@@ -17,8 +18,9 @@
 --  * tyreWetP.hlsl (same slot, after the overlay) makes wet tyres darker and glossy, and can
 --    draw the tyre mud coat itself (overlay.tyreCoat) for the wheels nearest the camera.
 -- No mesh uploads: the rut shape still comes from the mud meshes.
--- The map follows the camera: when the camera nears its edge the window moves (8 m steps)
--- and the stamp pass reads the old content shifted, so prints stay while inside it.
+-- The map follows the camera: when the camera nears its edge the window moves (8 m steps).
+-- The map wraps (a texel holds world position modulo the span), so prints stay where they
+-- are while inside the window; the stamp pass clears the texels that enter it.
 --
 -- Engine facts behind this (docs/ENGINE_FINDINGS.md "Custom shaders"): post effects cannot
 -- write the G-buffer (#prepass), so the overlay relights by itself; a CustomMaterial on a
@@ -32,15 +34,15 @@ local atan2, abs = math.atan2, math.abs
 local sfmt = string.format
 local tsort = table.sort
 
-local FX_STAMP, FX_COPY, FX_OVER, FX_TYRE = 'deepnode_rutStampFX', 'deepnode_rutCopyFX', 'deepnode_rutOverlayFX',
+local FX_STAMP, FX_COPY, FX_OVER, FX_TYRE = 'deepnode_rutStampCFX', 'deepnode_rutCopyFX', 'deepnode_rutOverlayFX',
   'deepnode_tyreWetFX'
-local SH_STAMP, SH_COPY, SH_OVER, SH_TYRE = 'deepnode_rutStampShader', 'deepnode_rutCopyShader',
+local SH_STAMP, SH_COPY, SH_OVER, SH_TYRE = 'deepnode_rutStampCShader', 'deepnode_rutCopyShader',
   'deepnode_rutOverlayShader', 'deepnode_tyreWetShader'
 local SB_STAMP, SB_OVER = 'deepnode_rutStampSB', 'deepnode_rutOverlaySB'
-local TARGET, TMP = '#deepnode_rut', '#deepnode_rutTmp'
+local TARGET = '#deepnode_rut'
 local SHADER_DIR = 'shaders/common/postFx/deepnode/'
-local STAMP_PATH = SHADER_DIR .. 'rutStampP.hlsl'
-local COPY_PATH = SHADER_DIR .. 'rutCopyP.hlsl'
+local STAMP_PATH = SHADER_DIR .. 'rutStampC.cs.hlsl'
+local COPY_PATH = SHADER_DIR .. 'rutCopyP.hlsl' -- road map copy (pixel); the rut map's is rutCopyC.cs.hlsl
 local OVER_PATH = SHADER_DIR .. 'rutOverlayP.hlsl'
 local TYRE_PATH = SHADER_DIR .. 'tyreWetP.hlsl'
 local RSTAMP_PATH = SHADER_DIR .. 'roadStampP.hlsl'
@@ -60,7 +62,7 @@ local MAX_KEYS = 240
 local COMMON_PATH = SHADER_DIR .. 'dnCommon.h.hlsl'
 local MAX_SEG = 16
 local MAX_WHEELS = 32
--- surface kinds stored in the map (rutStampP.hlsl)
+-- surface kinds stored in the map (rutStampC.cs.hlsl)
 local KIND_MUD, KIND_SAND, KIND_CARRY, KIND_DUST, KIND_SPLAT, KIND_GRASS, KIND_DIRT, KIND_WET = 0, 1, 2, 3, 4, 5, 6, 7
 local KIND_PLAIN = 11 -- pre-rutted road wheel line: wet trench floor + pools, no tyre print
 -- wet tracks: time of the last one, of the last drying pass (wheel time)
@@ -77,7 +79,7 @@ local clearFrames = 0
 local shift = nil             -- pending window move { texels x, texels y, z base change }
 local clr, clrN = {}, 0       -- pending erase rects (rut tiles DeepNode reset), x0 y0 x1 y1 each
 local anyPrint = false
-local stampOn, overOn, tyreOn = nil, nil, nil
+local overOn, tyreOn = nil, nil
 local vals = { [FX_STAMP] = {}, [FX_OVER] = {}, [FX_TYRE] = {}, [FX_RSTAMP] = {} } -- [effect name][uniform] = formatted value
 local sun = { x = 0, y = 0, z = 1, t = -1 }
 local stats = { queued = 0, painted = 0, dropped = 0, recentres = 0, frames = 0, carried = 0, tyres = 0 }
@@ -166,8 +168,12 @@ local function makeShader(name, path)
   local sh = find(name)
   local new = not sh
   if new then sh = createObject('ShaderData') end
-  sh.DXVertexShaderFile = path
-  sh.DXPixelShaderFile = path
+  if path:sub(-8) == '.cs.hlsl' then
+    sh.DXComputShaderName = path
+  else
+    sh.DXVertexShaderFile = path
+    sh.DXPixelShaderFile = path
+  end
   sh.pixVersion = 5.0
   sh:setField('defines', 0, 'DN_REV=' .. sourceRev(path))
   if new then sh:registerObject(name) end
@@ -218,47 +224,45 @@ local function effect(name, fields, textures)
 end
 
 local function makeEffects()
+  -- the pixel-pass layout of earlier versions (copy pass owning #deepnode_rut): a named target
+  -- stays with its first owner, so those effects must go before the compute pass takes the name
+  kill('deepnode_rutStampFX'); kill(FX_COPY)
   local shStamp = SH_STAMP .. '_' .. sourceRev(STAMP_PATH)
-  local shCopy = SH_COPY .. '_' .. sourceRev(COPY_PATH)
   local shOver = SH_OVER .. '_' .. sourceRev(OVER_PATH)
   local shTyre = SH_TYRE .. '_' .. sourceRev(TYRE_PATH)
   makeShader(shStamp, STAMP_PATH)
-  makeShader(shCopy, COPY_PATH)
   makeShader(shOver, OVER_PATH)
   makeShader(shTyre, TYRE_PATH)
-  shaderNames = { shStamp, shCopy, shOver, shTyre }
-  -- overlay slots: scene, normals, depth, rut map (linear), shadow mask, engine light pack
-  -- (#deepnode_roadLit, makeLit); tyres: the first, second, third and fifth
+  shaderNames = { shStamp, shOver, shTyre }
+  -- overlay slots: scene, normals, depth, rut map (linear, wrapping like the map), shadow mask,
+  -- engine light pack (#deepnode_roadLit, makeLit); tyres: the first, second, third and fifth
   makeStateBlock(SB_STAMP, 'pppp')
   makeStateBlock(SB_OVER, 'ppplpp')
+  makeStateBlock(SB_OVER .. 'W', 'pppwpp')
   -- constants are lost when the device resets: push them again
   for _, fx in ipairs({ FX_STAMP, FX_OVER, FX_TYRE }) do
     rawset(_G, fx .. 'Callbacks', { setShaderConsts = function() pushConsts(fx) end,
       onEnabled = function() return true end })
   end
   local size = floor(oc.mapSize)
-  -- higher renderPriority runs first: stamp (map -> tmp), copy (tmp -> map), overlay, tyres
-  local function mapPass(name, shader, prio, src, dst)
-    return effect(name, {
-      { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', prio },
-      { 'shader', shader }, { 'stateBlock', SB_STAMP }, { 'target', dst },
-      { 'targetSize', size .. ' ' .. size }, { 'targetFormat', 'GFXFormatR16G16B16A16F' },
-      { 'targetClear', 'PFXTargetClear_None' } }, { src })
-  end
-  local st = mapPass(FX_STAMP, shStamp, '60', TARGET, TMP)
-  local cp = mapPass(FX_COPY, shCopy, '59', TMP, TARGET)
+  -- higher renderPriority runs first: stamp (in place), overlay, tyres
+  local st = effect(FX_STAMP, {
+    { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '60' },
+    { 'shader', shStamp }, { 'stateBlock', SB_STAMP }, { 'target', TARGET },
+    { 'targetSize', size .. ' ' .. size }, { 'targetFormat', 'GFXFormatR16G16B16A16F' },
+    { 'targetClear', 'PFXTargetClear_None' } }, {})
   -- scene colour in slot 0, as the engine's own post effects read $backBuffer
   local ov = effect(FX_OVER, {
     { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '50' },
-    { 'shader', shOver }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
+    { 'shader', shOver }, { 'stateBlock', SB_OVER .. 'W' }, { 'target', '$backBuffer' } },
     { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', TARGET, '#sunShadowMask', RLIT })
   local ty = effect(FX_TYRE, {
     { 'renderTime', 'PFXBeforeBin' }, { 'renderBin', 'ObjTranslucentBin' }, { 'renderPriority', '49' },
     { 'shader', shTyre }, { 'stateBlock', SB_OVER }, { 'target', '$backBuffer' } },
     { '$backBuffer', '#prepass[RT0]', '#prepass[Depth]', '#sunShadowMask', RLIT })
-  st:enable(); cp:enable(); ov:enable(); ty:enable()
-  setSkip(st, false); setSkip(cp, false); setSkip(ov, true); setSkip(ty, true)
-  stampOn, overOn, tyreOn = true, false, false
+  st:enable(); ov:enable(); ty:enable()
+  setSkip(st, false); setSkip(ov, true); setSkip(ty, true)
+  overOn, tyreOn = false, false
 end
 
 local function readCam()
@@ -1491,7 +1495,7 @@ function M.stop()
   if P then P.overlayStamp, P.overlayClear, P.poolDirty = nil, nil, nil end
   active = false
   killRoadEffects()
-  for _, n in ipairs({ FX_STAMP, FX_COPY, FX_OVER, FX_TYRE, SB_STAMP, SB_OVER }) do kill(n) end
+  for _, n in ipairs({ FX_STAMP, FX_COPY, FX_OVER, FX_TYRE, SB_STAMP, SB_OVER, SB_OVER .. 'W' }) do kill(n) end
   for _, n in ipairs(shaderNames) do
     kill(n)
   end
@@ -1538,8 +1542,8 @@ end
 -- per frame, from deepnode_main after wheelMud read the wheel frames
 function M.frame()
   if not active then roadFrame(); litFrame(roadOn and next(rpresent) ~= nil); return end
-  local st, cp, ov, ty = find(FX_STAMP), find(FX_COPY), find(FX_OVER), find(FX_TYRE)
-  if not (st and cp and ov and ty) then active = false; return end
+  local st, ov, ty = find(FX_STAMP), find(FX_OVER), find(FX_TYRE)
+  if not (st and ov and ty) then active = false; return end
   stats.frames = stats.frames + 1
   if readCam() then
     local m = oc.recentreMargin
@@ -1563,7 +1567,9 @@ function M.frame()
   beginConsts(FX_STAMP)
   setConst(FX_STAMP, 'dnWin', win.x0, win.y0, win.span, win.z)
   if shift then
-    setConst(FX_STAMP, 'dnShift', shift[1], shift[2], shift[3], min(4, clrN))
+    -- the old window's corner: texels outside it are cleared
+    local tex = win.span / oc.mapSize
+    setConst(FX_STAMP, 'dnShift', win.x0 - shift[1] * tex, win.y0 - shift[2] * tex, shift[3], min(4, clrN))
   else
     setConst(FX_STAMP, 'dnShift', 0, 0, 0, min(4, clrN))
   end
@@ -1580,6 +1586,7 @@ function M.frame()
     clrN = clrN - nc
   end
   local n = 0
+  local bx0, by0, bx1, by1 = 1e9, 1e9, -1e9, -1e9
   if clearFrames > 0 then
     clearFrames = clearFrames - 1
     setConst(FX_STAMP, 'dnCtl', 0, 1, oc.edge, oc.phasePerMetre)
@@ -1592,6 +1599,9 @@ function M.frame()
       setConst(FX_STAMP, 'dnA' .. i, e[1], e[2], e[3], e[4])
       setConst(FX_STAMP, 'dnB' .. i, e[5], e[6], e[7], e[8])
       setConst(FX_STAMP, 'dnC' .. i, e[9], e[10], e[11], 0)
+      local r = e[5] * max(e[11], 1)
+      bx0, by0 = min(bx0, e[1] - r, e[3] - r), min(by0, e[2] - r, e[4] - r)
+      bx1, by1 = max(bx1, e[1] + r, e[3] + r), max(by1, e[2] + r, e[4] + r)
     end
     qHead = qHead + n
     if qHead > qTail then qHead, qTail = 1, 0 end
@@ -1602,6 +1612,7 @@ function M.frame()
       setConst(FX_STAMP, 'dnA' .. (n + i), e[1], e[2], e[3], e[4])
       setConst(FX_STAMP, 'dnB' .. (n + i), 0, e[5] - win.z, 0, 0)
       setConst(FX_STAMP, 'dnC' .. (n + i), e[6], 1, 1, 0)
+      bx0, by0, bx1, by1 = min(bx0, e[1]), min(by0, e[2]), max(bx1, e[3]), max(by1, e[4])
     end
     pqHead = pqHead + nw
     if pqHead > pqTail then pqHead, pqTail = 1, 0 end
@@ -1616,8 +1627,13 @@ function M.frame()
     dryPass, lastDryPass = true, wheelNow
   end
   setConst(FX_STAMP, 'dnTime', wheelNow % 64, oc.wetTracks.dryTime, 0, 0)
-  local wantStamp = n ~= 0 or moved or nc > 0 or dryPass
-  if wantStamp ~= stampOn then setSkip(st, not wantStamp); setSkip(cp, not wantStamp); stampOn = wantStamp end
+  -- The stamp pass runs every frame, with an empty box when there is nothing to paint (every
+  -- thread returns at once): a compute pass coming back from skip got a fresh, empty target
+  -- (measured 2026-11-13). Texels outside the box keep their value untouched unless the whole
+  -- map needs a visit.
+  local m = 2 * win.span / oc.mapSize
+  setConst(FX_STAMP, 'dnBox', bx0 - m, by0 - m, bx1 + m, by1 + m)
+  setConst(FX_STAMP, 'dnMode', (moved or nc > 0 or dryPass) and 1 or 0, moved and 1 or 0, 0, 0)
 
   local dbg = oc.debug or 0
   updateSun(os.clock())

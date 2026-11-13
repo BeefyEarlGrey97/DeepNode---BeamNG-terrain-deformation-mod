@@ -461,6 +461,21 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   target and no copy pass, and threads outside the stamp box can return without touching memory
   (the Snow Anywhere mod's trail map works this way). Readback: named-buffer screenshot (bufferType
   'dnprobe'). The rule below holds for PIXEL passes only.
+- Compute PostEffect pitfalls found porting the rut stamp (2026-11-13):
+  - A compute pass that comes back from `skip` (`setField('skip', 0, '1')` then `'0'`) gets a
+    fresh, empty target: everything written before is gone. Keep a persistent compute pass
+    running every frame (an empty box makes each thread return at once); the Snow Anywhere mod
+    does the same.
+  - A named target stays with the effect that registered it first. Effects updated in place to
+    a new layout (a former copy pass that owned `#deepnode_rut`) keep the name, and the new
+    owner writes a texture nobody reads. Delete the old effects before the new ones register.
+  - A pair of compute passes that read each other's target (copy map -> tmp, stamp tmp -> map
+    on window moves) stopped landing writes after the first move while driving; not found why.
+    The wrapping map (texel = world modulo span) needs no copy at all.
+  - Dispatch covers the whole target (2048^2 measured, `dispatchRect.zw`), whatever the screen size.
+  - GPU timers: `$fps::gpuTime` and `Engine.Debug.getGpuTimings()` (per render bin) stayed frozen
+    at one value all session, even with the game focused, `Engine.Debug.setGpuTimingOverlayVisible(true)`
+    and `core_metrics.toggle()`; no GPU-side cost could be read.
 - A pass that draws into a named target does not keep the target's old content, even with
   `targetClear PFXTargetClear_None`: only the last draw's texels survived. Persistent GPU state
   needs a ping-pong (read the map, write all texels to a temp target, copy back), as Dynamic Dirt

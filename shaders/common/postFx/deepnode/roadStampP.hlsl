@@ -22,7 +22,7 @@
 // different roads of one material (gridmap_v2 has 102 furrow roads at one priority, many
 // parallel offset copies) and dropped layers in texel blocks. A full texel drops the entry of least
 // weight (margin entries before inside ones, then the lowest key).
-// Like rutStampP.hlsl, one full-target pass reads the old map (shifted when the window moved)
+// Like the old pixel rut stamp, one full-target pass reads the old map (shifted when the window moved)
 // and writes every texel to #deepnode_roadTmp; rutCopyP.hlsl copies it back.
 #include "../postFx.h.hlsl"
 #include "shaders/common/hlsl.h"

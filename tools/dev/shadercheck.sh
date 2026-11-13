@@ -25,4 +25,12 @@ for f in shaders/common/postFx/deepnode/*P.hlsl; do
     fi
   done
 done
+for f in shaders/common/postFx/deepnode/*.cs.hlsl; do
+  [ -e "$f" ] || continue
+  if out=$("$DXC" -nologo -T cs_6_0 -E main -D SHADER_STAGE_CS=1 -I . -I shaders/common "$f" -Fo /dev/null 2>&1); then
+    echo "OK   CS $(basename "$f")"
+  else
+    echo "FAIL CS $(basename "$f")"; echo "$out" | grep -m3 error; rc=1
+  fi
+done
 exit $rc
