@@ -452,6 +452,15 @@ PostEffect details learned building the rut overlay (deepnode_overlay, same day)
   `<effectName>Callbacks.setShaderConsts` function (the engine calls it before the effect renders).
   A constant shown as colour by a probe shader arrived this way; with the plain name it stayed 0.
   Engine-set uniforms (`accumTime`, `eyePosWorld`, `projParams`, `rtParams0`) arrive by themselves.
+- A COMPUTE PostEffect DOES keep its named target between frames (probe 2026-11-13, gridmap_v2,
+  D3D12): `ShaderData.DXComputShaderName`, `#define PFX_COMPUTE 1`, `postFxCompute.h.hlsl`, target
+  `#dnprobe` 64x64, `targetClear PFXTargetClear_None`, both `GFXFormatR16G16B16A16` and
+  `GFXFormatR16G16B16A16F`. Texels doing `pfxOut[p] = pfxOut[p] + 1/1024` each frame counted up
+  exactly with the frame count (52 levels in 207 frames); texels written once and then skipped by an
+  early return kept their value for 570+ frames. So an in-place read-modify-write stamp needs no temp
+  target and no copy pass, and threads outside the stamp box can return without touching memory
+  (the Snow Anywhere mod's trail map works this way). Readback: named-buffer screenshot (bufferType
+  'dnprobe'). The rule below holds for PIXEL passes only.
 - A pass that draws into a named target does not keep the target's old content, even with
   `targetClear PFXTargetClear_None`: only the last draw's texels survived. Persistent GPU state
   needs a ping-pong (read the map, write all texels to a temp target, copy back), as Dynamic Dirt
