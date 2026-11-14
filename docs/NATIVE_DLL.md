@@ -128,3 +128,33 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   `-s ours`, so later `git merge test` on exotic keeps `native/`). Local mod folder
   `mods/unpacked/deepnode_exotic` is a git worktree of `exotic`. Both editions share every Lua path:
   enable only one in the mod manager.
+
+## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
+Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.
+`FUN_14124e3f0` is LuaJIT's `ll_loadfunc` (lib_package.c): the strings `LOADLIB: %s`, `_LOADLIB`,
+`luaopen_%s`, `luaJIT_BC_%s` fix it against LuaJIT source, so each helper it calls is a public Lua
+C API function. Addresses absolute (image base 0x140000000); RVA = addr - base.
+
+| Address | RVA | Lua C API | Confidence |
+|---|---|---|---|
+| 0x141211f10 | 0x1211f10 | `lua_pushfstring(L,fmt,...)` | high (two call sites, "LOADLIB: %s") |
+| 0x1412117e0 | 0x12117e0 | `lua_gettable(L,idx)` | high (reg cache lookup) |
+| 0x141212ba0 | 0x1212ba0 | `lua_isnil`/type check (L,idx)->int | med |
+| 0x141212b20 | 0x1212b20 | `lua_touserdata(L,idx)` | high |
+| 0x1412127b0 | 0x12127b0 | `lua_settop` (= lua_pop) | high |
+| 0x141211b40 | 0x1211b40 | `lua_newuserdata(L,sz)` | high |
+| 0x141210fb0 | 0x1210fb0 | `luaL_setmetatable`/getmetatable("_LOADLIB") | med |
+| 0x1412121a0 | 0x12121a0 | `lua_pushvalue(L,idx)` | high |
+| 0x141212740 | 0x1212740 | `lua_settable(L,idx)` | high |
+| 0x1412120c0 | 0x12120c0 | `lua_pushstring(L,s)` | high |
+| 0x141211e00 | 0x1211e00 | `lua_pushboolean(L,b)` | high ('*' branch) |
+| 0x141211e40 | 0x1211e40 | `lua_pushcclosure(L,fn,n)` | high — the registration anchor |
+| 0x141215780 | 0x1215780 | sandbox gate ()->int, 0 = denied | high (44 callers: all loadlib/os/io) |
+
+The registration anchor is `lua_pushcclosure` (0x141211e40): push our C function, then `lua_setfield`
+to hang it on a global table. These RVAs are per-build; the DLL must signature-scan, not hardcode.
+Still to find for the bridge: the **GE `lua_State*` global**, `lua_setfield`/`lua_setglobal`,
+`lua_gettop`, `lua_tonumber`/`tointeger`, `lua_pushnumber`/`pushinteger`. `lua_touserdata`
+(0x141212b20) already gives the ProceduralMesh pointer from a Lua userdata.
+Flipping 0x141215780 to non-zero would let `ffi.load` work from Lua, but that is not the plan
+(fragile global patch); we register our own cfunction instead.
