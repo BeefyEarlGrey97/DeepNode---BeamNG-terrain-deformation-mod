@@ -82,7 +82,7 @@ An object has at most 3 submeshes.
 | 2 | Measure: in-place write against `createMesh`, same mesh (ms per call, `RenderShadows`, memory) | test mesh only | done 11-14: 0.36 vs 8.05 ms/call, shadows +0 vs +1.8 ms; memory not resolved |
 | 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge works in game (11-14); scan, write open |
 | 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | done 11-14: 65-70 % of uploads in place, picture identical |
-| 5 | Bench (2 runs per variant, gridmap_v2) and visual comparison | - | - |
+| 5 | Bench (2 runs per variant, gridmap_v2) and visual comparison | - | done 11-14: createMesh -33 %, shadows -0.6..-1.4 ms, fps +1.1 (noise); visual identical |
 
 Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
 (`extensions.load('dntestNative'); dump(dntestNative.run())`, in a loaded level).
@@ -207,6 +207,12 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   createMesh: mud region max diff 10, 0 % px > 8 (two in-place shots: max 13).
   Not done: stage 5 bench (8 trucks, memory growth), shadows of mud meshes, Lua byte build cost
   (string copy per write).
+
+- 2026-11-14, **stage 5** (gridmap_v2, 8 Percherons, interleaved on/off/on/off, 2 runs each; table in
+  docs/BENCHMARK.md): createMesh calls -33 % (2583 / 2555 vs 3820 / 3889), RenderShadows -0.6..-1.4 ms,
+  total work -0.8 ms, fps +1.1 on average (inside noise), rut latency unchanged, memory growth not
+  resolved (noise). 36-38 % of in-place attempts fell outside the 0.5 m box with 8 trucks digging:
+  try `native.boxMargin` 1.0. The frame is dominated by Lua (~11 ms) and RenderShadows (~6-7 ms).
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.

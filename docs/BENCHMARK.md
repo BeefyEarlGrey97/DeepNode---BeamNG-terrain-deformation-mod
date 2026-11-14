@@ -645,3 +645,21 @@ No difference beyond the noise: the bench is CPU-bound (cpu ~10 ms vs gpu ~6 ms 
 the saved GPU work (a full-map stamp + copy per painting frame, ~64 MB of memory traffic, and
 the 32 MB temp map) does not show in fps here. The GPU timers were frozen, see ENGINE_FINDINGS.
 
+
+## 2026-11-14: DeepNode Exotic, in-place mesh writes (gridmap_v2, 8 Percherons, exotic 2d63b36)
+Native helper installed, `native.inPlace` switched live (on / off / on / off), `bench2.py <label> 2 clear`,
+vsync off, orbit camera as left by the harness. Run 1 / run 2 per variant:
+
+| variant | fps | low1 | mod ms | RenderShadows | total work ms | createMesh calls | in-place writes | outside box |
+|---|---|---|---|---|---|---|---|---|
+| on | 37.5 / 37.7 | 25.7 / 25.3 | 1.99 / 2.00 | 6.70 | 29.31 | 2583 | 1980 | 1080 |
+| off | 36.6 / 36.3 | 25.0 / 23.5 | 5.92 / 3.92 | 7.32 | 30.17 | 3820 | - | - |
+| on | 39.8 / 36.2 | 24.5 / 24.9 | 1.74 / 1.29 | 6.08 | 30.01 | 2555 | 1925 | 1218 |
+| off | 36.9 / 36.9 | 24.2 / 25.3 | 2.18 / 6.75 | 7.44 | 30.83 | 3889 | - | - |
+
+On: createMesh -33 %, RenderShadows -0.6..-1.4 ms, total work -0.8 ms, mod ms lower, fps +1.1 on
+average over all runs (+0.35 run 2 only: inside run-to-run noise of ~1.5 fps). Rut lag and front
+latency unchanged (front 0.098 / 0.106 on, 0.102 / 0.096 off). Commit growth per variant (+219,
+-58 on; +97, +31 MB/min off) is noise at this length: no memory conclusion. 36-38 % of in-place
+attempts left the 0.5 m box (deep 8-truck ruts): a larger `native.boxMargin` is the next lever.
+The first attempt at this bench overlapped a stopped job still driving the harness: discarded.
