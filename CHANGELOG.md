@@ -20,7 +20,7 @@
 - Helper calls never raise a Lua error (an error raised from the DLL crashed the game while
   unwinding): they return false, message, and every entry point runs under a SEH guard.
 - Helper v4: buffer checks walk every memory region (a large ffi array spanning two regions was
-  refused, ~1 fallback per 1000 writes).
+  refused, ~1 fallback per 1000 writes). In game: 3307 writes, 0 fallbacks.
 
 ### Changed
 - Tread-print map (`#deepnode_rut`) is stamped by one compute pass in place

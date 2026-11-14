@@ -227,8 +227,9 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   return `false, msg` instead of `lua_error` (a raised error crashed the game in the engine's unwind
   path, exe 0x140143396) and run under `__try`. Bug found: `readable()` required the buffer in one
   VirtualQuery region; big ffi arrays span two -> "bad arguments" (~1 per 1000 writes, falls back to
-  createMesh). v4 walks regions (self-test in test_bridge.c); v4 built, not yet installed in game
-  (DLL locked while the game runs). Bench in BENCHMARK.md: fps +1.4..+2.0 run 2, Lua -1 ms.
+  createMesh). v4 walks regions (self-test in test_bridge.c). v4 in game: packCheck bytes 5/5 and
+  hash 5/5 equal (C pack 0.15 ms vs Lua 0.94 ms for 11700 corners), 8-truck bench 3307 in-place
+  writes, 0 fallbacks, 0 helper errors. Bench in BENCHMARK.md: fps +1.4..+2.0 run 2, Lua -1 ms.
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.

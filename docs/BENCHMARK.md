@@ -695,3 +695,5 @@ false / true / false / true, 8 Percherons, `bench2.py <label> 2 clear`, run 2:
 C packing: fps +1.4 / +2.0, low1 +1.6..+3.1, Lua -0.9..-1.0 ms, LuaGC -0.2..-0.5 ms. 0 failed
 in-place writes over the 4 benches (helper v3; its region-check bug showed 2 fallbacks in a
 separate run). Session fps is lower than earlier the same day (drift): compare within the table.
+Helper v4 (region walk), cMesh true, fresh game: run 2 fps 37.4, low1 26.3, Lua 10.50 ms, 3307 in-place
+writes, 0 fallbacks.
