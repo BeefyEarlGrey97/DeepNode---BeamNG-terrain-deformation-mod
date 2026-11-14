@@ -123,3 +123,8 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   helper processes (same exe, `--type=renderer`, `--type=gpu-process`, ...): the gate now skips any
   process whose command line has `--type=` (rebuilt + offline test passes; that build goes in on the
   next restart, since the loaded DLL is locked).
+- 2026-11-14: **moved to its own edition.** Branch `exotic` = DeepNode Exotic (Lua mod + native
+  helper); `test`/`main` stay Lua-only (native commit reverted there, `exotic` merged that revert with
+  `-s ours`, so later `git merge test` on exotic keeps `native/`). Local mod folder
+  `mods/unpacked/deepnode_exotic` is a git worktree of `exotic`. Both editions share every Lua path:
+  enable only one in the mod manager.

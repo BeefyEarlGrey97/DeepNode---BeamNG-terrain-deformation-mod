@@ -1,6 +1,12 @@
 <p align="center"><img src="docs/icon/deepnode-icon.svg" alt="DeepNode logo" width="160"></p>
 
-# DeepNode
+# DeepNode Exotic
+
+> **Exotic edition** (branch `exotic`): DeepNode plus a native helper DLL (`native/`, installed as
+> `Bin64\mswsock.dll`) that will update mud meshes in place instead of rebuilding them. Experimental,
+> one game build only (0.40.5), Windows only. The Lua-only edition is the `main` / `test` branch.
+> Enable only ONE of the two editions in the mod manager: they share every Lua path.
+> Details and status: [docs/NATIVE_DLL.md](docs/NATIVE_DLL.md).
 
 Terrain deformation for BeamNG.drive 0.40: deep mud and sand that sink, rut and remember every tyre.
 
