@@ -1,6 +1,6 @@
 # Native route: in-place mesh updates (living document)
 
-Status: **stage 1 passed: in-place vertex write works in game; stage 2 (measure) next** (last update 2026-11-14).
+Status: **stages 1-2 done: in-place write works, 22x cheaper per call, no shadow cost; stage 4 (mod hook) next** (last update 2026-11-14).
 This file is updated every time something new is found. Newest entries go to the log at the end.
 
 ## Why
@@ -79,7 +79,7 @@ An object has at most 3 submeshes.
 |---|---|---|---|
 | 0 | Read-only probe: is `ffi.load` allowed, find the C++ object behind the Lua userdata, check vtables, vertex count, stride | no | run 11-14: `ffi.load` and pointer cdefs blocked by the game's sandbox; checks must move into a proxy DLL |
 | 1 | One test mesh, away from the mod: lock, change heights, unlock. Does the picture change? Do shadows follow? | test mesh only | passed 11-14: picture matches createMesh; shadows not tested |
-| 2 | Measure: in-place write against `createMesh`, same mesh (ms per call, `RenderShadows`, memory) | test mesh only | - |
+| 2 | Measure: in-place write against `createMesh`, same mesh (ms per call, `RenderShadows`, memory) | test mesh only | done 11-14: 0.36 vs 8.05 ms/call, shadows +0 vs +1.8 ms; memory not resolved |
 | 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge works in game (11-14); scan, write open |
 | 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | - |
 | 5 | Bench (2 runs per variant, gridmap_v2) and visual comparison | - | - |
@@ -170,6 +170,24 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   Not checked: shadows (the test mesh casts none in either path); world box / ray-cast copy stay at
   the old shape (a bump taller than the old box may be culled at screen edges: stage 4 must keep
   heights inside the createMesh-time box or refresh it).
+
+- 2026-11-14, **stage 2 measured** (gridmap_v2, parked Ural in view, vsync/limiter on as the user
+  plays, so fps is capped at 60 and per-part ms are the measure). `dntestNative.loop(mode)` rewrites
+  the 16x16-cell bump (1536 corners, 67 KB) EVERY frame; 20 s per run after 3 s warm-up, runs
+  interleaved off / cm / w twice (run 2 quoted, run 1 in brackets):
+
+  | mode | Lua ms/frame | RenderShadows | Render | call ms | Lua build ms |
+  |---|---|---|---|---|---|
+  | off | 0.67 (0.73) | 0.58 (0.57) | 1.20 | - | - |
+  | createMesh | 9.79 (9.77) | **2.44** (2.35) | 1.26 | **8.05** (8.22) | 0.95 |
+  | writeVerts | 2.41 (2.89) | **0.55** (0.61) | 1.19 | **0.36** (1.00) | 1.19 |
+
+  writeVerts removes the per-call shadow cost (+1.8 ms with createMesh, +0 in place) and is ~22x
+  cheaper per call. Both keep 59-60 updates/s. Memory (`physUsed`, bytes): +0.2..+0.3 MB/min for
+  createMesh, -0.4 MB/min for writeVerts over 20 s: inside noise, this test cannot show the
+  collision-store growth; measure it in stage 5 with the mod's real upload rate.
+  Lua byte build (1.2 ms for 1536 corners) is now the larger part of writeVerts: stage 4 should build
+  bytes from the mod's own vertex arrays, not via per-corner Lua tables.
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.

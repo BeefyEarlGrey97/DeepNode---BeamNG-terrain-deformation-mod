@@ -171,8 +171,34 @@ function M.bump(h, how)
 end
 
 function M.clear()
+  M.loop(nil)
   local o = scenetree.findObject(NAME)
   if o then o:delete() end
+end
+
+-- Stage 2: rewrite the bump every frame. mode 'cm' = createMesh, 'w' = writeVerts, nil = stop.
+-- dntestNative.loopStats() -> mean build / call ms per frame since loop() started.
+local loopMode, loopT, acc = nil, 0, nil
+function M.loop(mode)
+  loopMode, loopT, acc = mode, 0, { n = 0, build = 0, call = 0 }
+  if mode == 'w' then pcall(ffi.load, 'dnnative') end
+end
+function M.loopStats()
+  local n = math.max(acc and acc.n or 0, 1)
+  return { mode = loopMode, frames = acc and acc.n, buildMs = acc and acc.build / n, callMs = acc and acc.call / n }
+end
+function M.onUpdate(dtReal)
+  if not loopMode then return end
+  local o = scenetree.findObject(NAME)
+  if not o then return end
+  loopT = loopT + dtReal
+  local z = heights(0.5 + 0.3 * math.sin(loopT * 3))
+  local t0 = os.clock()
+  local data = loopMode == 'w' and buildBytes(z) or { { buildCm(z) } }
+  local t1 = os.clock()
+  if loopMode == 'w' then dnNative.writeVerts(o, 0, data) else o:createMesh(data) end
+  local t2 = os.clock()
+  acc.n, acc.build, acc.call = acc.n + 1, acc.build + (t1 - t0) * 1000, acc.call + (t2 - t1) * 1000
 end
 
 return M
