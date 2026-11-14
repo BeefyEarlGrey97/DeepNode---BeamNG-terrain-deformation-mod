@@ -1,6 +1,6 @@
 # Native route: in-place mesh updates (living document)
 
-Status: **proxy loads in game; Lua bridge built, not yet run in game** (last update 2026-11-14).
+Status: **proxy + Lua bridge work in game; stage 1 (test-mesh write) next** (last update 2026-11-14).
 This file is updated every time something new is found. Newest entries go to the log at the end.
 
 ## Why
@@ -80,7 +80,7 @@ An object has at most 3 submeshes.
 | 0 | Read-only probe: is `ffi.load` allowed, find the C++ object behind the Lua userdata, check vtables, vertex count, stride | no | run 11-14: `ffi.load` and pointer cdefs blocked by the game's sandbox; checks must move into a proxy DLL |
 | 1 | One test mesh, away from the mod: lock, change heights, unlock. Does the picture change? Do shadows follow? | test mesh only | - |
 | 2 | Measure: in-place write against `createMesh`, same mesh (ms per call, `RenderShadows`, memory) | test mesh only | - |
-| 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge built (11-14, offline-tested, not run in game); scan, write open |
+| 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge works in game (11-14); scan, write open |
 | 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | - |
 | 5 | Bench (2 runs per variant, gridmap_v2) and visual comparison | - | - |
 
@@ -143,6 +143,16 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   pinned yet; `lua_pushfstring` `%d`/`%p`). Addresses hardcoded behind the build gate (shortcut until a
   second build). Test: `tools/benchmark/ge_extensions/dntestNative.lua`; offline: `native/out/test_bridge.exe`.
   Open: GE Lua on the main thread? (the log says "ffi.load off the main thread" if not.)
+- 2026-11-14, in game (gridmap_v2): **bridge works.** First run failed safe ("gate bytes differ":
+  the check compared 11 bytes after the `mov`, only 10 exist; fixed). Then: `dnNative` registered on the
+  main thread, `buildOk() = true`, `version()`, `ffi.load` still denied. GE Lua IS on the DllMain thread.
+  **Lua object -> C++ object:** the userdata payload is a LuaIntf holder `{vtable 0x141e55e10, id}`, not
+  a pointer. Holder vtable slot +0x10 (0x1407a9620) = `mov ecx,[holder+8]; jmp 0x140ab2e70`
+  (Sim::findObject(id)); the engine's method thunk 0x1406c3eb0 calls the same slot. `probe` calls it
+  (holder vtable and getter checked inside the exe image first); 0 = object deleted.
+  Probe on a 4x4-quad test mesh (25 verts sent): object found inline, vb0 vtable ok, **count 96**,
+  stride 44, type 0 (static). 96 = 16 quads x 6: `createMesh` writes one vertex per face corner (no
+  shared vertices), so an in-place height write must update every corner copy of a grid point.
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.

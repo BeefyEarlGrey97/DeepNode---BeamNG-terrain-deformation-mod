@@ -82,6 +82,7 @@ static struct {
 } lua;
 
 static BYTE *g_base;
+static uintptr_t g_imageEnd;
 static volatile int *g_sandboxFlag; // what the original gate returned
 static void *g_ffiLoadRet;          // return address of the gate call inside ffi.load
 static DWORD g_mainTid;
@@ -128,10 +129,17 @@ static int l_probe(lua_State *L)
 {
     uintptr_t pay = (uintptr_t)lua.touserdata(L, 1);
     if (!pay) return fail(L, "dnNative.probe: userdata expected");
+    // payload = LuaIntf object holder (holds the object id, not a pointer); its vtable slot +0x10
+    // returns the object, as the engine's method thunk 0x1406c3eb0 does. 0 = object deleted.
+    uintptr_t hvt = rd64(pay), get = hvt ? rd64(hvt + 0x10) : 0;
+    if (hvt < (uintptr_t)g_base || hvt >= g_imageEnd || get < (uintptr_t)g_base || get >= g_imageEnd)
+        return fail(L, "dnNative.probe: not an engine object");
+    uintptr_t held = ((uintptr_t (*)(uintptr_t))get)(pay);
     const char *how = "not found";
-    uintptr_t obj = findObject(pay, (uintptr_t)g_base + VT_PMESH, &how);
+    uintptr_t obj = held ? findObject(held, (uintptr_t)g_base + VT_PMESH, &how) : 0;
     lua.createtable(L, 0, 8);
     FIELD("payload", "%p", (void *)pay);
+    FIELD("held", "%p", (void *)held);
     FIELD("how", "%s", how);
     if (!obj) return 1;
     FIELD("obj", "%p", (void *)obj);
@@ -183,12 +191,15 @@ static int dn_gate(void)
 
 static void installBridge(void)
 {
-    // gate: 8b 05 <disp32> c3, then int3 padding up to the next function (16 bytes free)
-    static const BYTE gateRest[] = {0xc3, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc};
+    // gate: 8b 05 <disp32> c3, then 9 int3 up to the next function (16 bytes free)
+    static const BYTE gateRest[] = {0xc3, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc};
     BYTE *gate = g_base + RVA(0x141215780), *site = g_base + RVA(0x14126caea);
     if (gate[0] != 0x8b || gate[1] != 0x05 || memcmp(gate + 6, gateRest, sizeof gateRest) || site[0] != 0xe8 ||
         site + 5 + *(int *)(site + 1) != gate) {
-        dnlog("bridge: gate bytes differ, bridge off");
+        char msg[128];
+        int n = _snprintf_s(msg, sizeof msg, _TRUNCATE, "bridge: gate bytes differ, bridge off:");
+        for (int i = 0; i < 16 && n > 0; i++) n += _snprintf_s(msg + n, sizeof msg - n, _TRUNCATE, " %02x", gate[i]);
+        dnlog(msg);
         return;
     }
     g_sandboxFlag = (volatile int *)(gate + 6 + *(int *)(gate + 2));
@@ -232,6 +243,7 @@ static void checkBuild(void)
                 g_buildOk ? "known" : "UNKNOWN (native features off)");
     dnlog(msg);
     g_base = base;
+    g_imageEnd = (uintptr_t)base + sz;
     if (g_buildOk) installBridge();
 }
 
