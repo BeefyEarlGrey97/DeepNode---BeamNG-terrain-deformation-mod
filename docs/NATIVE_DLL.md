@@ -1,6 +1,6 @@
 # Native route: in-place mesh updates (living document)
 
-Status: **stage 0 written, not yet run in game** (last update 2026-11-14).
+Status: **proxy loads in game; Lua bridge built, not yet run in game** (last update 2026-11-14).
 This file is updated every time something new is found. Newest entries go to the log at the end.
 
 ## Why
@@ -80,7 +80,7 @@ An object has at most 3 submeshes.
 | 0 | Read-only probe: is `ffi.load` allowed, find the C++ object behind the Lua userdata, check vtables, vertex count, stride | no | run 11-14: `ffi.load` and pointer cdefs blocked by the game's sandbox; checks must move into a proxy DLL |
 | 1 | One test mesh, away from the mod: lock, change heights, unlock. Does the picture change? Do shadows follow? | test mesh only | - |
 | 2 | Measure: in-place write against `createMesh`, same mesh (ms per call, `RenderShadows`, memory) | test mesh only | - |
-| 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate done and loading in game (11-14); Lua bridge, scan, write open |
+| 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge built (11-14, offline-tested, not run in game); scan, write open |
 | 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | - |
 | 5 | Bench (2 runs per variant, gridmap_v2) and visual comparison | - | - |
 
@@ -128,6 +128,21 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   `-s ours`, so later `git merge test` on exotic keeps `native/`). Local mod folder
   `mods/unpacked/deepnode_exotic` is a git worktree of `exotic`. Both editions share every Lua path:
   enable only one in the mod manager.
+
+- 2026-11-14: **Lua bridge built** (offline tests pass, not yet run in game). Trigger: the sandbox
+  gate 0x141215780 is `mov eax,[0x144a676e0]; ret` + 10 bytes int3 padding. On a known build the DLL
+  checks those bytes and that the `call` at 0x14126caea (inside `ffi.load`) targets it, then
+  overwrites the gate with `mov rax, dn_gate; jmp rax`. `dn_gate` returns the same flag; only when
+  its return address is the `ffi.load` site and the thread is the main thread (the one that ran
+  `DllMain`: mswsock is a static import) it reads the GE `lua_State` (global 0x142c274f8, +0x30,
+  checks `gct == 6` at +9 = LuaJIT GC64 thread) and sets global `dnNative` = { `buildOk`, `version`,
+  `probe` }. `ffi.load` itself stays denied. So GE Lua does `pcall(ffi.load, 'dnnative')`, then uses
+  `dnNative`. Re-registers on every such call, so a Lua reload (new state) just calls it again.
+  `dnNative.probe(proceduralMesh)` = the stage 0 read-only checks moved into C (object behind the
+  userdata, VB vtable / count / stride / type per submesh), returned as strings (`lua_pushnumber` not
+  pinned yet; `lua_pushfstring` `%d`/`%p`). Addresses hardcoded behind the build gate (shortcut until a
+  second build). Test: `tools/benchmark/ge_extensions/dntestNative.lua`; offline: `native/out/test_bridge.exe`.
+  Open: GE Lua on the main thread? (the log says "ffi.load off the main thread" if not.)
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.
