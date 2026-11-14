@@ -408,6 +408,10 @@
     "tileClasses": 24,
     "decalMinCorners": 96
   },
+  "native": {
+    "inPlace": true,
+    "boxMargin": 0.5
+  },
   "gui": {
     "openOnStart": true,
     "indicator": true

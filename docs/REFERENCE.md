@@ -885,6 +885,8 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `pool.growStep` | 16 | Objects added if the pool ever runs out (logged) |
 | `pool.hideFrames` | 3 | Frames a replaced mesh stays visible next to its replacement (1 flickered) |
 | `pool.tileClasses` | 24 | Tile meshes are padded to k/tileClasses of the largest tile (fewer classes: less engine memory per upload, more createMesh time) |
+| `native.inPlace` | true | DeepNode Exotic only: when the native helper (`Bin64mswsock.dll`) is installed, a rebuilt tile or sector whose buffer sizes and materials did not change is written into its existing vertex buffer instead of a new `createMesh` (docs/NATIVE_DLL.md). No effect without the helper |
+| `native.boxMargin` | 0.5 | Metres the mesh bounds are stretched up and down at each `createMesh` (two invisible padding triangles), so later in-place writes that dig or raise within this margin stay inside the bounds |
 | `pool.decalMinCorners` | 96 | Smallest size class of decal overlay submeshes (doubling classes from here) |
 | `pool.mode` | pair | 'pair': each chunk alternates between two objects of its own (no flicker, least engine memory); 'swap': a fresh pooled object per upload |
 | `memory.gcStepKB` | 0 | >0: a Lua GC step of this size every frame (GUI: Steady GC) |

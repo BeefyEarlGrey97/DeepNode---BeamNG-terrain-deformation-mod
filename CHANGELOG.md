@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added (DeepNode Exotic only)
+- In-place mesh updates (`native.inPlace`, on): with the native helper installed
+  (`native/`, `Bin64\mswsock.dll`), a tile or sector rebuild whose buffer sizes and materials did not
+  change is written into its existing vertex buffer (`dnNative.writeVerts`) instead of a new
+  `createMesh`. No shadow-pass rebuild per update, no new buffers. Bounds are stretched by
+  `native.boxMargin` (0.5 m) at each `createMesh` so deeper ruts stay in place. gridmap_v2, 2 Urals:
+  65-70 % of mesh uploads become in-place writes (createMesh 3780-3800 -> 1130-1340 per bench),
+  RenderShadows -0.15..-0.3 ms, RenderReflections -0.2 ms, same rut-front latency, picture identical
+  to createMesh (screenshot diff below noise). Without the helper nothing changes.
+
 ### Changed
 - Tread-print map (`#deepnode_rut`) is stamped by one compute pass in place
   (`rutStampC.cs.hlsl`) instead of a pixel stamp into a temp map plus a copy back. Only the

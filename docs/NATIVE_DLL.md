@@ -1,6 +1,6 @@
 # Native route: in-place mesh updates (living document)
 
-Status: **stages 1-2 done: in-place write works, 22x cheaper per call, no shadow cost; stage 4 (mod hook) next** (last update 2026-11-14).
+Status: **stage 4 done: the mod writes 65-70 % of its mesh updates in place; stage 5 (full bench) next** (last update 2026-11-14).
 This file is updated every time something new is found. Newest entries go to the log at the end.
 
 ## Why
@@ -81,7 +81,7 @@ An object has at most 3 submeshes.
 | 1 | One test mesh, away from the mod: lock, change heights, unlock. Does the picture change? Do shadows follow? | test mesh only | passed 11-14: picture matches createMesh; shadows not tested |
 | 2 | Measure: in-place write against `createMesh`, same mesh (ms per call, `RenderShadows`, memory) | test mesh only | done 11-14: 0.36 vs 8.05 ms/call, shadows +0 vs +1.8 ms; memory not resolved |
 | 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge works in game (11-14); scan, write open |
-| 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | - |
+| 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | done 11-14: 65-70 % of uploads in place, picture identical |
 | 5 | Bench (2 runs per variant, gridmap_v2) and visual comparison | - | - |
 
 Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
@@ -188,6 +188,25 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   collision-store growth; measure it in stage 5 with the mod's real upload rate.
   Lua byte build (1.2 ms for 1536 corners) is now the larger part of writeVerts: stage 4 should build
   bytes from the mod's own vertex arrays, not via per-corner Lua tables.
+
+- 2026-11-14, **stage 4 built and tested** (`tileMesh.present`, `native.inPlace`, default on;
+  `native.boxMargin` 0.5). In place only when the chunk's shown object has the same padded-size key
+  and materials and the new vertices lie inside the box stored at its last createMesh; else the old
+  createMesh path (also after a failed write). Submeshes with one material share one vertex buffer
+  (first-seen order, createMesh's FNV map), so writes are grouped the same way. **World box = drawn
+  corners only** (an unreferenced vertex does not count, measured): createMesh stretches it with two
+  degenerate padding triangles on vertices at zmin - margin / zmax + margin.
+  gridmap_v2, 2 Urals (`bench2.py`, vsync off), interleaved on/off/on/off, 2 runs each:
+  createMesh calls 1339 / 3802 / 1127 / 3781; in-place writes 2343 + 2702, 0 failed, 475 + 390
+  outside the box; RenderShadows 0.99 / 1.15 / 1.01 / 1.30 ms; RenderReflections 0.54 / 0.82 / 0.65 /
+  0.85 ms; fps run 2 132.9 / 124.7 / 127.2 / 129.6 (noise). Learned cost per vertex: in place 1.28 us,
+  createMesh 3.57 us. Rut-front latency looked worse at first (0.035 vs 0.020 s); split by path
+  (wrapper on present): in-place presents avg 17 ms / max 57 ms, the slow ones are createMesh
+  presents for size-class or material changes, and a rerun gave off 0.037 / on 0.038 s: session drift,
+  not the native path. Visual: rutted mud pit drawn in place vs all 72 tiles re-uploaded through
+  createMesh: mud region max diff 10, 0 % px > 8 (two in-place shots: max 13).
+  Not done: stage 5 bench (8 trucks, memory growth), shadows of mud meshes, Lua byte build cost
+  (string copy per write).
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.

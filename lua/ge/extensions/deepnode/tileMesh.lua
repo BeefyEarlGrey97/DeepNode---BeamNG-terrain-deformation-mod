@@ -451,6 +451,147 @@ local function unpadMeshes(meshes)
   end
 end
 
+-- In-place updates through the native helper (DeepNode Exotic, docs/NATIVE_DLL.md stage 4).
+-- dnNative.writeVerts rewrites an object's vertex buffer with createMesh's own lock/copy/
+-- unlock: no new buffers, no MatInstance rebuild (+1.8 ms shadow pass per createMesh, measured),
+-- no new collision copy. It needs the exact buffer layout createMesh made: one 44-byte vertex
+-- (pos, normal, tangent, uv) per face corner, submeshes with the same material share one buffer
+-- (first-seen order, at most 3). The object's world box and ray-cast copy keep their
+-- createMesh-time shape, so a write is only done while the new vertices stay inside the box;
+-- createMesh stretches the box by native.boxMargin with two degenerate padding triangles.
+local native = nil -- dnNative when the helper is installed and native.inPlace is on
+local boxMargin = 0.5
+local objBox = setmetatable({}, { __mode = 'k' }) -- object -> { x0, y0, z0, x1, y1, z1 }
+local inPlace = { writes = 0, fallbacks = 0, outside = 0 }
+function M.inPlaceStats() return native ~= nil, inPlace.writes, inPlace.fallbacks, inPlace.outside end
+
+local function vertBox(meshes)
+  local x0, y0, z0, x1, y1, z1 = 1e30, 1e30, 1e30, -1e30, -1e30, -1e30
+  for i = 1, #meshes do
+    local vs = meshes[i].verts
+    for k = 1, #vs do
+      local v = vs[k]
+      local x, y, z = v.x, v.y, v.z
+      if x < x0 then x0 = x end
+      if x > x1 then x1 = x end
+      if y < y0 then y0 = y end
+      if y > y1 then y1 = y end
+      if z < z0 then z0 = z end
+      if z > z1 then z1 = z end
+    end
+  end
+  return x0, y0, z0, x1, y1, z1
+end
+
+-- After padMeshes, before createMesh: the last two padding vertices go to the box margin and
+-- the last six padding corners become two degenerate triangles on them (nothing drawn, the
+-- box grows). Needs padding room; without it the box is the mesh's own.
+local function marginPads(meshes, z0, z1)
+  for i = 1, #meshes do
+    local m = meshes[i]
+    local nv, nc = padLen[2 * i - 1], padLen[2 * i]
+    local capV, capC = #m.verts, #m.faces
+    if nv > 0 and capV - nv >= 2 and capC - nc >= 6 then
+      local v1 = m.verts[1]
+      m.verts[capV - 1] = { x = v1.x, y = v1.y, z = z0 - boxMargin }
+      m.verts[capV] = { x = v1.x, y = v1.y, z = z1 + boxMargin }
+      local lo, hi = { v = capV - 2, n = 0, u = 0 }, { v = capV - 1, n = 0, u = 0 }
+      for k = capC - 5, capC - 3 do m.faces[k] = lo end
+      for k = capC - 2, capC do m.faces[k] = hi end
+      return true
+    end
+  end
+  return false
+end
+
+-- The bytes createMesh puts in one vertex buffer: corners of the listed submeshes in order.
+-- Tangent as the engine (0x1401a5670): triangle sdir, Gram-Schmidt against the corner normal.
+local fbuf, fcap = nil, 0
+local function groupBytes(meshes, list)
+  local n = 0
+  for j = 1, #list do n = n + #meshes[list[j]].faces end
+  if n * 11 > fcap then
+    fcap = n * 11 + 4096
+    fbuf = ffi.new('float[?]', fcap)
+  end
+  local f, o = fbuf, 0
+  for j = 1, #list do
+    local m = meshes[list[j]]
+    local vs, ns, us, fs = m.verts, m.normals, m.uvs, m.faces
+    local nf = #fs
+    for k = 1, nf, 3 do
+      local fa, fb, fc = fs[k], fs[k + 1] or fs[k], fs[k + 2] or fs[k]
+      local pa, pb, pc = vs[fa.v + 1], vs[fb.v + 1], vs[fc.v + 1]
+      local ta, tb, tc = us[fa.u + 1], us[fb.u + 1], us[fc.u + 1]
+      local e1x, e1y, e1z = pb.x - pa.x, pb.y - pa.y, pb.z - pa.z
+      local e2x, e2y, e2z = pc.x - pa.x, pc.y - pa.y, pc.z - pa.z
+      local s1, t1, s2, t2 = tb.u - ta.u, tb.v - ta.v, tc.u - ta.u, tc.v - ta.v
+      local den = s1 * t2 - s2 * t1
+      local sx, sy, sz = 0, 0, 0
+      if den ~= 0 then
+        local r = 1 / den
+        sx, sy, sz = (e1x * t2 - e2x * t1) * r, (e1y * t2 - e2y * t1) * r, (e1z * t2 - e2z * t1) * r
+      end
+      for c = 0, min(2, nf - k) do
+        local fx = c == 0 and fa or (c == 1 and fb or fc)
+        local p, nn, t = vs[fx.v + 1], ns[fx.n + 1], us[fx.u + 1]
+        local nx, ny, nz = nn.x, nn.y, nn.z
+        local d = sx * nx + sy * ny + sz * nz
+        local gx, gy, gz = sx - nx * d, sy - ny * d, sz - nz * d
+        local l = gx * gx + gy * gy + gz * gz
+        if l > 0 then l = 1 / sqrt(l); gx, gy, gz = gx * l, gy * l, gz * l else gx, gy, gz = 0, 0, 0 end
+        f[o], f[o + 1], f[o + 2] = p.x, p.y, p.z
+        f[o + 3], f[o + 4], f[o + 5] = nx, ny, nz
+        f[o + 6], f[o + 7], f[o + 8] = gx, gy, gz
+        f[o + 9], f[o + 10] = t.u, t.v
+        o = o + 11
+      end
+    end
+  end
+  -- shortcut: copies the floats into a Lua string (garbage per write); pass the cdata itself
+  -- if a profile shows the copy
+  return ffi.string(fbuf, n * 44)
+end
+
+-- Write padded `meshes` into `o` in place. false = not possible (nothing written, or a
+-- partial write that the caller replaces with a createMesh on another object).
+local groupOf, groupList = {}, {}
+local function writeInPlace(o, meshes)
+  local b = objBox[o]
+  if not b then return false end
+  local x0, y0, z0, x1, y1, z1 = vertBox(meshes)
+  local e = 1e-4
+  if x0 < b[1] - e or y0 < b[2] - e or z0 < b[3] - e or x1 > b[4] + e or y1 > b[5] + e or z1 > b[6] + e then
+    inPlace.outside = inPlace.outside + 1
+    return false
+  end
+  for k in pairs(groupOf) do groupOf[k] = nil end
+  local ng = 0
+  for i = 1, #meshes do
+    local mat = meshes[i].material
+    local g = groupOf[mat]
+    if not g then
+      ng = ng + 1
+      if ng > 3 then return false end
+      g = ng
+      groupOf[mat] = g
+      local l = groupList[g]
+      if l then for k = #l, 1, -1 do l[k] = nil end else l = {}; groupList[g] = l end
+    end
+    local l = groupList[g]
+    l[#l + 1] = i
+  end
+  for g = 1, ng do
+    local ok = pcall(native.writeVerts, o, g - 1, groupBytes(meshes, groupList[g]))
+    if not ok then
+      inPlace.fallbacks = inPlace.fallbacks + 1
+      return false
+    end
+  end
+  inPlace.writes = inPlace.writes + 1
+  return true
+end
+
 -- Show `meshes` (array of submeshes) for a chunk that owns at most one pooled
 -- object in chunk.obj. nil = rejected build (keep the old mesh), {} = nothing to draw.
 function M.present(chunk, meshes)
@@ -474,6 +615,7 @@ function M.present(chunk, meshes)
   -- test covers everything createMesh reads: positions, normals (tile-border normals
   -- follow the neighbour tiles), uvs, faces and materials.
   local same = chunk.obj ~= nil and chunk.geoN == #meshes
+  local matSame = same
   local hsh = 0
   for i = 1, #meshes do
     local m = meshes[i]
@@ -487,7 +629,7 @@ function M.present(chunk, meshes)
     for k = 1, #fs do a = (a * 31 + fs[k].v) % 4294967296 end
     local gm = chunk.geoMat
     if not gm then gm = {}; chunk.geoMat = gm end
-    if gm[i] ~= m.material then same = false; gm[i] = m.material end
+    if gm[i] ~= m.material then same = false; matSame = false; gm[i] = m.material end
     local gh = chunk.geoH
     if not gh then gh = {}; chunk.geoH = gh end
     if gh[i] ~= a then same = false; gh[i] = a end
@@ -501,6 +643,15 @@ function M.present(chunk, meshes)
   end
   local timer = hptimer and hptimer()
   local key = padMeshes(chunk, meshes)
+  -- same buffer sizes and materials as the shown object: rewrite its vertices in place
+  if native and matSame and objKey[chunk.obj] == key and writeInPlace(chunk.obj, meshes) then
+    unpadMeshes(meshes)
+    local nv = setGeometry(chunk.obj, meshes)
+    M.recordUpload('W', nv, timer and timer:stop() or 0.1)
+    chunk.lastVerts = nv
+    stats.builds = stats.builds + 1
+    return true
+  end
   local o = nil
   if mode == 'pair' and chunk.spare then
     -- the chunk's own spare only when its buffers have this mesh's sizes
@@ -515,8 +666,14 @@ function M.present(chunk, meshes)
   o = o or acquire(key)
   if not o then unpadMeshes(meshes); return false end
   census.uploads = census.uploads + 1
+  local bx0, by0, bz0, bx1, by1, bz1
+  if native then
+    bx0, by0, bz0, bx1, by1, bz1 = vertBox(meshes)
+    if marginPads(meshes, bz0, bz1) then bz0, bz1 = bz0 - boxMargin, bz1 + boxMargin end
+  end
   o:createMesh({ meshes })
   objKey[o] = key
+  objBox[o] = native and { bx0, by0, bz0, bx1, by1, bz1 } or nil
   unpadMeshes(meshes)
   local nv = setGeometry(o, meshes)
   M.recordUpload(chunk.sx and 'S' or 'T', nv, timer and timer:stop() or 1)
@@ -1298,6 +1455,15 @@ function M.setContext(main)
   growStep = pc.growStep or 16
   TILE_CLASSES = max(1, floor(pc.tileClasses or 24))
   DEC_MIN_CORNERS = pow2(max(24, pc.decalMinCorners or 96), 24)
+  local nc = main and main.cfg and main.cfg.native or {}
+  boxMargin = nc.boxMargin or 0.5
+  native = nil
+  if nc.inPlace ~= false then
+    -- the helper DLL hangs dnNative on GE Lua when ffi.load asks for it (still denied)
+    pcall(ffi.load, 'dnnative')
+    local d = rawget(_G, 'dnNative')
+    if d and d.writeVerts and d.buildOk() then native = d end
+  end
 end
 
 local function onExtensionLoaded()
