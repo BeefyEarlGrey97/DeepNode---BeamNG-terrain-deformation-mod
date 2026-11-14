@@ -663,3 +663,20 @@ latency unchanged (front 0.098 / 0.106 on, 0.102 / 0.096 off). Commit growth per
 -58 on; +97, +31 MB/min off) is noise at this length: no memory conclusion. 36-38 % of in-place
 attempts left the 0.5 m box (deep 8-truck ruts): a larger `native.boxMargin` is the next lever.
 The first attempt at this bench overlapped a stopped job still driving the harness: discarded.
+
+### Box covers the whole tile (same day, exotic working tree)
+`native.boxMargin` 1.0 vs 0.5 made no difference (outside-box misses 1104 / 1155 / 1054 / 1065). A
+reason count showed 942 of 966 misses were x/y: a rutted tile draws only its dug cells and that
+area spreads. createMesh now stretches the box to the whole tile / sector rectangle + margin:
+misses 966 -> 31-41 per bench. Interleaved on / off / on, 8 Percherons, run 1 / run 2:
+
+| variant | fps | low1 | createMesh calls | in-place writes | RenderShadows | RenderReflections | Lua | total work ms |
+|---|---|---|---|---|---|---|---|---|
+| on | 37.4 / 39.5 | 24.0 / 25.6 | 1377 | 2640 | 4.99 | 1.36 | 11.88 | 30.05 |
+| off | 37.6 / 37.2 | 25.0 / 24.8 | 3922 | - | 7.03 | 2.16 | 11.06 | 31.64 |
+| on | 35.7 / 38.4 | 24.4 / 24.3 | 1392 | 2608 | 6.02 | 1.25 | 12.73 | 30.51 |
+
+createMesh -65 %, RenderShadows -1.0..-2.0 ms, RenderReflections -0.8..-0.9 ms, total work -1.1..-1.6
+ms, fps run 2 +1.2..+2.3 (noise ~1.5). Lua +0.8..+1.7 ms: building the vertex bytes in Lua
+(per-corner tangents, string copy) is the next cost to cut. Rut-front latency unchanged
+(0.057 / 0.104 on, 0.062 / 0.106 off). Memory growth still noise at this length.

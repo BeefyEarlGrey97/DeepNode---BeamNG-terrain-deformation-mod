@@ -458,7 +458,8 @@ end
 -- (pos, normal, tangent, uv) per face corner, submeshes with the same material share one buffer
 -- (first-seen order, at most 3). The object's world box and ray-cast copy keep their
 -- createMesh-time shape, so a write is only done while the new vertices stay inside the box;
--- createMesh stretches the box by native.boxMargin with two degenerate padding triangles.
+-- createMesh stretches the box to the whole tile (sector) rectangle plus native.boxMargin with
+-- two degenerate padding triangles (a rutted tile draws only its dug cells, and they spread).
 local native = nil -- dnNative when the helper is installed and native.inPlace is on
 local boxMargin = 0.5
 local objBox = setmetatable({}, { __mode = 'k' }) -- object -> { x0, y0, z0, x1, y1, z1 }
@@ -483,18 +484,17 @@ local function vertBox(meshes)
   return x0, y0, z0, x1, y1, z1
 end
 
--- After padMeshes, before createMesh: the last two padding vertices go to the box margin and
--- the last six padding corners become two degenerate triangles on them (nothing drawn, the
--- box grows). Needs padding room; without it the box is the mesh's own.
-local function marginPads(meshes, z0, z1)
+-- After padMeshes, before createMesh: the last two padding vertices go to opposite corners of
+-- the box (lo, hi) and the last six padding corners become two degenerate triangles on them
+-- (nothing drawn, the box grows). Needs padding room; without it the box is the mesh's own.
+local function marginPads(meshes, lo, hi)
   for i = 1, #meshes do
     local m = meshes[i]
     local nv, nc = padLen[2 * i - 1], padLen[2 * i]
     local capV, capC = #m.verts, #m.faces
     if nv > 0 and capV - nv >= 2 and capC - nc >= 6 then
-      local v1 = m.verts[1]
-      m.verts[capV - 1] = { x = v1.x, y = v1.y, z = z0 - boxMargin }
-      m.verts[capV] = { x = v1.x, y = v1.y, z = z1 + boxMargin }
+      m.verts[capV - 1] = { x = lo[1], y = lo[2], z = lo[3] }
+      m.verts[capV] = { x = hi[1], y = hi[2], z = hi[3] }
       local lo, hi = { v = capV - 2, n = 0, u = 0 }, { v = capV - 1, n = 0, u = 0 }
       for k = capC - 5, capC - 3 do m.faces[k] = lo end
       for k = capC - 2, capC do m.faces[k] = hi end
@@ -666,14 +666,25 @@ function M.present(chunk, meshes)
   o = o or acquire(key)
   if not o then unpadMeshes(meshes); return false end
   census.uploads = census.uploads + 1
-  local bx0, by0, bz0, bx1, by1, bz1
+  local box
   if native then
-    bx0, by0, bz0, bx1, by1, bz1 = vertBox(meshes)
-    if marginPads(meshes, bz0, bz1) then bz0, bz1 = bz0 - boxMargin, bz1 + boxMargin end
+    local x0, y0, z0, x1, y1, z1 = vertBox(meshes)
+    -- a rutted tile draws only its dug cells, and that area grows: the box covers the whole
+    -- tile (sector) rectangle, so later writes stay inside it
+    local span = chunk.sx and ctx.sec and ctx.tileSize and ctx.sec * ctx.tileSize or ctx.tileSize
+    local rx, ry = chunk.x0, chunk.y0
+    if chunk.sx and span then rx, ry = ctx.ter.ox + chunk.sx * span, ctx.ter.oy + chunk.sy * span end
+    if rx and span then
+      x0, y0, x1, y1 = min(x0, rx), min(y0, ry), max(x1, rx + span), max(y1, ry + span)
+    end
+    local lo = { x0 - boxMargin, y0 - boxMargin, z0 - boxMargin }
+    local hi = { x1 + boxMargin, y1 + boxMargin, z1 + boxMargin }
+    -- without padding room the engine box is the mesh's own
+    box = marginPads(meshes, lo, hi) and { lo[1], lo[2], lo[3], hi[1], hi[2], hi[3] } or { vertBox(meshes) }
   end
   o:createMesh({ meshes })
   objKey[o] = key
-  objBox[o] = native and { bx0, by0, bz0, bx1, by1, bz1 } or nil
+  objBox[o] = box
   unpadMeshes(meshes)
   local nv = setGeometry(o, meshes)
   M.recordUpload(chunk.sx and 'S' or 'T', nv, timer and timer:stop() or 1)

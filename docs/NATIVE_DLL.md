@@ -214,6 +214,11 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   resolved (noise). 36-38 % of in-place attempts fell outside the 0.5 m box with 8 trucks digging:
   try `native.boxMargin` 1.0. The frame is dominated by Lua (~11 ms) and RenderShadows (~6-7 ms).
 
+- 2026-11-14, **box = whole tile**: boxMargin 1.0 did nothing; 942 of 966 misses were x/y (a rutted
+  tile draws only its dug cells, the area spreads). createMesh now puts the two margin pad vertices
+  on the tile / sector rectangle corners (+ margin): misses 31-41 per bench, createMesh -65 % vs off,
+  RenderShadows -1.0..-2.0 ms, total work -1.1..-1.6 ms, Lua +0.8..+1.7 ms (byte build). See BENCHMARK.md.
+
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.
 `FUN_14124e3f0` is LuaJIT's `ll_loadfunc` (lib_package.c): the strings `LOADLIB: %s`, `_LOADLIB`,
