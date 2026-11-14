@@ -158,3 +158,36 @@ Still to find for the bridge: the **GE `lua_State*` global**, `lua_setfield`/`lu
 (0x141212b20) already gives the ProceduralMesh pointer from a Lua userdata.
 Flipping 0x141215780 to non-zero would let `ffi.load` work from Lua, but that is not the plan
 (fragile global patch); we register our own cfunction instead.
+
+### Rest of the bridge (same Ghidra project, read-only, 2026-11-14 pass 2)
+Found by callers/strings sweeps over the existing `bng` project (`out_lua2`, `out_ns`, `out_si`), no
+re-analysis. New `run_script.bat` passes (DecompByStrings / DecompCallers, `-noanalysis -readOnly`).
+
+| Address | RVA | Symbol | How found | Conf |
+|---|---|---|---|---|
+| 0x141212530 | 0x1212530 | `lua_setfield(L,idx,k)` | reg template FUN_14011abf0, right after pushcclosure | high |
+| 0x141211260 | 0x1211260 | `lua_createtable(L,na,nh)` | same, builds module table | med |
+| 0x1412129e0 | 0x12129e0 | `lua_tolstring(L,idx,len)` | Lua panic fn reads error msg | high |
+| 0x1412131e0 | 0x12131e0 | `lua_error(L)` (no return) | end of luaL_argerror | high |
+| 0x141214a70 | 0x1214a70 | `luaL_ref(L,t)` | reg template, stores into REGISTRYINDEX | med |
+| 0x141212ca0 | 0x1212ca0 | `luaL_argerror(L,n,msg)` | string "bad argument #%d.." | high |
+| 0x141214690 | 0x1214690 | `luaL_newstate()` | installs the panic fn as atpanic | high |
+
+**GE lua_State (the bootstrap target):** `engine::GameEngineLua` global at **0x142c274f8**
+(RVA 0x2c274f8); its ctor path (`FUN_140798370`, calls `luaSandboxInit` with `"lua/ge/main.lua"`)
+stores the state from `luaL_newstate` at **object + 0x30**. So in the DLL:
+`lua_State* L = *(void**)(*(uintptr_t*)(base+0x2c274f8) + 0x30);` (verify both derefs before use).
+
+**Bootstrap path now complete:** get L (above) -> `lua_createtable` / push a global table ->
+`lua_pushcclosure`(0x141211e40) + `lua_setfield`(0x141212530) per function. Inside a call:
+`lua_touserdata`(0x141212b20) gives the ProceduralMesh ptr, `lua_tolstring`(0x1412129e0) a packed
+data string, `lua_error`(0x1412131e0) to fail.
+
+**Still to pin** (generic, high-volume; entry region = callers of typerror 0x1412130a0): `lua_gettop`,
+`lua_tonumber`/`tointeger`, `lua_pushnumber`/`pushinteger`. Needed only once the arg/return data path
+(Lua table vs packed string) is chosen.
+
+**Aside — `engine::luaSandboxInit` (FUN_14079cde0):** the sandbox is ON by default; launching BeamNG
+with **`-disable-sandbox`** turns it off, which would make `ffi.load` work from Lua and skip the DLL
+bridge entirely. Rejected for shipping (disables all sandbox protection, is a per-user launch flag),
+but useful for local bring-up/testing of the write logic in plain Lua before the DLL is ready.
