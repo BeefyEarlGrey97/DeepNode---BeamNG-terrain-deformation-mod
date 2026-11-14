@@ -342,7 +342,7 @@ local function buildBody(j)
 end
 
 local function startBuild(sec, sync)
-  local b = table.remove(freeBuilders) or tm().newBuilder()
+  local b = table.remove(freeBuilders) or tm().newBuilder(true)
   local j = { sec = sec, builder = b, snapshot = sec.handovers, exclude = {}, drew = {}, frames = 0, timer = newTimer(),
     urgentSince = sec.urgentSince }
   sec.urgentSince = nil
@@ -423,9 +423,8 @@ end
 -- the same frame it made the frame rate dip (measured: 8-9 ms of uploads in one frame).
 local UPLOAD_WAIT = 4
 local function uploadAllowed(j, meshes)
-  local nv = 0
-  for i = 1, #meshes do nv = nv + #meshes[i].verts end
   local t_m = tm()
+  local nv = t_m.vertCount(meshes) -- without filling a lazy mesh's Lua tables
   if t_m.canUpload('S', nv) then return true end
   j.uploadWait = (j.uploadWait or 0) + 1
   if j.uploadWait > UPLOAD_WAIT and t_m.reserveFrame then t_m.reserveFrame('S') end

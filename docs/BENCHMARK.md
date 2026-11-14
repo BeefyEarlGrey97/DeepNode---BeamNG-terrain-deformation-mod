@@ -697,3 +697,18 @@ in-place writes over the 4 benches (helper v3; its region-check bug showed 2 fal
 separate run). Session fps is lower than earlier the same day (drift): compare within the table.
 Helper v4 (region walk), cMesh true, fresh game: run 2 fps 37.4, low1 26.3, Lua 10.50 ms, 3307 in-place
 writes, 0 fallbacks.
+
+### In place whenever it fits + lazy tables (same day, exotic working tree)
+8 Percherons, `bench2.py <label> 2 clear` per variant, interleaved; counters and lean timers
+(buildTile / present, no table reads) over both runs; fps = run 2:
+
+| variant | fps | low1 | createMesh | in-place | grow | buildTile ms/call |
+|---|---|---|---|---|---|---|
+| new | 37.9 | 21.3 | 1251 | 2561 | 715 | 0.183 |
+| new + growClasses 2 | 38.0 | 22.2 | 985 | 2775 | 497 | 0.187 |
+| old (HEAD) | 38.8 | 20.1 | 1576 | 2259 | - | 0.267 |
+| new + growClasses 2 | 41.4 | 26.2 | 1041 | 3421 | 533 | 0.167 |
+| new | 41.2 | 26.8 | 1361 | 3458 | 842 | 0.166 |
+
+Earlier round without timers: new 42.9 / 36.3 (hitch) / 39.2, old 38.7 / 39.0 fps. createMesh -34 %
+with headroom, buildTile -30..-37 %; fps differences stay inside the noise (session drift +3 fps).

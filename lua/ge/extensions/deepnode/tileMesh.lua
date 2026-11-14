@@ -45,11 +45,22 @@ local stats = { created = 0, inUse = 0, builds = 0, rejected = 0, peakInUse = 0 
 -- new one), for the debug memory estimate: vertices and triangle corners.
 local geo = setmetatable({}, { __mode = 'k' })
 local geoVerts, geoCorners = 0, 0
+-- vertices, corners of one submesh; a lazy builder mesh (Sub:finish) answers without
+-- filling its Lua tables
+local function counts(m)
+  if rawget(m, 'sub') and not rawget(m, 'verts') then return m.bnv, m.bnc end
+  return #m.verts, #m.faces
+end
+function M.vertCount(meshes)
+  local n = 0
+  for i = 1, #meshes do n = n + counts(meshes[i]) end
+  return n
+end
 local function setGeometry(o, meshes)
   local nv, nc = 0, 0
   for i = 1, #meshes do
-    nv = nv + #meshes[i].verts
-    nc = nc + #meshes[i].faces
+    local a, b = counts(meshes[i])
+    nv, nc = nv + a, nc + b
   end
   local g = geo[o]
   if g then
@@ -397,7 +408,8 @@ end
 -- size classes (pool.tileClasses, pool.decalMinCorners; set in M.setContext)
 local TILE_CLASSES, DEC_MIN_CORNERS = 24, 96
 local function decalMod() return extensions and extensions.deepnode_decals end
-local function padMeshes(chunk, meshes)
+-- up: extra tile classes of headroom (a tile that outgrew its buffer, see present)
+local function padMeshes(chunk, meshes, up)
   local tileN = not chunk.sx and chunk.N
   local key = #meshes
   for i = 1, #meshes do
@@ -421,6 +433,7 @@ local function padMeshes(chunk, meshes)
       -- ~0.3 ms + 0.2-0.3 us per corner; padding every tile to the largest one cost +35 %,
       -- to thirds +30 % (measured 1.41 vs 1.08 ms for a 590-vertex rut tile)
       local k = max(math.ceil(TILE_CLASSES * nv / maxV), math.ceil(TILE_CLASSES * nc / maxC), 1)
+      k = min(k + (up or 0), TILE_CLASSES)
       capV, capC = math.ceil(maxV * k / TILE_CLASSES), math.ceil(maxC * k / TILE_CLASSES)
     else
       -- one (verts, corners) pair per class: corners 3072 * 2^k, verts a quarter of that
@@ -444,10 +457,14 @@ end
 local function unpadMeshes(meshes)
   for i = 1, #meshes do
     local m = meshes[i]
-    local nv, nc = padLen[2 * i - 1], padLen[2 * i]
-    local verts, normals, uvs, faces = m.verts, m.normals, m.uvs, m.faces
-    for k = #verts, nv + 1, -1 do verts[k] = nil; normals[k] = nil; uvs[k] = nil end
-    for k = #faces, nc + 1, -1 do faces[k] = nil end
+    if m.cap then
+      m.cap = nil -- padded by padTo without its Lua tables
+    else
+      local nv, nc = padLen[2 * i - 1], padLen[2 * i]
+      local verts, normals, uvs, faces = m.verts, m.normals, m.uvs, m.faces
+      for k = #verts, nv + 1, -1 do verts[k] = nil; normals[k] = nil; uvs[k] = nil end
+      for k = #faces, nc + 1, -1 do faces[k] = nil end
+    end
   end
 end
 
@@ -464,8 +481,47 @@ local native = nil -- dnNative when the helper is installed and native.inPlace i
 local cMesh = false -- the helper also packs meshes from the builder copies (scan, writeGroup)
 local boxMargin = 0.5
 local objBox = setmetatable({}, { __mode = 'k' }) -- object -> { x0, y0, z0, x1, y1, z1 }
-local inPlace = { writes = 0, fallbacks = 0, outside = 0 }
-function M.inPlaceStats() return native ~= nil, inPlace.writes, inPlace.fallbacks, inPlace.outside end
+-- object -> { n = submeshes, cap = { padded corners per submesh }, mat = { material per submesh } }
+-- as its last createMesh made them (cap = what its vertex buffers hold)
+local objSubs = setmetatable({}, { __mode = 'k' })
+-- why a present went to createMesh: new (no shown object), mat (other submeshes or materials),
+-- grow (a submesh has more corners than the shown object's buffer), outside (box), fallbacks
+local inPlace = { writes = 0, fallbacks = 0, outside = 0, new = 0, mat = 0, grow = 0 }
+function M.inPlaceStats()
+  return native ~= nil, inPlace.writes, inPlace.fallbacks, inPlace.outside, inPlace.new, inPlace.mat, inPlace.grow
+end
+
+-- nil when `meshes` fits the buffers of `o` (same submeshes and materials, no submesh with more
+-- corners than its buffer), else the reason
+local function fitsObject(o, meshes)
+  local s = objSubs[o]
+  if not s then return 'new' end
+  if s.n ~= #meshes then return 'mat' end
+  for i = 1, #meshes do
+    local m = meshes[i]
+    if s.mat[i] ~= m.material then return 'mat' end
+    local _, nc = counts(m)
+    if nc > s.cap[i] then return 'grow' end
+  end
+  return nil
+end
+
+-- pad `meshes` to the corner counts `caps` (an object's buffers) for an in-place write. A mesh
+-- with builder copies packed in C only notes the count (m.cap); others get padding corners on
+-- vertex 0 as padMeshes adds them. unpadMeshes undoes both.
+local function padTo(meshes, caps)
+  for i = 1, #meshes do
+    local m = meshes[i]
+    local nv, nc = counts(m)
+    padLen[2 * i - 1], padLen[2 * i] = nv, nc
+    if cMesh and m.fb then
+      m.cap = caps[i]
+    else
+      local faces = m.faces
+      for k = nc + 1, caps[i] do faces[k] = PAD_F end
+    end
+  end
+end
 
 local function vertBox(meshes)
   local x0, y0, z0, x1, y1, z1 = 1e30, 1e30, 1e30, -1e30, -1e30, -1e30
@@ -582,7 +638,7 @@ local function writeGroupOf(o, slot, meshes, list)
   for j = 1, #list do
     local m = meshes[list[j]]
     if not (cMesh and m.fb) then return nat(native.writeVerts, o, slot, groupBytes(meshes, list)) end
-    gargs[n + 1], gargs[n + 2], gargs[n + 3], gargs[n + 4], gargs[n + 5] = m.fb, m.bnv, m.ib or noIb, m.bnc, #m.faces
+    gargs[n + 1], gargs[n + 2], gargs[n + 3], gargs[n + 4], gargs[n + 5] = m.fb, m.bnv, m.ib or noIb, m.bnc, m.cap or #m.faces
     n = n + 5
   end
   return nat(native.writeGroup, o, slot, #list, unpack(gargs, 1, n))
@@ -646,13 +702,11 @@ function M.present(chunk, meshes)
   -- test covers everything createMesh reads: positions, normals (tile-border normals
   -- follow the neighbour tiles), uvs, faces and materials.
   local same = chunk.obj ~= nil and chunk.geoN == #meshes
-  local matSame = same
   local hsh = 0
   -- with the builder copies, C (dnNative.scan) gives the same hash and the box in one pass
   local sb = cMesh and { 1e30, 1e30, 1e30, -1e30, -1e30, -1e30 } or nil
   for i = 1, #meshes do
     local m = meshes[i]
-    local vs, ns, us, fs = m.verts, m.normals, m.uvs, m.faces
     local a
     if sb and m.fb and nat(native.scan, scanOut, m.fb, m.bnv, m.ib or noIb, m.bnc) then
       local o = scanOut
@@ -661,6 +715,7 @@ function M.present(chunk, meshes)
       sb[4], sb[5], sb[6] = max(sb[4], o[4]), max(sb[5], o[5]), max(sb[6], o[6])
     else
       sb = nil
+      local vs, ns, us, fs = m.verts, m.normals, m.uvs, m.faces
       a = (#vs * 131 + #fs) % 4294967296
       for k = 1, #vs do
         local v, n, uv = vs[k], ns[k], us[k]
@@ -671,7 +726,7 @@ function M.present(chunk, meshes)
     end
     local gm = chunk.geoMat
     if not gm then gm = {}; chunk.geoMat = gm end
-    if gm[i] ~= m.material then same = false; matSame = false; gm[i] = m.material end
+    if gm[i] ~= m.material then same = false; gm[i] = m.material end
     local gh = chunk.geoH
     if not gh then gh = {}; chunk.geoH = gh end
     if gh[i] ~= a then same = false; gh[i] = a end
@@ -685,16 +740,31 @@ function M.present(chunk, meshes)
   end
   local timer = hptimer and hptimer()
   scanBox = sb
-  local key = padMeshes(chunk, meshes)
-  -- same buffer sizes and materials as the shown object: rewrite its vertices in place
-  if native and matSame and objKey[chunk.obj] == key and writeInPlace(chunk.obj, meshes) then
-    unpadMeshes(meshes)
-    local nv = setGeometry(chunk.obj, meshes)
-    M.recordUpload('W', nv, timer and timer:stop() or 0.1)
-    chunk.lastVerts = nv
-    stats.builds = stats.builds + 1
-    return true
+  -- fits the shown object's buffers (same materials, no submesh larger than its buffer, even
+  -- one of a smaller size class now): rewrite its vertices in place, padded to those buffers
+  local up = 0
+  if native then
+    local why = 'new'
+    if chunk.obj then why = fitsObject(chunk.obj, meshes) end
+    if why then
+      inPlace[why] = inPlace[why] + 1
+      -- a growing rut tile: room for the next growth steps (native.growClasses), so they
+      -- stay in place instead of a createMesh per class step
+      if why == 'grow' then up = ctx.cfg.native and ctx.cfg.native.growClasses or 0 end
+    else
+      padTo(meshes, objSubs[chunk.obj].cap)
+      local ok = writeInPlace(chunk.obj, meshes)
+      unpadMeshes(meshes)
+      if ok then
+        local nv = setGeometry(chunk.obj, meshes)
+        M.recordUpload('W', nv, timer and timer:stop() or 0.1)
+        chunk.lastVerts = nv
+        stats.builds = stats.builds + 1
+        return true
+      end
+    end
   end
+  local key = padMeshes(chunk, meshes, up)
   local o = nil
   if mode == 'pair' and chunk.spare then
     -- the chunk's own spare only when its buffers have this mesh's sizes
@@ -728,6 +798,13 @@ function M.present(chunk, meshes)
   o:createMesh({ meshes })
   objKey[o] = key
   objBox[o] = box
+  if native then
+    local s = objSubs[o] or { cap = {}, mat = {} }
+    for i = #meshes + 1, #s.cap do s.cap[i], s.mat[i] = nil, nil end
+    for i = 1, #meshes do s.cap[i], s.mat[i] = #meshes[i].faces, meshes[i].material end
+    s.n = #meshes
+    objSubs[o] = s
+  end
   unpadMeshes(meshes)
   local nv = setGeometry(o, meshes)
   M.recordUpload(chunk.sx and 'S' or 'T', nv, timer and timer:stop() or 1)
@@ -751,6 +828,7 @@ function M.destroyAll(objectsAlive)
   pool.free, pool.all, pool.count, pool.group = {}, {}, 0, nil
   byKey, nKeyed = {}, 0
   objKey = setmetatable({}, { __mode = 'k' })
+  objSubs = setmetatable({}, { __mode = 'k' })
   deferred, deferredFrame, deferredChunk = {}, {}, {}
   geo = setmetatable({}, { __mode = 'k' })
   geoVerts, geoCorners = 0, 0
@@ -785,6 +863,7 @@ function M.trimPool(keep)
       deleted = deleted + 1
     elseif geo[o] then
       o:createMesh({})
+      objSubs[o], objBox[o] = nil, nil
       M.forgetGeometry(o)
       cleared = cleared + 1
     end
@@ -817,11 +896,17 @@ local function newSub()
     sv = {}, sn = {}, su = {}, sf = {}, nv = 0, nf = 0, bad = false, material = '' }, Sub)
 end
 
-function Sub:reset(material)
+-- lazy: the build goes into the flat copies only (cMesh on, tile and sector builders); the
+-- Lua tables are filled from them when something reads them (Sub:tables, a finished mesh's
+-- verts / normals / uvs / faces), i.e. only for createMesh and the decal / road copies. An
+-- in-place write never needs them.
+function Sub:reset(material, lazy)
   self.material = material
   self.nv, self.nf, self.bad = 0, 0, false
   self.decalDone = 0 -- faces already given their decal overlay (deepnode_decals)
   self.bv, self.bf = 0, 0
+  self.lazy = lazy and cMesh or false
+  self.tv, self.tf = 0, 0 -- vertices / corners already in the Lua tables (lazy)
 end
 
 -- With the native helper the builder also keeps flat copies for C (dnNative.scan / writeGroup):
@@ -861,6 +946,13 @@ function Sub:vert(x, y, z, nx, ny, nz, u, v)
   end
   local n = self.nv + 1
   self.nv = n
+  if self.lazy then
+    self.fb, self.fcap = growD(self.fb, self.fcap or 0, 8 * n)
+    local f, o = self.fb, 8 * (n - 1)
+    f[o], f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], f[o + 7] = x, y, z, nx, ny, nz, u, v
+    self.bv = n
+    return n - 1
+  end
   if cMesh and self.bv == n - 1 then
     self.fb, self.fcap = growD(self.fb, self.fcap or 0, 8 * n)
     local f, o = self.fb, 8 * (n - 1)
@@ -901,8 +993,15 @@ end
 
 -- Triangle from 0-based vertex indices, already in front-face (clockwise) order.
 function Sub:tri(a, b, c)
-  local f, sf = self.faces, self.sf
   local n = self.nf
+  if self.lazy then
+    self.ib, self.icap = growU(self.ib, self.icap or 0, n + 3)
+    local ib = self.ib
+    ib[n], ib[n + 1], ib[n + 2] = a, b, c
+    self.nf, self.bf = n + 3, n + 3
+    return
+  end
+  local f, sf = self.faces, self.sf
   corner(f, sf, n + 1, a)
   corner(f, sf, n + 2, b)
   corner(f, sf, n + 3, c)
@@ -915,7 +1014,65 @@ function Sub:tri(a, b, c)
   end
 end
 
+-- Lazy sub: bring the Lua tables up to the flat copies (only what was added since the last
+-- call), cut them to length.
+function Sub:sync()
+  if not self.lazy then return end
+  local nv, nf = self.nv, self.nf
+  local vs, ns, us = self.verts, self.normals, self.uvs
+  local f = self.fb
+  for n = self.tv + 1, nv do
+    local o = 8 * (n - 1)
+    local t = vs[n]
+    if t then t.x, t.y, t.z = f[o], f[o + 1], f[o + 2]
+    else
+      t = spare(self.sv)
+      if t then t.x, t.y, t.z = f[o], f[o + 1], f[o + 2] else t = { x = f[o], y = f[o + 1], z = f[o + 2] } end
+      vs[n] = t
+    end
+    t = ns[n]
+    if t then t.x, t.y, t.z = f[o + 3], f[o + 4], f[o + 5]
+    else
+      t = spare(self.sn)
+      if t then t.x, t.y, t.z = f[o + 3], f[o + 4], f[o + 5] else t = { x = f[o + 3], y = f[o + 4], z = f[o + 5] } end
+      ns[n] = t
+    end
+    t = us[n]
+    if t then t.u, t.v = f[o + 6], f[o + 7]
+    else
+      t = spare(self.su)
+      if t then t.u, t.v = f[o + 6], f[o + 7] else t = { u = f[o + 6], v = f[o + 7] } end
+      us[n] = t
+    end
+  end
+  local fs, sf, ib = self.faces, self.sf, self.ib
+  for k = self.tf + 1, nf do corner(fs, sf, k, ib[k - 1]) end
+  trunc(vs, nv, self.sv); trunc(ns, nv, self.sn); trunc(us, nv, self.su); trunc(fs, nf, self.sf)
+  self.tv, self.tf = nv, nf
+end
+
+-- verts, normals, faces of the sub as built so far (decal and road copies read them mid-build)
+function Sub:tables()
+  self:sync()
+  return self.verts, self.normals, self.faces
+end
+
+-- a finished lazy mesh fills its Lua tables on first read of any of them
+local LAZY_KEYS = { verts = true, normals = true, uvs = true, faces = true }
+local LazyMesh = { __index = function(m, k)
+  if not LAZY_KEYS[k] then return nil end
+  local s = rawget(m, 'sub')
+  s:sync()
+  rawset(m, 'verts', s.verts); rawset(m, 'normals', s.normals)
+  rawset(m, 'uvs', s.uvs); rawset(m, 'faces', s.faces)
+  return rawget(m, k)
+end }
+
 function Sub:finish()
+  if self.lazy then
+    return setmetatable({ material = self.material, fb = self.fb, ib = self.ib, bnv = self.nv, bnc = self.nf, sub = self },
+      LazyMesh)
+  end
   trunc(self.verts, self.nv, self.sv); trunc(self.normals, self.nv, self.sn)
   trunc(self.uvs, self.nv, self.su); trunc(self.faces, self.nf, self.sf)
   local m = { verts = self.verts, normals = self.normals, uvs = self.uvs, faces = self.faces, material = self.material }
@@ -929,8 +1086,9 @@ end
 local Builder = {}
 Builder.__index = Builder
 
-function M.newBuilder()
-  return setmetatable({ subs = {}, nsub = 0, byMat = {}, freeSubs = {}, idle = {} }, Builder)
+-- lazy = true: its finished meshes go only to M.present (see Sub:reset)
+function M.newBuilder(lazy)
+  return setmetatable({ subs = {}, nsub = 0, byMat = {}, freeSubs = {}, idle = {}, lazy = lazy }, Builder)
 end
 
 -- A submesh goes back to the material it was last used for (idle), so the next build
@@ -958,7 +1116,7 @@ function Builder:sub(material, reserve)
     if s2 then self.idle[m2] = nil; s = s2 end
   end
   s = s or newSub()
-  s:reset(material)
+  s:reset(material, self.lazy)
   self.nsub = self.nsub + 1
   self.subs[self.nsub] = s
   self.byMat[material] = s
@@ -1508,7 +1666,7 @@ end
 -- Build the mesh of an active tile: pixels when untouched, full cells when rutted.
 local tileBuilder = nil
 function M.buildTile(t, rule, forceDecal)
-  tileBuilder = tileBuilder or M.newBuilder()
+  tileBuilder = tileBuilder or M.newBuilder(true)
   tileBuilder:reset()
   rec.n = 0
   if t.rutted then

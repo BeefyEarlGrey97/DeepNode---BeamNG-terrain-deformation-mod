@@ -1,6 +1,6 @@
 # Native route: in-place mesh updates (living document)
 
-Status: **stage 4 done: the mod writes 65-70 % of its mesh updates in place; stage 5 (full bench) next** (last update 2026-11-14).
+Status: **stages 1-6 done; in place whenever the mesh fits its buffer, lazy builder tables** (last update 2026-11-14).
 This file is updated every time something new is found. Newest entries go to the log at the end.
 
 ## Why
@@ -230,6 +230,19 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   createMesh). v4 walks regions (self-test in test_bridge.c). v4 in game: packCheck bytes 5/5 and
   hash 5/5 equal (C pack 0.15 ms vs Lua 0.94 ms for 11700 corners), 8-truck bench 3307 in-place
   writes, 0 fallbacks, 0 helper errors. Bench in BENCHMARK.md: fps +1.4..+2.0 run 2, Lua -1 ms.
+
+- 2026-11-14, **in place whenever it fits + lazy tables** (8 Percherons, gridmap_v2, interleaved, run 2
+  of `bench2.py` + counters over both runs). Present now checks the shown object's createMesh-time
+  buffers (`objSubs`: corners per submesh, materials) instead of the size key: a smaller mesh is padded
+  up to the buffer (the buffer holds one vertex per corner, so only corners count). Reasons left
+  for createMesh per bench: grow 715-842, new 471-491 (first mesh of a tile), outside 15-87, mat 0.
+  `native.growClasses` 2 (headroom on grow): grow 497-533, createMesh 985-1041 vs old code 1560-1576
+  (-34 %). Lazy builder tables (flat copies only, Lua tables on read): buildTile 0.267 -> 0.17 ms.
+  present stays ~1.1-2.2 ms per call wall time (createMesh dominated, noisy). fps inside noise
+  (new 37.9-42.9, old 38.7-39.0); the session drifted up over time. Visual: rutted mud pit normal.
+  dntestProf's present wrapper reads `#verts` and so fills lazy tables: use a wrapper that does not
+  (scratch dnLeanProf). Next: the 'new' reason (first mesh per tile) cannot go in place; the rest
+  of the frame is Lua ~11 ms and RenderShadows ~5.5 ms.
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.

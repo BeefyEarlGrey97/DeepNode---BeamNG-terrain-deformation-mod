@@ -274,7 +274,7 @@ local function emitTri(out, e, il, rec, k, p, q, r, sid, lv)
     return
   end
   local s = rec.s[k]
-  local verts, normals = s.verts, s.normals
+  local verts, normals = s:tables()
   local base = 4 * k - 4
   if u1 >= 0 and u1 <= 1 and u2 >= 0 and u2 <= 1 and u3 >= 0 and u3 <= 1
       and d1 >= 0 and d2 >= 0 and d3 >= 0 and d1 <= e.len and d2 <= e.len and d3 <= e.len then

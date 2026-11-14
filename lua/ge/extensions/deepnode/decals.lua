@@ -382,7 +382,7 @@ function M.overlay(b, squaresOnly, tileKey, rule)
   for si = 1, nsub do
     local s = b.subs[si]
     if s.nf > 0 and not s.material:find('^deepnode_dec_') and not M.isMat(s.material) then
-      local verts, normals, faces = s.verts, s.normals, s.faces
+      local verts, normals, faces = s:tables()
       ensureStamp(s.nv)
       -- only the faces added since the last call (sector builds call this per tile)
       local f = (s.decalDone or 0) + 1

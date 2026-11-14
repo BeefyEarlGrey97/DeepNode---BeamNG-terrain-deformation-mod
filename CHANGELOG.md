@@ -19,6 +19,17 @@
   35.0 / 33.0, GE Lua -0.9..-1.0 ms, LuaGC -0.3 ms, 0 failed writes.
 - Helper calls never raise a Lua error (an error raised from the DLL crashed the game while
   unwinding): they return false, message, and every entry point runs under a SEH guard.
+- In place whenever the mesh fits: a rebuilt tile or sector is written in place when its
+  submeshes and materials match the shown object and no submesh has more corners than its buffer
+  (a smaller size class is padded up to the buffer), not only on an exact size-class match. A tile
+  that outgrows its buffer gets `native.growClasses` (2) classes of headroom. Counters per present
+  (`inPlaceStats`: writes, fallbacks, outside, new, mat, grow). gridmap_v2, 8 Percherons, per 2-run
+  bench: createMesh 1560-1576 -> 1251-1361 (fits) -> 985-1041 (+ headroom), -34 %; in-place writes
+  2259-2444 -> 2775-3458; fps inside run-to-run noise (old 38.7-39.0, new 37.9-42.9).
+- Lazy builder tables: with `native.cMesh` the tile and sector builders write only the flat copies;
+  the Lua vertex / normal / uv / face tables are filled from them only when read (createMesh, decal
+  and road copies via `Sub:tables()`). buildTile 0.267 -> 0.167-0.187 ms per call (-30..-37 %).
+  Offline check: tests/inplace_test.lua.
 - Helper v4: buffer checks walk every memory region (a large ffi array spanning two regions was
   refused, ~1 fallback per 1000 writes). In game: 3307 writes, 0 fallbacks.
 

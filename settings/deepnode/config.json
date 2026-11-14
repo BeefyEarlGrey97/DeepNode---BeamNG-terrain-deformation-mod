@@ -410,7 +410,8 @@
   },
   "native": {
     "inPlace": true,
-    "boxMargin": 0.5
+    "boxMargin": 0.5,
+    "growClasses": 2
   },
   "gui": {
     "openOnStart": true,
