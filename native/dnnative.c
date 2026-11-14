@@ -77,6 +77,7 @@ static struct {
     void (*pushstring)(lua_State *, const char *);
     const char *(*pushfstring)(lua_State *, const char *, ...);
     void *(*touserdata)(lua_State *, int);
+    const char *(*tolstring)(lua_State *, int, size_t *);
     void (*pushboolean)(lua_State *, int);
     int (*error)(lua_State *);
 } lua;
@@ -124,19 +125,72 @@ static uintptr_t findObject(uintptr_t pay, uintptr_t vt, const char **how)
 
 #define FIELD(k, ...) (lua.pushfstring(L, __VA_ARGS__), lua.setfield(L, -2, k))
 
-// dnNative.probe(proceduralMesh) -> table of strings. READ-ONLY (stage 0 checks of NATIVE_DLL.md).
-static int l_probe(lua_State *L)
+// ProceduralMesh behind Lua argument 1, or 0. Raises a Lua error if it is not an engine object.
+static uintptr_t meshArg(lua_State *L, uintptr_t *payOut, uintptr_t *heldOut, const char **how)
 {
     uintptr_t pay = (uintptr_t)lua.touserdata(L, 1);
-    if (!pay) return fail(L, "dnNative.probe: userdata expected");
+    if (!pay) fail(L, "dnNative: userdata expected");
     // payload = LuaIntf object holder (holds the object id, not a pointer); its vtable slot +0x10
     // returns the object, as the engine's method thunk 0x1406c3eb0 does. 0 = object deleted.
     uintptr_t hvt = rd64(pay), get = hvt ? rd64(hvt + 0x10) : 0;
     if (hvt < (uintptr_t)g_base || hvt >= g_imageEnd || get < (uintptr_t)g_base || get >= g_imageEnd)
-        return fail(L, "dnNative.probe: not an engine object");
+        fail(L, "dnNative: not an engine object");
     uintptr_t held = ((uintptr_t (*)(uintptr_t))get)(pay);
-    const char *how = "not found";
-    uintptr_t obj = held ? findObject(held, (uintptr_t)g_base + VT_PMESH, &how) : 0;
+    *how = "not found";
+    if (payOut) *payOut = pay, *heldOut = held;
+    return held ? findObject(held, (uintptr_t)g_base + VT_PMESH, how) : 0;
+}
+
+// Vertex buffer of submesh i if it is the kind createMesh makes (static, stride 44), else 0.
+static uintptr_t staticVb(uintptr_t obj, int i, unsigned *count)
+{
+    uintptr_t vb = rd64(obj + 0x2a0 + 16 * i);
+    unsigned stride = 0, type = 9;
+    if (!vb || rd64(vb) != (uintptr_t)g_base + VT_VB || !rd32(vb + 0x30, count) || !rd32(vb + 0x70, &stride) ||
+        !rd32(vb + 0x74, &type) || stride != 44 || type != 0)
+        return 0;
+    return vb;
+}
+
+// dnNative.writeVerts(proceduralMesh, submesh 0..2, bytes) -> true. Replaces the whole vertex buffer
+// of that submesh in place, the way createMesh fills it (lock, copy, unlock), without a new buffer.
+// bytes = count x 44 (pos, normal, tangent, uv as floats), one vertex per face corner in face order.
+static int l_writeVerts(lua_State *L)
+{
+    const char *how;
+    uintptr_t obj = meshArg(L, NULL, NULL, &how);
+    if (!obj) return fail(L, "dnNative.writeVerts: not a live ProceduralMesh");
+    size_t n = 0;
+    const char *sub = lua.tolstring(L, 2, NULL), *data = lua.tolstring(L, 3, &n);
+    if (!sub || sub[0] < '0' || sub[0] > '2' || sub[1]) return fail(L, "dnNative.writeVerts: submesh 0..2 expected");
+    int i = sub[0] - '0';
+    unsigned count = 0;
+    uintptr_t vb = staticVb(obj, i, &count);
+    if (!vb) return fail(L, "dnNative.writeVerts: no static stride-44 vertex buffer");
+    if (!data || n != (size_t)count * 44) return fail(L, "dnNative.writeVerts: byte count must be vertex count x 44");
+    uintptr_t vt = rd64(vb), lockFn = rd64(vt + 0x68), unlockFn = rd64(vt + 0x78);
+    void *ctx = (void *)rd64((uintptr_t)g_base + RVA(0x142a352a0));
+    if (lockFn != (uintptr_t)g_base + RVA(0x140e09e40) || unlockFn != (uintptr_t)g_base + RVA(0x140e09f60) || !ctx)
+        return fail(L, "dnNative.writeVerts: lock/unlock or GFX context not as expected");
+    uintptr_t *lockedSlot = (uintptr_t *)(obj + 0x2a8 + 16 * i);
+    if (*lockedSlot) return fail(L, "dnNative.writeVerts: buffer already locked");
+    void *p = NULL;
+    ((void (*)(uintptr_t, void *, int, int, void **))lockFn)(vb, ctx, 0, (int)count, &p);
+    if (!p) return fail(L, "dnNative.writeVerts: lock gave no memory");
+    *lockedSlot = (uintptr_t)p; // createMesh keeps the pointer here while locked
+    memcpy(p, data, n);
+    ((void (*)(uintptr_t, void *))unlockFn)(vb, ctx);
+    *lockedSlot = 0;
+    lua.pushboolean(L, 1);
+    return 1;
+}
+
+// dnNative.probe(proceduralMesh) -> table of strings. READ-ONLY (stage 0 checks of NATIVE_DLL.md).
+static int l_probe(lua_State *L)
+{
+    uintptr_t pay, held;
+    const char *how;
+    uintptr_t obj = meshArg(L, &pay, &held, &how);
     lua.createtable(L, 0, 8);
     FIELD("payload", "%p", (void *)pay);
     FIELD("held", "%p", (void *)held);
@@ -168,6 +222,7 @@ static void registerBridge(void)
     lua.pushcclosure(L, l_buildOk, 0), lua.setfield(L, -2, "buildOk");
     lua.pushcclosure(L, l_version, 0), lua.setfield(L, -2, "version");
     lua.pushcclosure(L, l_probe, 0), lua.setfield(L, -2, "probe");
+    lua.pushcclosure(L, l_writeVerts, 0), lua.setfield(L, -2, "writeVerts");
     lua.setfield(L, LUA_GLOBALSINDEX, "dnNative");
     if (L != g_lastL) {
         char msg[96];
@@ -212,6 +267,7 @@ static void installBridge(void)
     *(void **)&lua.pushstring = g_base + RVA(0x1412120c0);
     *(void **)&lua.pushfstring = g_base + RVA(0x141211f10);
     *(void **)&lua.touserdata = g_base + RVA(0x141212b20);
+    *(void **)&lua.tolstring = g_base + RVA(0x1412129e0);
     *(void **)&lua.pushboolean = g_base + RVA(0x141211e00);
     *(void **)&lua.error = g_base + RVA(0x1412131e0);
 

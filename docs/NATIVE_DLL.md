@@ -1,6 +1,6 @@
 # Native route: in-place mesh updates (living document)
 
-Status: **proxy + Lua bridge work in game; stage 1 (test-mesh write) next** (last update 2026-11-14).
+Status: **stage 1 passed: in-place vertex write works in game; stage 2 (measure) next** (last update 2026-11-14).
 This file is updated every time something new is found. Newest entries go to the log at the end.
 
 ## Why
@@ -78,7 +78,7 @@ An object has at most 3 submeshes.
 | # | Step | Writes to engine memory | State |
 |---|---|---|---|
 | 0 | Read-only probe: is `ffi.load` allowed, find the C++ object behind the Lua userdata, check vtables, vertex count, stride | no | run 11-14: `ffi.load` and pointer cdefs blocked by the game's sandbox; checks must move into a proxy DLL |
-| 1 | One test mesh, away from the mod: lock, change heights, unlock. Does the picture change? Do shadows follow? | test mesh only | - |
+| 1 | One test mesh, away from the mod: lock, change heights, unlock. Does the picture change? Do shadows follow? | test mesh only | passed 11-14: picture matches createMesh; shadows not tested |
 | 2 | Measure: in-place write against `createMesh`, same mesh (ms per call, `RenderShadows`, memory) | test mesh only | - |
 | 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge works in game (11-14); scan, write open |
 | 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | - |
@@ -153,6 +153,23 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   Probe on a 4x4-quad test mesh (25 verts sent): object found inline, vb0 vtable ok, **count 96**,
   stride 44, type 0 (static). 96 = 16 quads x 6: `createMesh` writes one vertex per face corner (no
   shared vertices), so an in-place height write must update every corner copy of a grid point.
+
+- 2026-11-14, **stage 1 passed** (gridmap_v2). `dnNative.writeVerts(mesh, submesh, bytes)` replaces a
+  submesh's vertex buffer in place with createMesh's own sequence: `lock(vb, ctx, 0, count, &p)`
+  (vtable +0x68), memcpy, `unlock(vb, ctx)` (+0x78), pointer parked at obj+0x2a8+16i while locked;
+  ctx = `*0x142a352a0`. Guards: live ProceduralMesh, VB vtable, stride 44, static, byte count exact,
+  lock/unlock slots = 0x140e09e40 / 0x140e09f60, ctx set, not already locked.
+  Facts from the createMesh decompile: the lock hands out a **fresh** upload-heap staging buffer, so a
+  write must send all `count x 44` bytes. The object keeps **no CPU copy** of them (obj+0x388 = positions
+  only, for ray casts): Lua builds every byte. Per face corner, in face order: pos +0, normal +0xc,
+  tangent +0x18, uv +0x24; tangent = per-triangle sdir, Gram-Schmidt vs normal, normalised
+  (0x1401a5670). Test (`dntestNative.place/bump`, 16x16-cell grid, 1536 corners): bump written in
+  place looks the same as the same bump from createMesh (diff 0.34-0.42 % px > 8, noise between two
+  identical shots 0.22 %), close-up and low silhouette. writeVerts 0.15 ms vs createMesh ~15 ms
+  for this mesh (single calls, Lua build 1.2 ms not included; not a benchmark). No crash.
+  Not checked: shadows (the test mesh casts none in either path); world box / ray-cast copy stay at
+  the old shape (a bump taller than the old box may be culled at screen edges: stage 4 must keep
+  heights inside the createMesh-time box or refresh it).
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.
