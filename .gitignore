@@ -17,3 +17,4 @@ dist/
 
 # Claude Code personal settings
 .claude/settings.local.json
+native/out/
