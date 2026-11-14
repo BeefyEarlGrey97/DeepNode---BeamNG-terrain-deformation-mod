@@ -83,6 +83,7 @@ An object has at most 3 submeshes.
 | 3 | Helper DLL: signature scan, build check, guarded write, one C function for Lua | - | proxy + build gate loading in game (11-14); Lua bridge works in game (11-14); scan, write open |
 | 4 | Hook into `tileMesh.present` behind a config switch, fallback kept; only for same-size updates | mod meshes | done 11-14: 65-70 % of uploads in place, picture identical |
 | 5 | Bench (2 runs per variant, gridmap_v2) and visual comparison | - | done 11-14: createMesh -33 %, shadows -0.6..-1.4 ms, fps +1.1 (noise); visual identical |
+| 6 | Vertex packing in C from builder copies (cut the Lua byte build) | mod meshes | done 11-14: Lua -1 ms, fps +1.4..+2.0 |
 
 Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
 (`extensions.load('dntestNative'); dump(dntestNative.run())`, in a loaded level).
@@ -218,6 +219,16 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   tile draws only its dug cells, the area spreads). createMesh now puts the two margin pad vertices
   on the tile / sector rectangle corners (+ margin): misses 31-41 per bench, createMesh -65 % vs off,
   RenderShadows -1.0..-2.0 ms, total work -1.1..-1.6 ms, Lua +0.8..+1.7 ms (byte build). See BENCHMARK.md.
+
+- 2026-11-14, **C packing** (`native.cMesh`, helper v3/v4): tileMesh's builder keeps flat copies
+  (`double[8]` per vertex, `uint16` per corner); `dnNative.scan` = present's hash + bounds,
+  `dnNative.writeGroup` packs corners, padding and tangents into the locked buffer (no Lua string).
+  In game (`dntestNative.packCheck`): hash 5/5 equal, bytes equal where the call ran. Helper calls
+  return `false, msg` instead of `lua_error` (a raised error crashed the game in the engine's unwind
+  path, exe 0x140143396) and run under `__try`. Bug found: `readable()` required the buffer in one
+  VirtualQuery region; big ffi arrays span two -> "bad arguments" (~1 per 1000 writes, falls back to
+  createMesh). v4 walks regions (self-test in test_bridge.c); v4 built, not yet installed in game
+  (DLL locked while the game runs). Bench in BENCHMARK.md: fps +1.4..+2.0 run 2, Lua -1 ms.
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.

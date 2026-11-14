@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <intrin.h>
+#include <stdint.h>
+#include <math.h>
 
 // The only build our offsets were read from (BeamNG 0.40.5, exe md5 3c69af2b...).
 #define KNOWN_TIMESTAMP 0x6aec5214u
@@ -94,18 +96,26 @@ static lua_State *g_lastL;
 
 static int readable(const void *p, size_t len)
 {
+    // a large buffer can span several regions (VirtualQuery splits by attributes): check each
     MEMORY_BASIC_INFORMATION m;
-    if ((uintptr_t)p < 0x10000 || !VirtualQuery(p, &m, sizeof m)) return 0;
-    if (m.State != MEM_COMMIT || !m.Protect || (m.Protect & (PAGE_NOACCESS | PAGE_GUARD))) return 0;
-    return (BYTE *)p + len <= (BYTE *)m.BaseAddress + m.RegionSize;
+    BYTE *a = (BYTE *)p, *end = a + len;
+    if ((uintptr_t)p < 0x10000) return 0;
+    do {
+        if (!VirtualQuery(a, &m, sizeof m)) return 0;
+        if (m.State != MEM_COMMIT || !m.Protect || (m.Protect & (PAGE_NOACCESS | PAGE_GUARD))) return 0;
+        a = (BYTE *)m.BaseAddress + m.RegionSize;
+    } while (a < end);
+    return 1;
 }
 static uintptr_t rd64(uintptr_t a) { return readable((void *)a, 8) ? *(uintptr_t *)a : 0; }
 static int rd32(uintptr_t a, unsigned *out) { return readable((void *)a, 4) ? (*out = *(unsigned *)a, 1) : 0; }
 
-static int fail(lua_State *L, const char *msg) { lua.pushstring(L, msg); return lua.error(L); }
+// Failure = return false, message. Never lua_error: an error raised from this DLL crashed the game
+// while it was unwound (2026-11-14, exe 0x140143396 in the engine's exception path).
+static int fail(lua_State *L, const char *msg) { lua.pushboolean(L, 0); lua.pushstring(L, msg); return 2; }
 
 static int l_buildOk(lua_State *L) { lua.pushboolean(L, g_buildOk); return 1; }
-static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 1"); return 1; }
+static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 4"); return 1; }
 
 // C++ object behind a Lua userdata: the payload itself, or a pointer in it (one or two hops)
 static uintptr_t findObject(uintptr_t pay, uintptr_t vt, const char **how)
@@ -129,12 +139,16 @@ static uintptr_t findObject(uintptr_t pay, uintptr_t vt, const char **how)
 static uintptr_t meshArg(lua_State *L, uintptr_t *payOut, uintptr_t *heldOut, const char **how)
 {
     uintptr_t pay = (uintptr_t)lua.touserdata(L, 1);
-    if (!pay) fail(L, "dnNative: userdata expected");
+    *how = "dnNative: userdata expected";
+    if (!pay) return 0;
     // payload = LuaIntf object holder (holds the object id, not a pointer); its vtable slot +0x10
     // returns the object, as the engine's method thunk 0x1406c3eb0 does. 0 = object deleted.
     uintptr_t hvt = rd64(pay), get = hvt ? rd64(hvt + 0x10) : 0;
     if (hvt < (uintptr_t)g_base || hvt >= g_imageEnd || get < (uintptr_t)g_base || get >= g_imageEnd)
-        fail(L, "dnNative: not an engine object");
+    {
+        *how = "dnNative: not an engine object";
+        return 0;
+    }
     uintptr_t held = ((uintptr_t (*)(uintptr_t))get)(pay);
     *how = "not found";
     if (payOut) *payOut = pay, *heldOut = held;
@@ -152,6 +166,195 @@ static uintptr_t staticVb(uintptr_t obj, int i, unsigned *count)
     return vb;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Raw Lua stack access for numbers and ffi arrays (LuaJIT 2.1 GC64, the build gate pins it):
+// lua_State.base at +0x20, .top at +0x28, 8-byte TValues. A number is a plain double; a tagged
+// value has (int64 >> 47) = ~itype; cdata = ~10 (-11), its GC object has gct 10 at +9 and its
+// data right after the 16-byte header (LuaJIT cdataptr).
+static uint64_t *argSlot(lua_State *L, int idx)
+{
+    uint64_t *b = *(uint64_t **)((BYTE *)L + 0x20), *t = *(uint64_t **)((BYTE *)L + 0x28);
+    return idx >= 1 && b + idx - 1 < t ? b + idx - 1 : NULL;
+}
+static int argNum(lua_State *L, int idx, double *out)
+{
+    uint64_t *s = argSlot(L, idx);
+    if (!s || (uint32_t)((int64_t)*s >> 47) > 0xFFFFFFF2u) return 0;
+    memcpy(out, s, 8);
+    return 1;
+}
+static int argInt(lua_State *L, int idx, int lo, int hi, int *out)
+{
+    double d;
+    if (!argNum(L, idx, &d) || d < lo || d > hi || d != (double)(int)d) return 0;
+    *out = (int)d;
+    return 1;
+}
+// data of an ffi array argument holding at least `bytes`, or NULL
+static void *argCdata(lua_State *L, int idx, size_t bytes)
+{
+    uint64_t *s = argSlot(L, idx);
+    if (!s || (int32_t)((int64_t)*s >> 47) != -11) return NULL;
+    BYTE *gc = (BYTE *)(uintptr_t)(*s & ((1ull << 47) - 1));
+    if (!readable(gc, 16) || gc[9] != 10) return NULL;
+    return readable(gc + 16, bytes ? bytes : 1) ? gc + 16 : NULL;
+}
+
+// One submesh of a builder (tileMesh Sub): 8 doubles per vertex (x y z nx ny nz u v), one
+// uint16 vertex index per face corner, padded to `cap` corners with corners on vertex 0 (as
+// tileMesh padMeshes does).
+typedef struct { const double *fb; int nv; const uint16_t *ib; int nc; int cap; } SubBuf;
+
+static int subArgs(lua_State *L, int first, int n, SubBuf *s, int *corners)
+{
+    *corners = 0;
+    for (int k = 0; k < n; k++) {
+        int a = first + 5 * k;
+        SubBuf *b = &s[k];
+        if (!argInt(L, a + 1, 1, 65535, &b->nv) || !argInt(L, a + 3, 0, 65535, &b->nc) ||
+            !argInt(L, a + 4, b->nc, 65535, &b->cap))
+            return 0;
+        b->fb = argCdata(L, a, (size_t)b->nv * 64);
+        b->ib = argCdata(L, a + 2, (size_t)b->nc * 2);
+        if (!b->fb || (b->nc && !b->ib)) return 0;
+        for (int c = 0; c < b->nc; c++)
+            if (b->ib[c] >= b->nv) return 0;
+        *corners += b->cap;
+    }
+    return 1;
+}
+
+// createMesh's vertex layout: one 44-byte vertex (pos, normal, tangent, uv) per face corner.
+// Tangent as the engine (0x1401a5670) and as tileMesh groupBytes: triangle sdir, Gram-Schmidt
+// against the corner normal, normalised; all in double, so the floats match the Lua path.
+static void packSubs(float *f, const SubBuf *s, int n)
+{
+    for (int j = 0; j < n; j++) {
+        const SubBuf *b = &s[j];
+        for (int k = 0; k < b->cap; k += 3) {
+            int ix[3];
+            for (int c = 0; c < 3; c++) {
+                int kk = k + c < b->cap ? k + c : k; // a last partial triangle repeats its first corner
+                ix[c] = kk < b->nc ? b->ib[kk] : 0;
+            }
+            const double *pa = b->fb + 8 * ix[0], *pb = b->fb + 8 * ix[1], *pc = b->fb + 8 * ix[2];
+            double e1x = pb[0] - pa[0], e1y = pb[1] - pa[1], e1z = pb[2] - pa[2];
+            double e2x = pc[0] - pa[0], e2y = pc[1] - pa[1], e2z = pc[2] - pa[2];
+            double s1 = pb[6] - pa[6], t1 = pb[7] - pa[7], s2 = pc[6] - pa[6], t2 = pc[7] - pa[7];
+            double den = s1 * t2 - s2 * t1, sx = 0, sy = 0, sz = 0;
+            if (den != 0) {
+                double r = 1 / den;
+                sx = (e1x * t2 - e2x * t1) * r, sy = (e1y * t2 - e2y * t1) * r, sz = (e1z * t2 - e2z * t1) * r;
+            }
+            int nCorner = b->cap - k < 3 ? b->cap - k : 3;
+            for (int c = 0; c < nCorner; c++) {
+                const double *p = b->fb + 8 * ix[c];
+                double nx = p[3], ny = p[4], nz = p[5];
+                double d = sx * nx + sy * ny + sz * nz;
+                double gx = sx - nx * d, gy = sy - ny * d, gz = sz - nz * d;
+                double l = gx * gx + gy * gy + gz * gz;
+                if (l > 0) { l = 1 / sqrt(l); gx *= l, gy *= l, gz *= l; } else gx = gy = gz = 0;
+                f[0] = (float)p[0], f[1] = (float)p[1], f[2] = (float)p[2];
+                f[3] = (float)nx, f[4] = (float)ny, f[5] = (float)nz;
+                f[6] = (float)gx, f[7] = (float)gy, f[8] = (float)gz;
+                f[9] = (float)p[6], f[10] = (float)p[7];
+                f += 11;
+            }
+        }
+    }
+}
+
+#define MAX_SUBS 16
+
+// dnNative.packGroup(dst float[], n, fb1, nv1, ib1, nc1, cap1, ...) -> true. packSubs into an ffi
+// array, for comparing with the Lua path (tools/benchmark/ge_extensions/dntestNative.lua).
+static int l_packGroup(lua_State *L)
+{
+    int n, corners;
+    SubBuf s[MAX_SUBS];
+    if (!argInt(L, 2, 1, MAX_SUBS, &n) || !subArgs(L, 3, n, s, &corners))
+        return fail(L, "dnNative.packGroup: bad arguments");
+    float *dst = argCdata(L, 1, (size_t)corners * 44);
+    if (!dst) return fail(L, "dnNative.packGroup: dst too small");
+    packSubs(dst, s, n);
+    lua.pushboolean(L, 1);
+    return 1;
+}
+
+// dnNative.scan(out double[7], fb, nv, ib, nc): out = { change hash, x0, y0, z0, x1, y1, z1 }.
+// The hash is tileMesh present's (same quantisation, same order, mod 2^32, exact in int64).
+static int l_scan(lua_State *L)
+{
+    int nv, nc;
+    if (!argInt(L, 3, 0, 65535, &nv) || !argInt(L, 5, 0, 65535, &nc)) return fail(L, "dnNative.scan: bad counts");
+    double *out = argCdata(L, 1, 7 * 8);
+    const double *fb = argCdata(L, 2, (size_t)(nv ? nv : 1) * 64);
+    const uint16_t *ib = nc ? argCdata(L, 4, (size_t)nc * 2) : NULL;
+    if (!out || !fb || (nc && !ib)) return fail(L, "dnNative.scan: bad arrays");
+    const int64_t M = 4294967296ll;
+    int64_t a = ((int64_t)nv * 131 + nc) % M;
+    double x0 = 1e30, y0 = 1e30, z0 = 1e30, x1 = -1e30, y1 = -1e30, z1 = -1e30;
+    for (int k = 0; k < nv; k++) {
+        const double *p = fb + 8 * k;
+        int64_t v = a * 31 + (int64_t)floor(p[0] * 4096) + (int64_t)floor(p[1] * 4096) * 3 +
+                    (int64_t)floor(p[2] * 65536) * 7 + (int64_t)floor(p[3] * 16384) * 11 +
+                    (int64_t)floor(p[4] * 16384) * 13 + (int64_t)floor(p[6] * 65536) * 17 +
+                    (int64_t)floor(p[7] * 65536) * 19;
+        a = ((v % M) + M) % M;
+        if (p[0] < x0) x0 = p[0];
+        if (p[0] > x1) x1 = p[0];
+        if (p[1] < y0) y0 = p[1];
+        if (p[1] > y1) y1 = p[1];
+        if (p[2] < z0) z0 = p[2];
+        if (p[2] > z1) z1 = p[2];
+    }
+    for (int k = 0; k < nc; k++) a = (a * 31 + ib[k]) % M;
+    out[0] = (double)a, out[1] = x0, out[2] = y0, out[3] = z0, out[4] = x1, out[5] = y1, out[6] = z1;
+    lua.pushboolean(L, 1);
+    return 1;
+}
+
+// lock / fill / unlock one vertex buffer of `obj` exactly as createMesh does. NULL = done.
+static const char *lockedWrite(uintptr_t obj, int i, unsigned expectCount, const SubBuf *s, int n, const void *bytes)
+{
+    unsigned count = 0;
+    uintptr_t vb = staticVb(obj, i, &count);
+    if (!vb) return "no static stride-44 vertex buffer";
+    if (count != expectCount) return "vertex count differs from the buffer";
+    uintptr_t vt = rd64(vb), lockFn = rd64(vt + 0x68), unlockFn = rd64(vt + 0x78);
+    void *ctx = (void *)rd64((uintptr_t)g_base + RVA(0x142a352a0));
+    if (lockFn != (uintptr_t)g_base + RVA(0x140e09e40) || unlockFn != (uintptr_t)g_base + RVA(0x140e09f60) || !ctx)
+        return "lock/unlock or GFX context not as expected";
+    uintptr_t *lockedSlot = (uintptr_t *)(obj + 0x2a8 + 16 * i);
+    if (*lockedSlot) return "buffer already locked";
+    void *p = NULL;
+    ((void (*)(uintptr_t, void *, int, int, void **))lockFn)(vb, ctx, 0, (int)count, &p);
+    if (!p) return "lock gave no memory";
+    *lockedSlot = (uintptr_t)p; // createMesh keeps the pointer here while locked
+    if (bytes) memcpy(p, bytes, (size_t)count * 44);
+    else packSubs(p, s, n);
+    ((void (*)(uintptr_t, void *))unlockFn)(vb, ctx);
+    *lockedSlot = 0;
+    return NULL;
+}
+
+// dnNative.writeGroup(proceduralMesh, slot 0..2, n, fb1, nv1, ib1, nc1, cap1, ...) -> true.
+// Packs the submeshes (corner expansion, padding, tangents) straight into the locked buffer.
+static int l_writeGroup(lua_State *L)
+{
+    const char *how;
+    uintptr_t obj = meshArg(L, NULL, NULL, &how);
+    if (!obj) return fail(L, how);
+    int slot, n, corners;
+    SubBuf s[MAX_SUBS];
+    if (!argInt(L, 2, 0, 2, &slot) || !argInt(L, 3, 1, MAX_SUBS, &n) || !subArgs(L, 4, n, s, &corners))
+        return fail(L, "dnNative.writeGroup: bad arguments");
+    const char *err = lockedWrite(obj, slot, (unsigned)corners, s, n, NULL);
+    if (err) return fail(L, err);
+    lua.pushboolean(L, 1);
+    return 1;
+}
+
 // dnNative.writeVerts(proceduralMesh, submesh 0..2, bytes) -> true. Replaces the whole vertex buffer
 // of that submesh in place, the way createMesh fills it (lock, copy, unlock), without a new buffer.
 // bytes = count x 44 (pos, normal, tangent, uv as floats), one vertex per face corner in face order.
@@ -159,28 +362,14 @@ static int l_writeVerts(lua_State *L)
 {
     const char *how;
     uintptr_t obj = meshArg(L, NULL, NULL, &how);
-    if (!obj) return fail(L, "dnNative.writeVerts: not a live ProceduralMesh");
+    if (!obj) return fail(L, how);
     size_t n = 0;
     const char *sub = lua.tolstring(L, 2, NULL), *data = lua.tolstring(L, 3, &n);
     if (!sub || sub[0] < '0' || sub[0] > '2' || sub[1]) return fail(L, "dnNative.writeVerts: submesh 0..2 expected");
     int i = sub[0] - '0';
-    unsigned count = 0;
-    uintptr_t vb = staticVb(obj, i, &count);
-    if (!vb) return fail(L, "dnNative.writeVerts: no static stride-44 vertex buffer");
-    if (!data || n != (size_t)count * 44) return fail(L, "dnNative.writeVerts: byte count must be vertex count x 44");
-    uintptr_t vt = rd64(vb), lockFn = rd64(vt + 0x68), unlockFn = rd64(vt + 0x78);
-    void *ctx = (void *)rd64((uintptr_t)g_base + RVA(0x142a352a0));
-    if (lockFn != (uintptr_t)g_base + RVA(0x140e09e40) || unlockFn != (uintptr_t)g_base + RVA(0x140e09f60) || !ctx)
-        return fail(L, "dnNative.writeVerts: lock/unlock or GFX context not as expected");
-    uintptr_t *lockedSlot = (uintptr_t *)(obj + 0x2a8 + 16 * i);
-    if (*lockedSlot) return fail(L, "dnNative.writeVerts: buffer already locked");
-    void *p = NULL;
-    ((void (*)(uintptr_t, void *, int, int, void **))lockFn)(vb, ctx, 0, (int)count, &p);
-    if (!p) return fail(L, "dnNative.writeVerts: lock gave no memory");
-    *lockedSlot = (uintptr_t)p; // createMesh keeps the pointer here while locked
-    memcpy(p, data, n);
-    ((void (*)(uintptr_t, void *))unlockFn)(vb, ctx);
-    *lockedSlot = 0;
+    if (!data || n % 44) return fail(L, "dnNative.writeVerts: byte count must be vertex count x 44");
+    const char *err = lockedWrite(obj, i, (unsigned)(n / 44), NULL, 0, data);
+    if (err) return fail(L, err);
     lua.pushboolean(L, 1);
     return 1;
 }
@@ -188,9 +377,10 @@ static int l_writeVerts(lua_State *L)
 // dnNative.probe(proceduralMesh) -> table of strings. READ-ONLY (stage 0 checks of NATIVE_DLL.md).
 static int l_probe(lua_State *L)
 {
-    uintptr_t pay, held;
+    uintptr_t pay = 0, held = 0;
     const char *how;
     uintptr_t obj = meshArg(L, &pay, &held, &how);
+    if (!pay || (!obj && how[0] == 'd')) return fail(L, how); // 'dnNative: ...' = not an engine object
     lua.createtable(L, 0, 8);
     FIELD("payload", "%p", (void *)pay);
     FIELD("held", "%p", (void *)held);
@@ -212,17 +402,41 @@ static int l_probe(lua_State *L)
     return 1;
 }
 
+// Every exported function runs under SEH: an access violation in this DLL becomes
+// `false, message` (and a log line) instead of killing the game.
+static int guarded(lua_State *L, lua_CFunction f, const char *name)
+{
+    __try {
+        return f(L);
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                   : EXCEPTION_CONTINUE_SEARCH) {
+        char msg[96];
+        _snprintf_s(msg, sizeof msg, _TRUNCATE, "access violation in dnNative.%s", name);
+        dnlog(msg);
+        return fail(L, msg);
+    }
+}
+#define GUARD(fn, name) static int g_##fn(lua_State *L) { return guarded(L, fn, name); }
+GUARD(l_probe, "probe")
+GUARD(l_writeVerts, "writeVerts")
+GUARD(l_writeGroup, "writeGroup")
+GUARD(l_packGroup, "packGroup")
+GUARD(l_scan, "scan")
+
 static void registerBridge(void)
 {
     uintptr_t ge = rd64((uintptr_t)g_base + RVA(0x142c274f8)); // engine::GameEngineLua
     lua_State *L = ge ? (lua_State *)rd64(ge + 0x30) : NULL;
     // LuaJIT GC64 lua_State: GCHeader.gct at +9 is 6 for a thread
     if (!L || !readable(L, 16) || ((BYTE *)L)[9] != 6) { dnlog("bridge: GE lua_State not found"); return; }
-    lua.createtable(L, 0, 4);
+    lua.createtable(L, 0, 8);
     lua.pushcclosure(L, l_buildOk, 0), lua.setfield(L, -2, "buildOk");
     lua.pushcclosure(L, l_version, 0), lua.setfield(L, -2, "version");
-    lua.pushcclosure(L, l_probe, 0), lua.setfield(L, -2, "probe");
-    lua.pushcclosure(L, l_writeVerts, 0), lua.setfield(L, -2, "writeVerts");
+    lua.pushcclosure(L, g_l_probe, 0), lua.setfield(L, -2, "probe");
+    lua.pushcclosure(L, g_l_writeVerts, 0), lua.setfield(L, -2, "writeVerts");
+    lua.pushcclosure(L, g_l_writeGroup, 0), lua.setfield(L, -2, "writeGroup");
+    lua.pushcclosure(L, g_l_packGroup, 0), lua.setfield(L, -2, "packGroup");
+    lua.pushcclosure(L, g_l_scan, 0), lua.setfield(L, -2, "scan");
     lua.setfield(L, LUA_GLOBALSINDEX, "dnNative");
     if (L != g_lastL) {
         char msg[96];

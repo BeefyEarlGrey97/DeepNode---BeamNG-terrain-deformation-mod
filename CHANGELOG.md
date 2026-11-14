@@ -12,6 +12,15 @@
   ms, RenderReflections -0.8 ms, total frame work -1.1..-1.6 ms (Lua +0.8..+1.7 ms), same rut-front
   latency, picture identical to createMesh (screenshot diff below noise). Without the helper
   nothing changes.
+- C mesh packing (`native.cMesh`, on): the builder keeps flat double / uint16 copies of each
+  submesh; the helper computes present's change hash + bounds (`dnNative.scan`) and packs the
+  vertices straight into the locked buffer (`dnNative.writeGroup`). Bytes and hash identical to the
+  Lua path (in-game check). 8 Percherons, gridmap_v2, interleaved: fps run 2 36.4 / 35.0 vs
+  35.0 / 33.0, GE Lua -0.9..-1.0 ms, LuaGC -0.3 ms, 0 failed writes.
+- Helper calls never raise a Lua error (an error raised from the DLL crashed the game while
+  unwinding): they return false, message, and every entry point runs under a SEH guard.
+- Helper v4: buffer checks walk every memory region (a large ffi array spanning two regions was
+  refused, ~1 fallback per 1000 writes).
 
 ### Changed
 - Tread-print map (`#deepnode_rut`) is stamped by one compute pass in place

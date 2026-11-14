@@ -39,7 +39,9 @@ function M.run()
   local mesh = gridMesh(4, 0.25, 'WarningMaterial')
   o:createMesh({ { mesh } })
   out.sentVerts = #mesh.verts -- expect vb0 count to match
-  local ok, probe = pcall(dnNative.probe, o)
+  local probe, perr = dnNative.probe(o)
+  local ok = type(probe) == 'table'
+  if not ok then probe = perr end
   out.probe = probe
   out.probeOk = ok
   o:delete()
@@ -162,8 +164,8 @@ function M.bump(h, how)
     local t0 = os.clock()
     local bytes = buildBytes(z)
     local t1 = os.clock()
-    local ok, err = pcall(dnNative.writeVerts, o, 0, bytes)
-    return { ok = ok, err = not ok and tostring(err) or nil, buildMs = (t1 - t0) * 1000, writeMs = (os.clock() - t1) * 1000 }
+    local ok, err = dnNative.writeVerts(o, 0, bytes)
+    return { ok = ok == true, err = ok ~= true and tostring(err) or nil, buildMs = (t1 - t0) * 1000, writeMs = (os.clock() - t1) * 1000 }
   end
   local t0 = os.clock()
   o:createMesh({ { buildCm(z) } })
@@ -174,6 +176,93 @@ function M.clear()
   M.loop(nil)
   local o = scenetree.findObject(NAME)
   if o then o:delete() end
+end
+
+-- C mesh packing against the Lua path, on the mod's real tiles (needs ruts and the helper):
+--   dump(dntestNative.packCheck())
+-- Rebuilds every meshed active tile (buildTile, nothing uploaded) and compares per submesh the
+-- bytes of tileMesh's Lua packing (copied below) with dnNative.packGroup, and present's Lua hash
+-- with dnNative.scan.
+local function luaBytes(m)
+  local vs, ns, us, fs = m.verts, m.normals, m.uvs, m.faces
+  local nf = #fs
+  local f = ffi.new('float[?]', nf * 11 + 33)
+  local o = 0
+  local sqrt, min = math.sqrt, math.min
+  for k = 1, nf, 3 do
+    local fa, fb, fc = fs[k], fs[k + 1] or fs[k], fs[k + 2] or fs[k]
+    local pa, pb, pc = vs[fa.v + 1], vs[fb.v + 1], vs[fc.v + 1]
+    local ta, tb, tc = us[fa.u + 1], us[fb.u + 1], us[fc.u + 1]
+    local e1x, e1y, e1z = pb.x - pa.x, pb.y - pa.y, pb.z - pa.z
+    local e2x, e2y, e2z = pc.x - pa.x, pc.y - pa.y, pc.z - pa.z
+    local s1, t1, s2, t2 = tb.u - ta.u, tb.v - ta.v, tc.u - ta.u, tc.v - ta.v
+    local den = s1 * t2 - s2 * t1
+    local sx, sy, sz = 0, 0, 0
+    if den ~= 0 then
+      local r = 1 / den
+      sx, sy, sz = (e1x * t2 - e2x * t1) * r, (e1y * t2 - e2y * t1) * r, (e1z * t2 - e2z * t1) * r
+    end
+    for c = 0, min(2, nf - k) do
+      local fx = c == 0 and fa or (c == 1 and fb or fc)
+      local p, nn, t = vs[fx.v + 1], ns[fx.n + 1], us[fx.u + 1]
+      local nx, ny, nz = nn.x, nn.y, nn.z
+      local d = sx * nx + sy * ny + sz * nz
+      local gx, gy, gz = sx - nx * d, sy - ny * d, sz - nz * d
+      local l = gx * gx + gy * gy + gz * gz
+      if l > 0 then l = 1 / sqrt(l); gx, gy, gz = gx * l, gy * l, gz * l else gx, gy, gz = 0, 0, 0 end
+      f[o], f[o + 1], f[o + 2] = p.x, p.y, p.z
+      f[o + 3], f[o + 4], f[o + 5] = nx, ny, nz
+      f[o + 6], f[o + 7], f[o + 8] = gx, gy, gz
+      f[o + 9], f[o + 10] = t.u, t.v
+      o = o + 11
+    end
+  end
+  return ffi.string(f, nf * 44)
+end
+local function luaHash(m)
+  local floor = math.floor
+  local vs, ns, us, fs = m.verts, m.normals, m.uvs, m.faces
+  local a = (#vs * 131 + #fs) % 4294967296
+  for k = 1, #vs do
+    local v, n, uv = vs[k], ns[k], us[k]
+    a = (a * 31 + floor(v.x * 4096) + floor(v.y * 4096) * 3 + floor(v.z * 65536) * 7
+      + floor(n.x * 16384) * 11 + floor(n.y * 16384) * 13 + floor(uv.u * 65536) * 17 + floor(uv.v * 65536) * 19) % 4294967296
+  end
+  for k = 1, #fs do a = (a * 31 + fs[k].v) % 4294967296 end
+  return a
+end
+function M.packCheck()
+  pcall(ffi.load, 'dnnative')
+  local tm, P = extensions.deepnode_tileMesh, deepnode_main.private
+  local r = { tiles = 0, subs = 0, noCopy = 0, bytesDiff = 0, hashDiff = 0, corners = 0, luaMs = 0, cMs = 0 }
+  local out = ffi.new('double[7]')
+  local noIb = ffi.new('uint16_t[1]')
+  for _, t in pairs(P.act) do
+    if t.obj and t.rutted then
+      local meshes = tm.buildTile(t, P.borderRule(t, false))
+      r.tiles = r.tiles + 1
+      for _, m in ipairs(meshes or {}) do
+        r.subs = r.subs + 1
+        if not m.fb then r.noCopy = r.noCopy + 1 else
+          local nc = #m.faces
+          r.corners = r.corners + nc
+          local t0 = os.clock()
+          local lb = luaBytes(m)
+          local t1 = os.clock()
+          local dst = ffi.new('float[?]', nc * 11 + 11)
+          local okp, ep = dnNative.packGroup(dst, 1, m.fb, m.bnv, m.ib or noIb, m.bnc, nc)
+          if okp ~= true then r.err = ep end
+          r.cMs = r.cMs + (os.clock() - t1) * 1000
+          r.luaMs = r.luaMs + (t1 - t0) * 1000
+          if ffi.string(dst, nc * 44) ~= lb then r.bytesDiff = r.bytesDiff + 1 end
+          local oks, es = dnNative.scan(out, m.fb, m.bnv, m.ib or noIb, m.bnc)
+          if oks ~= true then r.err = es end
+          if out[0] ~= luaHash(m) then r.hashDiff = r.hashDiff + 1 end
+        end
+      end
+    end
+  end
+  return r
 end
 
 -- Stage 2: rewrite the bump every frame. mode 'cm' = createMesh, 'w' = writeVerts, nil = stop.

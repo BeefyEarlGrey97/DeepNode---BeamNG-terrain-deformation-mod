@@ -680,3 +680,18 @@ createMesh -65 %, RenderShadows -1.0..-2.0 ms, RenderReflections -0.8..-0.9 ms, 
 ms, fps run 2 +1.2..+2.3 (noise ~1.5). Lua +0.8..+1.7 ms: building the vertex bytes in Lua
 (per-corner tangents, string copy) is the next cost to cut. Rut-front latency unchanged
 (0.057 / 0.104 on, 0.062 / 0.106 off). Memory growth still noise at this length.
+
+### C vertex packing (same day, `native.cMesh`, helper v3)
+In-place writes on in all variants; `native.cMesh` switched by gui.json + reloadLevelData, interleaved
+false / true / false / true, 8 Percherons, `bench2.py <label> 2 clear`, run 2:
+
+| cMesh | fps | low1 | mod ms | Lua | LuaGC | RenderShadows | total work ms |
+|---|---|---|---|---|---|---|---|
+| false | 35.0 | 22.2 | 3.71 | 12.09 | 0.54 | 5.73 | 32.21 |
+| true | 36.4 | 25.3 | 1.75 | 11.15 | 0.34 | 4.50 | 29.00 |
+| false | 33.0 | 22.4 | 1.75 | 13.89 | 0.71 | 6.54 | 34.08 |
+| true | 35.0 | 24.0 | 1.88 | 12.89 | 0.25 | 6.33 | 32.49 |
+
+C packing: fps +1.4 / +2.0, low1 +1.6..+3.1, Lua -0.9..-1.0 ms, LuaGC -0.2..-0.5 ms. 0 failed
+in-place writes over the 4 benches (helper v3; its region-check bug showed 2 fallbacks in a
+separate run). Session fps is lower than earlier the same day (drift): compare within the table.

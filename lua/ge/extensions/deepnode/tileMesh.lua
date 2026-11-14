@@ -461,6 +461,7 @@ end
 -- createMesh stretches the box to the whole tile (sector) rectangle plus native.boxMargin with
 -- two degenerate padding triangles (a rutted tile draws only its dug cells, and they spread).
 local native = nil -- dnNative when the helper is installed and native.inPlace is on
+local cMesh = false -- the helper also packs meshes from the builder copies (scan, writeGroup)
 local boxMargin = 0.5
 local objBox = setmetatable({}, { __mode = 'k' }) -- object -> { x0, y0, z0, x1, y1, z1 }
 local inPlace = { writes = 0, fallbacks = 0, outside = 0 }
@@ -556,10 +557,40 @@ end
 -- Write padded `meshes` into `o` in place. false = not possible (nothing written, or a
 -- partial write that the caller replaces with a createMesh on another object).
 local groupOf, groupList = {}, {}
+-- box of the mesh being presented when dnNative.scan measured it (present), else nil
+local scanBox = nil
+local scanOut = ffi.new('double[7]')
+local noIb = ffi.new('uint16_t[1]')
+local gargs = {}
+local unpack = unpack or table.unpack
+-- helper calls return true, or false and a message (they never raise)
+local natErrs = 0
+local function nat(f, ...)
+  local ok, r, msg = pcall(f, ...)
+  if ok and r == true then return true end
+  natErrs = natErrs + 1
+  if natErrs <= 5 then log('W', 'deepnode', 'native helper call failed: ' .. tostring(ok and msg or r)) end
+  return false
+end
+local function meshBox(meshes)
+  if scanBox then return scanBox[1], scanBox[2], scanBox[3], scanBox[4], scanBox[5], scanBox[6] end
+  return vertBox(meshes)
+end
+-- one vertex buffer: packed in C from the builder copies, or in Lua (groupBytes) without them
+local function writeGroupOf(o, slot, meshes, list)
+  local n = 0
+  for j = 1, #list do
+    local m = meshes[list[j]]
+    if not (cMesh and m.fb) then return nat(native.writeVerts, o, slot, groupBytes(meshes, list)) end
+    gargs[n + 1], gargs[n + 2], gargs[n + 3], gargs[n + 4], gargs[n + 5] = m.fb, m.bnv, m.ib or noIb, m.bnc, #m.faces
+    n = n + 5
+  end
+  return nat(native.writeGroup, o, slot, #list, unpack(gargs, 1, n))
+end
 local function writeInPlace(o, meshes)
   local b = objBox[o]
   if not b then return false end
-  local x0, y0, z0, x1, y1, z1 = vertBox(meshes)
+  local x0, y0, z0, x1, y1, z1 = meshBox(meshes)
   local e = 1e-4
   if x0 < b[1] - e or y0 < b[2] - e or z0 < b[3] - e or x1 > b[4] + e or y1 > b[5] + e or z1 > b[6] + e then
     inPlace.outside = inPlace.outside + 1
@@ -582,7 +613,7 @@ local function writeInPlace(o, meshes)
     l[#l + 1] = i
   end
   for g = 1, ng do
-    local ok = pcall(native.writeVerts, o, g - 1, groupBytes(meshes, groupList[g]))
+    local ok = writeGroupOf(o, g - 1, meshes, groupList[g])
     if not ok then
       inPlace.fallbacks = inPlace.fallbacks + 1
       return false
@@ -617,16 +648,27 @@ function M.present(chunk, meshes)
   local same = chunk.obj ~= nil and chunk.geoN == #meshes
   local matSame = same
   local hsh = 0
+  -- with the builder copies, C (dnNative.scan) gives the same hash and the box in one pass
+  local sb = cMesh and { 1e30, 1e30, 1e30, -1e30, -1e30, -1e30 } or nil
   for i = 1, #meshes do
     local m = meshes[i]
     local vs, ns, us, fs = m.verts, m.normals, m.uvs, m.faces
-    local a = (#vs * 131 + #fs) % 4294967296
-    for k = 1, #vs do
-      local v, n, uv = vs[k], ns[k], us[k]
-      a = (a * 31 + floor(v.x * 4096) + floor(v.y * 4096) * 3 + floor(v.z * 65536) * 7
-        + floor(n.x * 16384) * 11 + floor(n.y * 16384) * 13 + floor(uv.u * 65536) * 17 + floor(uv.v * 65536) * 19) % 4294967296
+    local a
+    if sb and m.fb and nat(native.scan, scanOut, m.fb, m.bnv, m.ib or noIb, m.bnc) then
+      local o = scanOut
+      a = o[0]
+      sb[1], sb[2], sb[3] = min(sb[1], o[1]), min(sb[2], o[2]), min(sb[3], o[3])
+      sb[4], sb[5], sb[6] = max(sb[4], o[4]), max(sb[5], o[5]), max(sb[6], o[6])
+    else
+      sb = nil
+      a = (#vs * 131 + #fs) % 4294967296
+      for k = 1, #vs do
+        local v, n, uv = vs[k], ns[k], us[k]
+        a = (a * 31 + floor(v.x * 4096) + floor(v.y * 4096) * 3 + floor(v.z * 65536) * 7
+          + floor(n.x * 16384) * 11 + floor(n.y * 16384) * 13 + floor(uv.u * 65536) * 17 + floor(uv.v * 65536) * 19) % 4294967296
+      end
+      for k = 1, #fs do a = (a * 31 + fs[k].v) % 4294967296 end
     end
-    for k = 1, #fs do a = (a * 31 + fs[k].v) % 4294967296 end
     local gm = chunk.geoMat
     if not gm then gm = {}; chunk.geoMat = gm end
     if gm[i] ~= m.material then same = false; matSame = false; gm[i] = m.material end
@@ -642,6 +684,7 @@ function M.present(chunk, meshes)
     return true
   end
   local timer = hptimer and hptimer()
+  scanBox = sb
   local key = padMeshes(chunk, meshes)
   -- same buffer sizes and materials as the shown object: rewrite its vertices in place
   if native and matSame and objKey[chunk.obj] == key and writeInPlace(chunk.obj, meshes) then
@@ -668,7 +711,7 @@ function M.present(chunk, meshes)
   census.uploads = census.uploads + 1
   local box
   if native then
-    local x0, y0, z0, x1, y1, z1 = vertBox(meshes)
+    local x0, y0, z0, x1, y1, z1 = meshBox(meshes)
     -- a rutted tile draws only its dug cells, and that area grows: the box covers the whole
     -- tile (sector) rectangle, so later writes stay inside it
     local span = chunk.sx and ctx.sec and ctx.tileSize and ctx.sec * ctx.tileSize or ctx.tileSize
@@ -778,6 +821,25 @@ function Sub:reset(material)
   self.material = material
   self.nv, self.nf, self.bad = 0, 0, false
   self.decalDone = 0 -- faces already given their decal overlay (deepnode_decals)
+  self.bv, self.bf = 0, 0
+end
+
+-- With the native helper the builder also keeps flat copies for C (dnNative.scan / writeGroup):
+-- 8 doubles per vertex (x y z nx ny nz u v) and one uint16 per face corner. bv / bf count
+-- what was copied; a mesh carries the copies only when they cover all of it.
+local function growD(buf, cap, need)
+  if need <= cap then return buf, cap end
+  local nc = max(need, cap * 2, 1024)
+  local nb = ffi.new('double[?]', nc)
+  if buf then ffi.copy(nb, buf, cap * 8) end
+  return nb, nc
+end
+local function growU(buf, cap, need)
+  if need <= cap then return buf, cap end
+  local nc = max(need, cap * 2, 4096)
+  local nb = ffi.new('uint16_t[?]', nc)
+  if buf then ffi.copy(nb, buf, cap * 2) end
+  return nb, nc
 end
 
 -- a reusable element table from the stash, or nil
@@ -799,6 +861,12 @@ function Sub:vert(x, y, z, nx, ny, nz, u, v)
   end
   local n = self.nv + 1
   self.nv = n
+  if cMesh and self.bv == n - 1 then
+    self.fb, self.fcap = growD(self.fb, self.fcap or 0, 8 * n)
+    local f, o = self.fb, 8 * (n - 1)
+    f[o], f[o + 1], f[o + 2], f[o + 3], f[o + 4], f[o + 5], f[o + 6], f[o + 7] = x, y, z, nx, ny, nz, u, v
+    self.bv = n
+  end
   local t = self.verts[n]
   if t then t.x, t.y, t.z = x, y, z
   else
@@ -839,12 +907,23 @@ function Sub:tri(a, b, c)
   corner(f, sf, n + 2, b)
   corner(f, sf, n + 3, c)
   self.nf = n + 3
+  if cMesh and self.bf == n then
+    self.ib, self.icap = growU(self.ib, self.icap or 0, n + 3)
+    local ib = self.ib
+    ib[n], ib[n + 1], ib[n + 2] = a, b, c
+    self.bf = n + 3
+  end
 end
 
 function Sub:finish()
   trunc(self.verts, self.nv, self.sv); trunc(self.normals, self.nv, self.sn)
   trunc(self.uvs, self.nv, self.su); trunc(self.faces, self.nf, self.sf)
-  return { verts = self.verts, normals = self.normals, uvs = self.uvs, faces = self.faces, material = self.material }
+  local m = { verts = self.verts, normals = self.normals, uvs = self.uvs, faces = self.faces, material = self.material }
+  if cMesh and self.nv > 0 and self.bv == self.nv and self.bf == self.nf then
+    -- the copies belong to this builder sub and are refilled by its next build: present runs first
+    m.fb, m.ib, m.bnv, m.bnc = self.fb, self.ib, self.nv, self.nf
+  end
+  return m
 end
 
 local Builder = {}
@@ -1475,6 +1554,8 @@ function M.setContext(main)
     local d = rawget(_G, 'dnNative')
     if d and d.writeVerts and d.buildOk() then native = d end
   end
+  -- native.cMesh = false keeps the Lua packing (A/B)
+  cMesh = native ~= nil and native.scan ~= nil and native.writeGroup ~= nil and nc.cMesh ~= false
 end
 
 local function onExtensionLoaded()
