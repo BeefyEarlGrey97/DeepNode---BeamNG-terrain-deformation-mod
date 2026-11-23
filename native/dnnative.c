@@ -197,7 +197,7 @@ static int rd32(uintptr_t a, unsigned *out) { return readable((void *)a, 4) ? (*
 static int fail(lua_State *L, const char *msg) { lua.pushboolean(L, 0); lua.pushstring(L, msg); return 2; }
 
 static int l_buildOk(lua_State *L) { lua.pushboolean(L, g_buildOk); return 1; }
-static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 5"); return 1; }
+static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 7"); return 1; }
 
 // C++ object behind a Lua userdata: the payload itself, or a pointer in it (one or two hops)
 static uintptr_t findObject(uintptr_t pay, uintptr_t vt, const char **how)
@@ -484,6 +484,272 @@ static int l_probe(lua_State *L)
     return 1;
 }
 
+// ffi array argument of at least `bytes`, checked with VirtualQuery once per array: tile arrays
+// live as long as their tile and slumpScan runs hundreds of times a frame (3 VirtualQuery per call
+// cost more than the scan). A stale entry can only point into LuaJIT's heap; SEH (guarded) covers
+// the rest. shortcut: 64-entry direct-mapped cache, enlarge if tiles thrash it.
+static struct { BYTE *gc; size_t bytes; } g_arrCache[64];
+static void *argArray(lua_State *L, int idx, size_t bytes)
+{
+    uint64_t *s = argSlot(L, idx);
+    if (!s || (int32_t)((int64_t)*s >> 47) != -11) return NULL;
+    BYTE *gc = (BYTE *)(uintptr_t)(*s & ((1ull << 47) - 1));
+    unsigned h = (unsigned)((uintptr_t)gc >> 4) & 63;
+    if (g_arrCache[h].gc == gc && g_arrCache[h].bytes >= bytes) return gc[9] == 10 ? gc + 16 : NULL;
+    void *p = argCdata(L, idx, bytes);
+    if (p) g_arrCache[h].gc = gc, g_arrCache[h].bytes = bytes;
+    return p;
+}
+
+// main.lua decodeZ in double, same operation order (bit-identical to the Lua path)
+static double decodeZ(const float *rest, const float *flo, const uint8_t *rut, int idx, double bermMax)
+{
+    double r = rest[idx], fl = flo[idx], f = fl < r ? fl : r;
+    int c = rut[idx];
+    return f + (r - f) * (c < 128 ? c : 128) * 0.0078125 + (double)(c > 128 ? c - 128 : 0) / 127 * bermMax;
+}
+
+// dnNative.slumpScan(out double[1], rest, floor, rut, j, iFrom, iTo, N, maxStep, rate, bermMax) -> true.
+// out[0] = first i in iFrom..iTo of tile row j where main.lua P.slump would write (border neighbours
+// counted as present: Lua checks them), or -1. Read-only: Lua runs its own per-vertex code there.
+static int l_slumpScan(lua_State *L)
+{
+    int j, i0, i1, N;
+    double maxStep, rate, bermMax;
+    if (!argInt(L, 8, 1, 4096, &N) || !argInt(L, 5, 0, N, &j) || !argInt(L, 6, 0, N, &i0) ||
+        !argInt(L, 7, -1, N, &i1) || !argNum(L, 9, &maxStep) || !argNum(L, 10, &rate) || !argNum(L, 11, &bermMax))
+        return fail(L, "dnNative.slumpScan: bad arguments");
+    int W = N + 1;
+    size_t n = (size_t)W * W;
+    double *out = argArray(L, 1, 8);
+    const float *rest = argArray(L, 2, n * 4), *flo = argArray(L, 3, n * 4);
+    const uint8_t *rut = argArray(L, 4, n);
+    if (!out || !rest || !flo || !rut) return fail(L, "dnNative.slumpScan: bad arrays");
+    out[0] = -1;
+    for (int i = i0; i <= i1; i++) {
+        int idx = j * W + i;
+        double r1 = rest[idx], f1 = flo[idx];
+        if (!(r1 - f1 > 0.002)) continue;
+        double z = decodeZ(rest, flo, rut, idx, bermMax);
+        for (int q = 1; q <= 2; q++) {
+            if ((q == 1 && i + 1 > N) || (q == 2 && j + 1 > N)) continue; // outside the tile arrays
+            int idx2 = q == 1 ? idx + 1 : idx + W;
+            double r2 = rest[idx2], f2 = flo[idx2];
+            if (!(r2 - f2 > 0.002)) continue;
+            double z2 = decodeZ(rest, flo, rut, idx2, bermMax), d = z - z2, ad = d < 0 ? -d : d;
+            if (!(ad > maxStep)) continue;
+            double m = (ad - maxStep) * 0.5 * rate;
+            if (d < 0) m = -m;
+            double nz = z - m, nz2 = z2 + m, fa = f1 < r1 ? f1 : r1, fb = f2 < r2 ? f2 : r2;
+            if (nz >= fa && nz <= r1 + bermMax && nz2 >= fb && nz2 <= r2 + bermMax) {
+                out[0] = i;
+                lua.pushboolean(L, 1);
+                return 1;
+            }
+        }
+    }
+    lua.pushboolean(L, 1);
+    return 1;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tile mesh build: tileMesh.lua emitTileCells (stride 1, merged plain squares), one material per
+// call, bit-identical to the Lua path (same operation order in double, zbuf in float).
+
+// LuaJIT bit.tobit: n + 2^52 + 2^51, low 32 bits of the double (also for products past 2^53)
+static int32_t tobit(double n)
+{
+    double s = n + 6755399441055744.0;
+    uint64_t u;
+    memcpy(&u, &s, 8);
+    return (int32_t)(uint32_t)u;
+}
+static double hash01(double ix, double iy, int salt)
+{
+    int32_t h = tobit(ix * 374761393) ^ tobit(iy * 668265263) ^ salt;
+    h = tobit((double)(h ^ (int32_t)((uint32_t)h >> 13)) * 1274126177);
+    h = h ^ (int32_t)((uint32_t)h >> 16);
+    return (double)(h & 0xffff) / 65535;
+}
+static double vnoise(double x, double y, int salt)
+{
+    double ix = floor(x), iy = floor(y), fx = x - ix, fy = y - iy;
+    fx = fx * fx * (3 - 2 * fx), fy = fy * fy * (3 - 2 * fy);
+    double a = hash01(ix, iy, salt), b = hash01(ix + 1, iy, salt);
+    double c = hash01(ix, iy + 1, salt), d = hash01(ix + 1, iy + 1, salt);
+    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+static int isFiniteLua(double v) { return v == v && v > -1e7 && v < 1e7; }
+
+// params (double[]), filled by tileMesh.lua
+enum { TP_N, TP_CPS, TP_TS, TP_CELL, TP_X0, TP_Y0, TP_GCX0, TP_GCY0, TP_JZ, TP_JXY, TP_DROP, TP_CRUMBLE,
+       TP_CRUMBLEMAX, TP_RCRUMBLE, TP_RCRUMBLEMAX, TP_TFLIFT, TP_ZOFF, TP_BERMMAX, TP_HASRULE, TP_RULE,
+       TP_MAT = TP_RULE + 8, TP_UVOX, TP_UVOY, TP_UVSIZE, TP_UVFLIP, TP_NV, TP_NF, TP_FBCAP, TP_IBCAP, TP_COUNT };
+
+#define TILE_MAXW 129
+static float g_zbuf[TILE_MAXW * TILE_MAXW];
+static int32_t g_vidx[TILE_MAXW * TILE_MAXW];
+static uint8_t g_plain[TILE_MAXW * TILE_MAXW];
+
+typedef struct {
+    const double *p;
+    const uint8_t *track;
+    double *fb;
+    uint16_t *ib;
+    int W, nv, nf, fbCap, ibCap, bad, full;
+} TileEmit;
+
+static int vtx(TileEmit *e, int i, int j)
+{
+    int W = e->W, idx = j * W + i;
+    if (g_vidx[idx] >= 0) return g_vidx[idx];
+    const double *p = e->p;
+    double cell = p[TP_CELL], x = p[TP_X0] + i * cell, y = p[TP_Y0] + j * cell;
+    int tr = e->track[idx];
+    if (tr > 0) {
+        double k = p[TP_JXY] * tr / 255;
+        x = x + (hash01(p[TP_GCX0] + i, p[TP_GCY0] + j, 11) * 2 - 1) * k;
+        y = y + (hash01(p[TP_GCX0] + i, p[TP_GCY0] + j, 13) * 2 - 1) * k;
+    }
+    // gridNormal(zbuf, W, W, i, j, cell)
+    int il = i > 0 ? i - 1 : i, ir = i < W - 1 ? i + 1 : i, jd = j > 0 ? j - 1 : j, ju = j < W - 1 ? j + 1 : j;
+    double dzdx = ((double)g_zbuf[j * W + ir] - g_zbuf[j * W + il]) / ((ir - il) * cell);
+    double dzdy = ((double)g_zbuf[ju * W + i] - g_zbuf[jd * W + i]) / ((ju - jd) * cell);
+    double l = 1 / sqrt(dzdx * dzdx + dzdy * dzdy + 1), nx = -dzdx * l, ny = -dzdy * l, nz = l;
+    // main.uvOf for this material: base maps (x - ox) / size (flipped v), detail-only x / size (ox = oy = 0)
+    double u = (x - p[TP_UVOX]) / p[TP_UVSIZE], v = (y - p[TP_UVOY]) / p[TP_UVSIZE];
+    if (p[TP_UVFLIP] != 0) v = 1 - v;
+    double z = g_zbuf[idx];
+    if (!(isFiniteLua(x) && isFiniteLua(y) && isFiniteLua(z) && isFiniteLua(nx) && isFiniteLua(ny) &&
+          isFiniteLua(nz) && isFiniteLua(u) && isFiniteLua(v))) {
+        e->bad = 1;
+        x = y = z = nx = ny = u = v = 0, nz = 1;
+    }
+    if (e->nv >= e->fbCap) { e->full = 1; return 0; }
+    double *f = e->fb + 8 * e->nv;
+    f[0] = x, f[1] = y, f[2] = z, f[3] = nx, f[4] = ny, f[5] = nz, f[6] = u, f[7] = v;
+    g_vidx[idx] = e->nv;
+    return e->nv++;
+}
+static void tri(TileEmit *e, int a, int b, int c)
+{
+    if (e->nf + 3 > e->ibCap) { e->full = 1; return; }
+    e->ib[e->nf] = (uint16_t)a, e->ib[e->nf + 1] = (uint16_t)b, e->ib[e->nf + 2] = (uint16_t)c;
+    e->nf += 3;
+}
+
+// dnNative.tileCells(out double[3], params, rut, track, rest, floor, soft, sqMat, flush|false,
+// preSq|false, fb, ib) -> true. Appends material params[TP_MAT] of the tile to the builder sub's flat
+// copies; out = { nv, nf, flags } (flags 1 = invalid vertex, 2 = buffers too small: nothing usable).
+static int l_tileCells(lua_State *L)
+{
+    const double *p = argArray(L, 2, TP_COUNT * 8);
+    double *out = argArray(L, 1, 3 * 8);
+    if (!p || !out) return fail(L, "dnNative.tileCells: bad params");
+    int N = (int)p[TP_N], cps = (int)p[TP_CPS], ts = (int)p[TP_TS], W = N + 1;
+    if (N < 1 || W > TILE_MAXW || cps < 1 || ts < 1 || ts * cps != N) return fail(L, "dnNative.tileCells: bad tile size");
+    size_t n = (size_t)W * W;
+    int nv = (int)p[TP_NV], nf = (int)p[TP_NF], fbCap = (int)p[TP_FBCAP], ibCap = (int)p[TP_IBCAP];
+    const uint8_t *rut = argArray(L, 3, n), *track = argArray(L, 4, n), *soft = argArray(L, 7, (size_t)N * N),
+                  *sqMat = argArray(L, 8, (size_t)ts * ts);
+    const float *rest = argArray(L, 5, n * 4), *flo = argArray(L, 6, n * 4);
+    const uint8_t *flush = argSlot(L, 9) && (int32_t)((int64_t)*argSlot(L, 9) >> 47) == -11 ? argArray(L, 9, (size_t)ts * ts) : NULL;
+    const uint8_t *preSq = argSlot(L, 10) && (int32_t)((int64_t)*argSlot(L, 10) >> 47) == -11 ? argArray(L, 10, (size_t)ts * ts) : NULL;
+    double *fb = argArray(L, 11, (size_t)fbCap * 64);
+    uint16_t *ib = argArray(L, 12, (size_t)ibCap * 2);
+    if (!rut || !track || !soft || !sqMat || !rest || !flo || !fb || !ib || nv < 0 || nf < 0 || nv > fbCap || nf > ibCap)
+        return fail(L, "dnNative.tileCells: bad arrays");
+    double cell = p[TP_CELL], bermMax = p[TP_BERMMAX], gcx0 = p[TP_GCX0], gcy0 = p[TP_GCY0];
+    double jz = p[TP_JZ], crumble = p[TP_CRUMBLE], crumbleMax = p[TP_CRUMBLEMAX];
+    double rCrumble = p[TP_RCRUMBLE], rCrumbleMax = p[TP_RCRUMBLEMAX];
+    int hasRule = p[TP_HASRULE] != 0;
+    // heights (emitTileCells first loop)
+    for (int j = 0; j <= N; j++)
+        for (int i = 0; i <= N; i++) {
+            int idx = j * W + i;
+            double z = decodeZ(rest, flo, rut, idx, bermMax);
+            int tr = track[idx];
+            if (tr > 0) z = z + (hash01(gcx0 + i, gcy0 + j, 7) * 2 - 1) * jz * tr / 255;
+            if (crumble > 0 && rut[idx] > 128) {
+                double bh = z - rest[idx];
+                if (bh > 0.005) {
+                    double gx = gcx0 + i, gy = gcy0 + j;
+                    double nn = vnoise(gx * cell / 0.6, gy * cell / 0.6, 17) * 0.65 + vnoise(gx * cell / 0.3, gy * cell / 0.3, 19) * 0.35;
+                    nn = nn * nn * 2.2 - 0.55;
+                    z = z + (bh < crumbleMax ? bh : crumbleMax) * crumble * nn;
+                }
+            } else if (rCrumble > 0 && rut[idx] < 128) {
+                double dh = rest[idx] - z;
+                if (dh > 0.01) {
+                    double gx = gcx0 + i, gy = gcy0 + j;
+                    double nn = vnoise(gx * cell / 0.5, gy * cell / 0.5, 23) * 0.6 + vnoise(gx * cell / 0.25, gy * cell / 0.25, 29) * 0.4 - 0.5;
+                    z = z + (dh < rCrumbleMax ? dh : rCrumbleMax) * rCrumble * 2 * nn;
+                }
+            }
+            if (hasRule) { // borderCode(rule, i, j, N) == 1
+                double c = 0;
+                const double *r = p + TP_RULE;
+#define RMAX(k) (c = c > r[k] ? c : r[k])
+                if (i == 0) RMAX(0);
+                if (i == N) RMAX(1);
+                if (j == 0) RMAX(2);
+                if (j == N) RMAX(3);
+                if (i == 0 && j == 0) RMAX(4);
+                if (i == N && j == 0) RMAX(5);
+                if (i == 0 && j == N) RMAX(6);
+                if (i == N && j == N) RMAX(7);
+#undef RMAX
+                if (c == 1) z = z - p[TP_DROP];
+            }
+            g_zbuf[idx] = (float)(z + p[TP_ZOFF] + p[TP_TFLIFT]);
+        }
+    // untouched squares (one quad each)
+    for (int sj = 0; sj < ts; sj++)
+        for (int si = 0; si < ts; si++) {
+            int ok = !(preSq && preSq[sj * ts + si] != 0);
+            for (int j = sj * cps; ok && j <= sj * cps + cps; j++)
+                for (int i = si * cps; i <= si * cps + cps; i++)
+                    if (rut[j * W + i] != 128 || track[j * W + i] != 0) { ok = 0; break; }
+            g_plain[sj * ts + si] = (uint8_t)ok;
+        }
+    TileEmit e = {p, track, fb, ib, W, nv, nf, fbCap, ibCap, 0, 0};
+    int m = (int)p[TP_MAT];
+    for (size_t k = 0; k < n; k++) g_vidx[k] = -1;
+    for (int sj = 0; sj < ts; sj++)
+        for (int si = 0; si < ts; si++) {
+            int q = sj * ts + si;
+            if (sqMat[q] != m || soft[(sj * cps) * N + si * cps] == 0) continue;
+            int i0 = si * cps, j0 = sj * cps;
+            if (g_plain[q]) {
+                if (!(flush && flush[q] != 0)) {
+                    int a = vtx(&e, i0, j0), bb = vtx(&e, i0 + cps, j0);
+                    int c = vtx(&e, i0, j0 + cps), d = vtx(&e, i0 + cps, j0 + cps);
+                    tri(&e, a, c, d);
+                    tri(&e, a, d, bb);
+                }
+                continue;
+            }
+            int sqF = flush && flush[q] != 0;
+            for (int cj = j0; cj < j0 + cps; cj++) {
+                int r0 = cj * W, r1 = (cj + 1) * W;
+                for (int ci = i0; ci < i0 + cps; ci++) {
+                    if (soft[cj * N + ci] == 0) continue;
+                    if (sqF && rut[r0 + ci] == 128 && rut[r0 + ci + 1] == 128 && rut[r1 + ci] == 128 &&
+                        rut[r1 + ci + 1] == 128 && track[r0 + ci] == 0 && track[r0 + ci + 1] == 0 &&
+                        track[r1 + ci] == 0 && track[r1 + ci + 1] == 0)
+                        continue;
+                    int a = vtx(&e, ci, cj), bb = vtx(&e, ci + 1, cj);
+                    int c = vtx(&e, ci, cj + 1), d = vtx(&e, ci + 1, cj + 1);
+                    tri(&e, a, c, d);
+                    tri(&e, a, d, bb);
+                }
+            }
+        }
+    out[0] = e.nv, out[1] = e.nf, out[2] = (e.bad ? 1 : 0) | (e.full ? 2 : 0);
+    lua.pushboolean(L, 1);
+    return 1;
+}
+
 // Every exported function runs under SEH: an access violation in this DLL becomes
 // `false, message` (and a log line) instead of killing the game.
 static int guarded(lua_State *L, lua_CFunction f, const char *name)
@@ -504,6 +770,8 @@ GUARD(l_writeVerts, "writeVerts")
 GUARD(l_writeGroup, "writeGroup")
 GUARD(l_packGroup, "packGroup")
 GUARD(l_scan, "scan")
+GUARD(l_slumpScan, "slumpScan")
+GUARD(l_tileCells, "tileCells")
 
 static void registerBridge(void)
 {
@@ -511,7 +779,7 @@ static void registerBridge(void)
     lua_State *L = ge ? (lua_State *)rd64(ge + 0x30) : NULL;
     // LuaJIT GC64 lua_State: GCHeader.gct at +9 is 6 for a thread
     if (!L || !readable(L, 16) || ((BYTE *)L)[9] != 6) { dnlog("bridge: GE lua_State not found"); return; }
-    lua.createtable(L, 0, 8);
+    lua.createtable(L, 0, 12);
     lua.pushcclosure(L, l_buildOk, 0), lua.setfield(L, -2, "buildOk");
     lua.pushcclosure(L, l_version, 0), lua.setfield(L, -2, "version");
     lua.pushcclosure(L, g_l_probe, 0), lua.setfield(L, -2, "probe");
@@ -519,6 +787,8 @@ static void registerBridge(void)
     lua.pushcclosure(L, g_l_writeGroup, 0), lua.setfield(L, -2, "writeGroup");
     lua.pushcclosure(L, g_l_packGroup, 0), lua.setfield(L, -2, "packGroup");
     lua.pushcclosure(L, g_l_scan, 0), lua.setfield(L, -2, "scan");
+    lua.pushcclosure(L, g_l_slumpScan, 0), lua.setfield(L, -2, "slumpScan");
+    lua.pushcclosure(L, g_l_tileCells, 0), lua.setfield(L, -2, "tileCells");
     lua.setfield(L, LUA_GLOBALSINDEX, "dnNative");
     if (L != g_lastL) {
         char msg[96];
@@ -592,7 +862,7 @@ static void checkBuild(void)
     char exe[MAX_PATH], msg[512];
     GetModuleFileNameA(NULL, exe, MAX_PATH);
     _snprintf_s(msg, sizeof msg, _TRUNCATE,
-                "dnnative 5 loaded in %s pid=%lu base=%p ts=0x%08lx size=0x%lx sigs=%s (%lu ms)", exe,
+                "dnnative 7 loaded in %s pid=%lu base=%p ts=0x%08lx size=0x%lx sigs=%s (%lu ms)", exe,
                 GetCurrentProcessId(), (void *)base, ts, sz, g_buildOk ? "all found" : "MISSING (native features off)",
                 GetTickCount() - t0);
     dnlog(msg);
@@ -615,3 +885,7 @@ __declspec(dllexport) int dn_scan(BYTE *base, uintptr_t *out)
     for (int i = 0; i < S_COUNT; i++) out[i] = g_addr[i] ? g_addr[i] - (uintptr_t)base : 0;
     return ok ? S_COUNT : 0;
 }
+
+// Offline self-check (test_hash.c): the tile build's hash and noise against LuaJIT's
+__declspec(dllexport) double dn_hash01(double ix, double iy, int salt) { return hash01(ix, iy, salt); }
+__declspec(dllexport) double dn_vnoise(double x, double y, int salt) { return vnoise(x, y, salt); }

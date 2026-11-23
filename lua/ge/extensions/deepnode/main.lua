@@ -1136,6 +1136,18 @@ function M.uvOf(x, y, m)
   return u, v
 end
 
+-- M.uvOf(x, y, m) as u = (x - ox) / size, v = (y - oy) / size, v = 1 - v when flip (native tile build)
+function M.uvParams(m)
+  local e = m and P.matUV[m]
+  if not e then
+    if m and not P.matNames[m] then return 0, 0, cfg.materials.fallbackTexSize or 4, false end
+    e = { size = P.baseSize, base = true }
+  end
+  if not e.base then return 0, 0, e.size, false end
+  return ter.ox, ter.oy, e.size, cfg.materials.flipV and true or false
+end
+function M.bermMax() return bermMax end
+
 function M.matName(m)
   return P.matNames[m] or P.FALLBACK_MAT
 end
@@ -5177,12 +5189,47 @@ end
 -- inside the stamped box. Material moves from the high to the low vertex, so a rut
 -- partly fills back and its rim rounds off. Local and only where stamped (not a blur
 -- of the whole tile), so older ruts elsewhere keep their shape.
+-- native.verifySlump (test only): the Lua condition on every vertex dnNative.slumpScan skipped
+-- (j row, i0..i1) must find nothing to write; mismatches count in P.stats.slumpMiss
+function P.slumpVerify(t, j, i0, i1, maxStep, rate)
+  local W = N + 1
+  local rest, flo = t.rest, t.floor
+  P.stats.slumpChecked = (P.stats.slumpChecked or 0) + (i1 - i0 + 1)
+  for i = i0, i1 do
+    local idx = j * W + i
+    local r1, f1 = rest[idx], flo[idx]
+    if r1 - f1 > 0.002 then
+      local z = decodeZ(t, idx)
+      for q = 1, 2 do
+        local idx2 = q == 1 and idx + 1 or idx + W
+        local r2, f2 = rest[idx2], flo[idx2]
+        if r2 - f2 > 0.002 then
+          local z2 = decodeZ(t, idx2)
+          local d = z - z2
+          local ad = abs(d)
+          if ad > maxStep then
+            local m = (ad - maxStep) * 0.5 * rate
+            if d < 0 then m = -m end
+            local nz, nz2 = z - m, z2 + m
+            if nz >= min(f1, r1) and nz <= r1 + bermMax and nz2 >= min(f2, r2) and nz2 <= r2 + bermMax then
+              P.stats.slumpMiss = (P.stats.slumpMiss or 0) + 1
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
 function P.slump(gx0, gy0, gx1, gy1)
   local st = cfg.stamp
   local maxStep = (P.kSlope or st.maxSlope) * CELL
   local rate = st.slumpRate
   if rate <= 0 or gx1 < gx0 or gy1 < gy0 or gx1 - gx0 > 300 or gy1 - gy0 > 300 then return end
   local W = N + 1
+  -- native helper (DeepNode Exotic): C finds the next vertex of a row segment that this loop
+  -- would write (dnNative.slumpScan, same arithmetic); the loop body below runs only there
+  local scan, sOut, verify = P.dnSlump, P.dnSlumpOut, P.dnSlumpVerify
   -- One pass per tile row segment: a vertex and its +x / +y neighbours lie in the same
   -- tile (tiles hold their border column/row), so no lookup per neighbour except on the
   -- tile's far border, where the neighbour tile must be active too (else its copy of
@@ -5198,7 +5245,19 @@ function P.slump(gx0, gy0, gx1, gy1)
         local t = tiles[ty * KEY + tx]
         if t and t.state == 'active' then
           local rest, flo, rut = t.rest, t.floor, t.rut
-          for i = gcx - tx * N, segEnd - tx * N do
+          local i, iEnd = gcx - tx * N, segEnd - tx * N
+          while i <= iEnd do
+            if scan then
+              if scan(sOut, rest, flo, rut, j, i, iEnd, N, maxStep, rate, bermMax) then
+                local k = sOut[0]
+                if verify then P.slumpVerify(t, j, i, k < 0 and iEnd or k - 1, maxStep, rate) end
+                if k < 0 then break end
+                i = k
+              else
+                log('W', logTag, 'dnNative.slumpScan failed: slump stays in Lua')
+                scan, P.dnSlump = nil, nil
+              end
+            end
             local idx = j * W + i
             local r1 = rest[idx]
             local f1 = flo[idx]
@@ -5233,6 +5292,7 @@ function P.slump(gx0, gy0, gx1, gy1)
                 end
               end
             end
+            i = i + 1
           end
         end
         gcx = segEnd + 1
@@ -7630,6 +7690,12 @@ function P.start()
   local tm = P.mod('tileMesh')
   tm.setContext(M)
   P.hash01 = tm.hash01
+  -- native slump scan (tileMesh.setContext already asked for the helper); native.cSlump = false
+  -- keeps the Lua scan (A/B), native.verifySlump re-checks every skipped vertex in Lua (test)
+  local dn, nc = rawget(_G, 'dnNative'), cfg.native or {}
+  P.dnSlump = dn and dn.slumpScan and dn.buildOk() and nc.inPlace ~= false and nc.cSlump ~= false and dn.slumpScan or nil
+  P.dnSlumpOut = P.dnSlumpOut or ffi.new('double[1]')
+  P.dnSlumpVerify = nc.verifySlump == true
   if tm.setUploadBudget then tm.setUploadBudget((cfg.perf and cfg.perf.uploadMsStart) or 3) end
   if tm.setUploadEvery then tm.setUploadEvery((cfg.perf and cfg.perf.uploadEvery) or 3) end
   P.bestFps = 0

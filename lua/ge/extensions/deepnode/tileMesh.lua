@@ -479,6 +479,7 @@ end
 -- two degenerate padding triangles (a rutted tile draws only its dug cells, and they spread).
 local native = nil -- dnNative when the helper is installed and native.inPlace is on
 local cMesh = false -- the helper also packs meshes from the builder copies (scan, writeGroup)
+local cTile, cTileVerify = false, false -- tile cells built in C (dnNative.tileCells), checked against Lua
 local boxMargin = 0.5
 local objBox = setmetatable({}, { __mode = 'k' }) -- object -> { x0, y0, z0, x1, y1, z1 }
 -- object -> { n = submeshes, cap = { padded corners per submesh }, mat = { material per submesh } }
@@ -1663,13 +1664,87 @@ function M.emitTerrainSquares(b, tx, ty, zOff)
   return count
 end
 
+-- emitTileCells in C (dnNative.tileCells, DeepNode Exotic): stride 1, merged plain squares, lazy
+-- subs, no road-copy quads recorded (callers check). Same vertices and faces as the Lua emitter.
+-- Returns false when it could not run (the caller uses the Lua emitter).
+local tcParams, tcOut = nil, nil
+local TP_RULE, TP_MAT = 19, 27
+local function cellsNative(b, t, zOff, rule)
+  local main = ctx
+  local st, N, ts = main.cfg.stamp, t.N, t.ts
+  local W = N + 1
+  tcParams = tcParams or ffi.new('double[36]')
+  tcOut = tcOut or ffi.new('double[3]')
+  local p = tcParams
+  p[0], p[1], p[2], p[3], p[4], p[5] = N, t.cps, ts, t.cell, t.x0, t.y0
+  p[6], p[7], p[8], p[9], p[10] = t.gx0 * t.cps, t.gy0 * t.cps, st.jitterZ, st.jitterXY, main.cfg.sectors.drop
+  p[11], p[12], p[13], p[14] = st.bermCrumble or 0, st.bermCrumbleMax or 0.12, st.rutCrumble or 0, st.rutCrumbleMax or 0.06
+  p[15] = main.terrainFirst() and (main.cfg.tiles.terrainFirstLift or 0.006) or 0
+  p[16], p[17] = zOff, main.bermMax()
+  p[18] = rule and 1 or 0
+  if rule then for k = 1, 8 do p[TP_RULE + k - 1] = rule[k] end end
+  local flush = t.anyFlush and t.sqFlush or false
+  local preSq = t.preSq or false
+  for mi = 1, #t.matList do
+    local m = t.matList[mi]
+    local s = b:sub(main.matName(m), W * W)
+    if not s.lazy then return false end
+    -- main.uvOf(x, y, m) as constants: (x - ox) / size, v flipped for base maps
+    local ox, oy, size, flip = main.uvParams(m)
+    s.fb, s.fcap = growD(s.fb, s.fcap or 0, 8 * (s.nv + W * W))
+    s.ib, s.icap = growU(s.ib, s.icap or 0, s.nf + 6 * N * N)
+    p[TP_MAT], p[28], p[29], p[30], p[31] = m, ox, oy, size, flip and 1 or 0
+    p[32], p[33], p[34], p[35] = s.nv, s.nf, floor(s.fcap / 8), s.icap
+    if not native.tileCells(tcOut, p, t.rut, t.track, t.rest, t.floor, t.soft, t.sqMat, flush, preSq, s.fb, s.ib) then
+      return false
+    end
+    local flags = tcOut[2]
+    if flags >= 2 then return false end
+    s.nv, s.nf = tcOut[0], tcOut[1]
+    s.bv, s.bf = s.nv, s.nf
+    if flags == 1 then s.bad = true end
+  end
+  return true
+end
+
+-- native.verifyTile (test only): every native tile build is redone by the Lua emitter and compared
+local verifyB = nil
+M.tileVerify = { checked = 0, miss = 0 }
+local function verifyCells(b, t, rule)
+  verifyB = verifyB or M.newBuilder(true)
+  verifyB:reset()
+  M.emitTileCells(verifyB, t, 0, rule)
+  local st = M.tileVerify
+  st.checked = st.checked + 1
+  local ok = b.nsub == verifyB.nsub
+  for i = 1, ok and b.nsub or 0 do
+    local x, y = b.subs[i], verifyB.subs[i]
+    if x.material ~= y.material or x.nv ~= y.nv or x.nf ~= y.nf or x.bad ~= y.bad then ok = false; break end
+    if x.nv > 0 and ffi.string(x.fb, x.nv * 64) ~= ffi.string(y.fb, y.nv * 64) then ok = false; break end
+    if x.nf > 0 and ffi.string(x.ib, x.nf * 2) ~= ffi.string(y.ib, y.nf * 2) then ok = false; break end
+  end
+  if not ok then
+    st.miss = st.miss + 1
+    if st.miss <= 3 then
+      local x, y = b.subs[1], verifyB.subs[1]
+      log('W', 'deepnode', string.format('tileCells differs on %s: subs %d/%d nv %s/%s nf %s/%s', tostring(t.key),
+        b.nsub, verifyB.nsub, x and x.nv, y and y.nv, x and x.nf, y and y.nf))
+    end
+  end
+end
+
 -- Build the mesh of an active tile: pixels when untouched, full cells when rutted.
 local tileBuilder = nil
 function M.buildTile(t, rule, forceDecal)
   tileBuilder = tileBuilder or M.newBuilder(true)
   tileBuilder:reset()
   rec.n = 0
-  if t.rutted then
+  local rc = extensions and extensions.deepnode_roadCopy
+  if t.rutted and cTile and not (rc and rc.isEnabled() and rc.hasRoads(t.key))
+      and ctx.cfg.tiles.mergePlain ~= false and cellsNative(tileBuilder, t, 0, rule) then
+    if cTileVerify then verifyCells(tileBuilder, t, rule) end
+  elseif t.rutted then
+    if cTile then tileBuilder:reset() end -- a native build that gave up halfway
     M.emitTileCells(tileBuilder, t, 0, rule)
   else
     M.emitTilePixels(tileBuilder, t, 0, rule)
@@ -1681,7 +1756,6 @@ function M.buildTile(t, rule, forceDecal)
   -- without them dirty when it falls quiet (P.decalQuiet).
   -- road copies (deepnode_roadCopy, roads.mode 'copy'): on every build, from the quads
   -- recorded above
-  local rc = extensions and extensions.deepnode_roadCopy
   if rc and rc.isEnabled() then rc.emit(tileBuilder, t.key, t.N) end
   local dec = extensions and extensions.deepnode_decals
   if dec then
@@ -1714,6 +1788,16 @@ function M.setContext(main)
   end
   -- native.cMesh = false keeps the Lua packing (A/B)
   cMesh = native ~= nil and native.scan ~= nil and native.writeGroup ~= nil and nc.cMesh ~= false
+  -- native.cTile = false keeps the Lua tile emitter (A/B); native.verifyTile compares every build
+  cTile = cMesh and native.tileCells ~= nil and nc.cTile ~= false
+  cTileVerify = cTile and nc.verifyTile == true
+end
+
+-- A/B and tests: native tile build on/off, Lua re-check of every native build
+function M.setNativeTile(on, verify)
+  cTile = on and cMesh and native.tileCells ~= nil or false
+  cTileVerify = cTile and verify == true
+  return cTile
 end
 
 local function onExtensionLoaded()

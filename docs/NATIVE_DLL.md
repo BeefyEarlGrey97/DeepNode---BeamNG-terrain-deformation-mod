@@ -261,6 +261,19 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   present 1.38 incl. createMesh 1.0 per call), onPreRender 1.5. Parked: Lua 1.0 ms. bench2's Lua metric (28 ms)
   is biased by when it samples (metric total 47 ms vs a 34.6 ms frame): use wrapper totals.
 
+- 2026-11-24, **Lua work moved into C** (helper v7). Targets from the 11-23 split. Both keep every side effect
+  in Lua and are bit-identical (double arithmetic in Lua's order, no FMA; LuaJIT `bit.tobit` = add 2^52+2^51,
+  low 32 bits of the double, also for products past 2^53: test_hash.exe vs luajit 20000 lines, JIT on/off).
+  `dnNative.slumpScan`: first vertex of a tile row segment the slump pass would write, or -1; Lua runs its
+  body there. Verify 2.0 M skipped vertices, 0 misses. slump 1.76 -> 0.93 ms/frame (C, Lua, C interleaved).
+  Left: call overhead (~18 calls per slump) and the Lua writes.
+  `dnNative.tileCells`: emitTileCells (stride 1, merged plain squares) per material into the lazy sub's
+  fb/ib; zbuf/vidx live in C. Tiles with road copies (tileMesh.rec) and sector copies stay Lua. Verify 1397
+  builds byte-equal. buildTile 0.84 -> 0.046 ms/call, rebuildTiles 3.77 -> 2.1-2.4 ms/frame, fps run 2
+  31.6/33.3 vs 28.6. Array arguments are validated once (64-entry cache), SEH covers stale ones.
+  Next by measured ms: liquid (3.2 ms/frame when the pits are wet), onMudReport writes (writeOne
+  bookkeeping, berm 0.7), present/createMesh (engine).
+
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.
 `FUN_14124e3f0` is LuaJIT's `ll_loadfunc` (lib_package.c): the strings `LOADLIB: %s`, `_LOADLIB`,

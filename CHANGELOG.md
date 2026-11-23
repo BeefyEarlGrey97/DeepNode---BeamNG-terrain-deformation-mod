@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Added (DeepNode Exotic only)
+- Native tile build (`native.cTile`, on): rutted tiles without road copies are built in C
+  (`dnNative.tileCells`: heights, jitter, crumble noise, normals, UVs, merged plain squares) straight into
+  the builder's flat copies. Byte-identical to the Lua emitter (in-game check: 1397 builds, 0 differences;
+  hash / noise vs LuaJIT on 20000 inputs, JIT on and off). gridmap_v2, 8 Percherons, interleaved: buildTile
+  0.84 -> 0.046 ms per call, rebuildTiles 3.77 -> 2.1..2.4 ms per frame, fps run 2 31.6 / 33.3 vs 28.6.
+- Native slump scan (`native.cSlump`, on): `dnNative.slumpScan` finds the next vertex of a row segment that
+  the slump pass would write; Lua runs its per-vertex code only there (all side effects stay in Lua). Same
+  writes (in-game check: 2.0 M skipped vertices re-checked, 0 differences). slump 1.76 -> 0.93 ms per frame,
+  onMudReport 3.52 -> 2.76 ms.
+- The helper finds its engine addresses by signature scan at load (helper v5+): the 2026-11-21 game update
+  had silently turned native features off (hardcoded addresses, build gate). `native/sigmap.py` derives
+  the table from the last known exe.
 - In-place mesh updates (`native.inPlace`, on): with the native helper installed
   (`native/`, `Bin64\mswsock.dll`), a tile or sector rebuild whose buffer sizes and materials did not
   change is written into its existing vertex buffer (`dnNative.writeVerts`) instead of a new

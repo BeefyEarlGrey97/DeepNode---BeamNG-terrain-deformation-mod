@@ -11,3 +11,4 @@ cl /nologo /O2 /W4 /LD /MT dnnative.c /Feout\mswsock.dll /Foout\ /link ws2_32.li
 cl /nologo /W4 /MT test_load.c /Feout\test_load.exe /Foout\ || exit /b 1
 cl /nologo /W4 /MT test_bridge.c /Feout\test_bridge.exe /Foout\ /link ws2_32.lib || exit /b 1
 cl /nologo /W4 /MT test_sigs.c /Feout\test_sigs.exe /Foout\ || exit /b 1
+cl /nologo /W4 /MT test_hash.c /Feout\test_hash.exe /Foout\ || exit /b 1
