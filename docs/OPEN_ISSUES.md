@@ -3,6 +3,13 @@
 Each item lists what was measured and what has already been tried, so nobody repeats a dead end.
 Engine facts behind them: [ENGINE_FINDINGS.md](ENGINE_FINDINGS.md).
 
+## 0. Game update 2026-11-21 slowed the mod's Lua 2x (engine LuaJIT regression, open)
+Since the 11-21 BeamNG update every Lua loop over ffi arrays runs uncompiled (docs/ENGINE_FINDINGS.md):
+8 Percherons on gridmap_v2 dropped from 39 to ~29 fps with the same code and settings. Not a mod bug.
+Options: report it to BeamNG (repro: tools/benchmark/ge_extensions/dnJitBench.lua `run()`, ffi line);
+move hot ffi loops to C (DeepNode Exotic: tile build and slump scan already, liquid flow next); or
+plain Lua tables in the hottest Lua-only loops (test/main). Re-check after every game update.
+
 ## 1. Frame rate with 8 trucks (goal 70–80 fps)
 
 Vanilla physics, user GUI settings (2026-10-28): 40.7–41.9 fps fresh mud vs 60 (capped) with the
