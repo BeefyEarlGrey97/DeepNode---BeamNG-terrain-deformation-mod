@@ -1,6 +1,7 @@
 # Native route: in-place mesh updates (living document)
 
-Status: **stages 1-6 done; in place whenever the mesh fits its buffer, lazy builder tables** (last update 2026-11-14).
+Status: **stages 1-6 done; in place whenever the mesh fits its buffer, lazy builder tables; addresses found by
+signature scan at load (survives game updates that keep the code)** (last update 2026-11-23).
 This file is updated every time something new is found. Newest entries go to the log at the end.
 
 ## Why
@@ -69,8 +70,10 @@ An object has at most 3 submeshes.
    Lua on the main thread, so the same call from GE Lua should be as safe. Not proven.
 3. **Stale CPU data.** Ray-cast copies, world box and collision keep the old heights. Mud meshes
    are not vehicle collision, but the camera ray and the bounds must be checked.
-4. **Game updates** move every address. Each build needs its own table, found by signature scan;
-   unknown build means fallback to `createMesh`.
+4. **Game updates** move every address. Since 2026-11-23 the DLL finds all 17 by masked byte signature
+   at load (`g_sigs` in dnnative.c, ~0.6 s); any signature missing or not unique = native off, Lua path.
+   Struct offsets (ProceduralMesh +0x2a0 buffers, VB +0x30/+0x70, LuaJIT GC64 layout) are not scanned:
+   `dnNative.probe` and the in-place fallback counter are the check after an update.
 5. **Crashes.** A wrong pointer kills the game. Reads are checked with `VirtualQuery`; writes only
    after stage 0 confirmed every offset on the running build.
 
@@ -243,6 +246,20 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   dntestProf's present wrapper reads `#verts` and so fills lazy tables: use a wrapper that does not
   (scratch dnLeanProf). Next: the 'new' reason (first mesh per tile) cannot go in place; the rest
   of the frame is Lua ~11 ms and RenderShadows ~5.5 ms.
+
+- 2026-11-23, **game update broke the hardcoded table** (Steam, exe 2026-11-21, ts 0x6afb6bf3, buildbot
+  312033). The build gate turned native off silently ("build=UNKNOWN") since then: exotic ran the Lua path.
+  `native/sigmap.py OLD NEW` (the 0.40.5 exe kept in ~/beamng-decomp) found every address again: Lua API and
+  sandbox gate +0xb0, vtables / GFX context / GameEngineLua -0x1000/-0xff0, VB lock/unlock unchanged.
+  `sigmap.py --c` emits the signature table (each checked unique in both builds); the DLL (v5) scans .text at
+  load and uses the matches; the build gate is now "all 17 found once". `test_sigs.exe <exe>` = offline check
+  (17 found, 0 mismatches vs sigmap). In game: sigs all found (578 ms), bridge registered, 8 Percherons:
+  5473 in-place writes, 0 fallbacks, picture normal. When a later update breaks a signature: rerun
+  sigmap.py with the last working exe as OLD.
+  Cost split measured the same session (8 Percherons digging, per frame, dnSplitProf wrappers): onMudReport
+  5.1 ms (stampWheel 3.3 of which slump 2.7, berm 0.7, hull 0.54), liquid 3.2, tiles 3.27 (buildTile 1.47,
+  present 1.38 incl. createMesh 1.0 per call), onPreRender 1.5. Parked: Lua 1.0 ms. bench2's Lua metric (28 ms)
+  is biased by when it samples (metric total 47 ms vs a 34.6 ms frame): use wrapper totals.
 
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.
