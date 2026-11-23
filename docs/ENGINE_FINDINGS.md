@@ -737,3 +737,21 @@ uploads), the >45 ms frames are dig batches plus a reload / floor write in the s
   grip at once (obj:getStaticFrictionCoef 0.367 -> 0.0735 at x0.2). In the heavy mud ground model
   (soft layer 0.2 m, flowConsistency 17000) cutting tread friction by 70 % barely changed a
   rocking Ural's speed: traction there comes from the soft layer's drag on submerged nodes.
+
+- **LuaJIT regression in the 2026-11-21 game update** (exe ts 0x6afb6bf3, buildbot 312033, LuaJIT
+  2.1.1793717695; before: 2.1.1788767029): every trace that reads or writes an ffi cdata array aborts
+  (trace abort code 11, likely "bad argument type"), so ffi loops run in the interpreter. Plain Lua,
+  tables, math.* and bit.* still compile. Measured 2026-11-24 with
+  `tools/benchmark/ge_extensions/dnJitBench.lua` (median of 7) and a `jit.attach` trace counter,
+  same game data, old exe copy vs new:
+
+  | workload | 0.40.5 exe | 11-21 exe | standalone LuaJIT |
+  |---|---|---|---|
+  | ffi float/uint8 array loop (1.35 M iterations) | 4 ms | 187 ms | 4 ms |
+  | DeepNode Lua tile emitter, 60 builds | 5.8 ms | 68 ms | - |
+  | hash/noise (bit ops), tables | same | same | same |
+
+  8 Percherons, gridmap_v2, bench2 run 2: 39.0 fps (old exe) vs 28.6-33.3 (new), Lua 9.5 vs 19 ms;
+  Render, RenderShadows, physics unchanged. Liquid flow 0.37 vs 3.2 ms/frame, onMudReport 1.76 vs
+  2.6-5.1 ms. The update also left `lua/common/jit/vmdef.lua` at the old version: `require('jit.v')`
+  fails with "LuaJIT core/library version mismatch".
