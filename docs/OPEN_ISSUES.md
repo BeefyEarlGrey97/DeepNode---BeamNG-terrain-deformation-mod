@@ -22,6 +22,12 @@ run 2: Lua only 30.6 -> 34.3 fps (Lua 18.7 -> 11.5 ms, onMudReport 3.66 -> 1.47,
 0.43 ms/call); with Exotic's C 36.7-36.8 fps, rut lag 0.09 s. LuaGC 0.3 -> 0.64 ms (bigger tables).
 Left on ffi in Lua: sink / terrain-scan arrays, decals/roadCopy grids, builder flat copies.
 
+## 0b. Blocky steep berm walls (look, open, pre-existing)
+High berms between neighbouring ruts (8 Percherons, gridmap_v2 mud pit, centre lanes) show stepped
+flat facets with stretched texture on their steep faces: 0.2 m cells lit flat, UVs projected top-down.
+Checked 2026-11-24: same on the old ffi code (not the Lua-table change) and with stamp.rutCrumble 0
+(not the crumble noise). Ideas, untested: triplanar-ish UV on steep cells, slope limit on berm piles.
+
 ## 1. Frame rate with 8 trucks (goal 70–80 fps)
 
 Vanilla physics, user GUI settings (2026-10-28): 40.7–41.9 fps fresh mud vs 60 (capped) with the
