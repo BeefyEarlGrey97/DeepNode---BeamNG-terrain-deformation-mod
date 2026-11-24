@@ -31,6 +31,17 @@ local P = {} -- private functions and state (keeps the main chunk under LuaJIT's
 
 local ffi = require('ffi')
 local tnew = (function() local ok, f = pcall(require, 'table.new') return ok and f or function() return {} end end)()
+-- Hot arrays are 0-based Lua tables (array part holds index 0 with table.new), not ffi arrays:
+-- since the 2026-11-21 game update (BeamNG 0.40.6, LuaJIT FFI bounds fix for CVE-2026-133528)
+-- no trace that indexes cdata compiles, so every ffi loop ran in the interpreter.
+-- Values stored are whole numbers where the ffi type was an integer (callers floor / clamp).
+local function arrN(n, v)
+  local t = tnew(n + 1, 0)
+  v = v or 0
+  for i = 0, n - 1 do t[i] = v end
+  return t
+end
+local function arrFill(a, n, v) for i = 0, n - 1 do a[i] = v end end
 
 local floor, ceil, min, max, abs, sqrt, huge = math.floor, math.ceil, math.min, math.max, math.abs, math.sqrt, math.huge
 local byte = string.byte
@@ -3225,7 +3236,7 @@ M.terrainFirst = function() return P.liftOn == true end
 function P.tileFlush(t)
   if not P.liftOn then return nil end
   local f, any = t.sqFlush, false
-  if not f then f = ffi.new('uint8_t[?]', TS * TS); t.sqFlush = f end
+  if not f then f = arrN(TS * TS); t.sqFlush = f end
   for sj = 0, TS - 1 do
     for si = 0, TS - 1 do
       local q = sj * TS + si
@@ -3259,9 +3270,19 @@ function M.onFloorChanged(gx0, gy0, gx1, gy1)
     for tx = tx0, tx1 do
       local t = tiles[ty * KEY + tx]
       if t then
-        local old = t.sqFlush and ffi.string(t.sqFlush, TS * TS)
+        local f0, old = t.sqFlush, nil
+        if f0 then
+          old = P.flushSnap or {}
+          P.flushSnap = old
+          for q = 0, TS * TS - 1 do old[q] = f0[q] end
+        end
         P.tileFlush(t)
-        if not old or old ~= ffi.string(t.sqFlush, TS * TS) then
+        local same = old ~= nil and t.sqFlush ~= nil
+        if same then
+          local f1 = t.sqFlush
+          for q = 0, TS * TS - 1 do if old[q] ~= f1[q] then same = false; break end end
+        end
+        if not same then
           if t.state == 'active' or t.obj then t.dirty = true end
           if fm and (t.state ~= 'active' or not t.obj) then fm.markDirty(P.sectorKeyOfTile(tx, ty), true) end
         end
@@ -4382,26 +4403,23 @@ function P.prepareTile(tx, ty)
   if not P.inTerrain(tx, ty) then return nil end
   local key = ty * KEY + tx
   local W = TS + 1
-  local vRest, vFloor = ffi.new('float[?]', W * W), ffi.new('float[?]', W * W)
-  local vMem = ffi.new('uint8_t[?]', W * W)
-  local sqPatched, sqMat = ffi.new('uint8_t[?]', TS * TS), ffi.new('uint8_t[?]', TS * TS)
+  local vRest, vFloor = arrN(W * W), arrN(W * W)
+  local vMem = arrN(W * W)
+  local sqPatched, sqMat = arrN(TS * TS), arrN(TS * TS)
   local count = P.computeTileTerrain(tx, ty, vRest, vFloor, vMem, sqPatched, sqMat)
   P.stats.prepared = P.stats.prepared + 1
   if count == 0 then P.emptyTiles[key] = true; return nil end
 
   local NW = N + 1
-  local rest, flo = ffi.new('float[?]', NW * NW), ffi.new('float[?]', NW * NW)
-  local rut, track = ffi.new('uint8_t[?]', NW * NW), ffi.new('uint8_t[?]', NW * NW)
-  local soft = ffi.new('uint8_t[?]', N * N)
-  ffi.fill(rut, NW * NW, 128)
-  local peakLo, peakHi = ffi.new('uint8_t[?]', NW * NW), ffi.new('uint8_t[?]', NW * NW)
-  ffi.fill(peakLo, NW * NW, 128)
-  ffi.fill(peakHi, NW * NW, 128)
+  local rest, flo = arrN(NW * NW), arrN(NW * NW)
+  local rut, track = arrN(NW * NW, 128), arrN(NW * NW)
+  local soft = arrN(N * N)
+  local peakLo, peakHi = arrN(NW * NW, 128), arrN(NW * NW, 128)
   -- soil memory (stamp.soil): passes, last wheel and time, first-pass depth (2.5 mm steps)
   local passN, passKey, passT, z1 = nil, nil, nil, nil
   if cfg.stamp.soil and cfg.stamp.soil.enabled then
-    passN, z1 = ffi.new('uint8_t[?]', NW * NW), ffi.new('uint8_t[?]', NW * NW)
-    passKey, passT = ffi.new('uint16_t[?]', NW * NW), ffi.new('float[?]', NW * NW)
+    passN, z1 = arrN(NW * NW), arrN(NW * NW)
+    passKey, passT = arrN(NW * NW), arrN(NW * NW)
   end
   -- pre-rutted decal roads: the cell's own offset replaces the bilinear one of the
   -- vertices (vRest carries the vertex offsets, see vertexInfo)
@@ -4410,7 +4428,7 @@ function P.prepareTile(tx, ty)
   -- (both lost the road's ruts the moment the tile got its own mesh)
   local preSq = nil
   if po then
-    preSq = ffi.new('uint8_t[?]', TS * TS)
+    preSq = arrN(TS * TS)
     for j = 0, N do
       for i = 0, N do
         local o = po[j * NW + i]
@@ -5076,8 +5094,7 @@ local function supOne(tx, ty, i, j, z)
   local idx = j * (N + 1) + i
   local s = t.sup
   if not s then
-    s = ffi.new('uint8_t[?]', (N + 1) * (N + 1))
-    ffi.fill(s, (N + 1) * (N + 1), 128)
+    s = arrN((N + 1) * (N + 1), 128)
     t.sup = s
   end
   local c = encodeZ(t, idx, z)
@@ -6765,7 +6782,7 @@ end
 function P.snapshotShown(t)
   local NW = N + 1
   local sh = t.shown
-  if not sh then sh = ffi.new('float[?]', NW * NW); t.shown = sh end
+  if not sh then sh = arrN(NW * NW); t.shown = sh end
   for idx = 0, NW * NW - 1 do sh[idx] = decodeZ(t, idx) end
 end
 
@@ -7868,11 +7885,11 @@ function M.clearRuts()
       P.releaseFrozen(t)
     else
       local NW = N + 1
-      ffi.fill(t.rut, NW * NW, 128)
-      ffi.fill(t.track, NW * NW, 0)
-      ffi.fill(t.peakLo, NW * NW, 128)
-      ffi.fill(t.peakHi, NW * NW, 128)
-      if t.passN then ffi.fill(t.passN, NW * NW, 0); ffi.fill(t.z1, NW * NW, 0) end
+      arrFill(t.rut, NW * NW, 128)
+      arrFill(t.track, NW * NW, 0)
+      arrFill(t.peakLo, NW * NW, 128)
+      arrFill(t.peakHi, NW * NW, 128)
+      if t.passN then arrFill(t.passN, NW * NW, 0); arrFill(t.z1, NW * NW, 0) end
       t.sup = nil
       t.relaxing, t.bermMaxC = false, 0
       t.rutted = false

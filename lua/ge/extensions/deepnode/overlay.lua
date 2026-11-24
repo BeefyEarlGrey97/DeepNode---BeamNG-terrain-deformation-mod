@@ -497,6 +497,7 @@ end
 -- with the level, the overlay draws water where the surface lies below it. Ruts too shallow
 -- or too short to close hold none.
 local ffi = require('ffi')
+local tnew = (function() local ok, f = pcall(require, 'table.new') return ok and f or function() return {} end end)()
 local huge = math.huge
 local KIND_WATER, KIND_DRY = 8, 9
 local poolQ, pqHead, pqTail = {}, 1, 0
@@ -509,12 +510,10 @@ local poolStats = { tiles = 0, pools = 0, rects = 0, ms = 0, maxMs = 0 }
 local function poolArrays(n)
   if n <= pCap then return end
   pCap = n
-  pz = ffi.new('double[?]', n)
-  pF = ffi.new('double[?]', n)
-  pDone = ffi.new('uint8_t[?]', n)
-  pLab = ffi.new('int32_t[?]', n)
-  heapI = ffi.new('int32_t[?]', n + 1)
-  heapV = ffi.new('double[?]', n + 1)
+  -- 0-based Lua tables, zero-filled like ffi.new: ffi indexing no longer JIT-compiles (game 0.40.6)
+  local function arr(m) local t = tnew(m + 1, 0) for k = 0, m - 1 do t[k] = 0 end return t end
+  pz, pF, pDone, pLab = arr(n), arr(n), arr(n), arr(n)
+  heapI, heapV = arr(n + 1), arr(n + 1)
 end
 
 local function poolRect(x0, y0, x1, y1, z, kind)

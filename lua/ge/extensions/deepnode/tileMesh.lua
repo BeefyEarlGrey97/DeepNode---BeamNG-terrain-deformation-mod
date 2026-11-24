@@ -21,6 +21,7 @@
 local M = {}
 
 local ffi = require('ffi')
+local tnew = (function() local ok, f = pcall(require, 'table.new') return ok and f or function() return {} end end)()
 local bit = require('bit')
 
 local floor, min, max, sqrt, abs = math.floor, math.min, math.max, math.sqrt, math.abs
@@ -769,8 +770,9 @@ local zbuf, vidx = nil, nil
 local function ensure(n)
   if n > bufN then
     bufN = n
-    zbuf = ffi.new('float[?]', n)
-    vidx = ffi.new('int32_t[?]', n)
+    -- Lua tables: ffi indexing no longer JIT-compiles (game 0.40.6, see main.lua arrN)
+    zbuf, vidx = tnew(n + 1, 0), tnew(n + 1, 0)
+    for k = 0, n - 1 do zbuf[k], vidx[k] = 0, -1 end
   end
 end
 
@@ -780,9 +782,8 @@ local function ensureTerrain(ts)
   local n = (ts + 1) * (ts + 1)
   if n > terrN then
     terrN = n
-    tRest = ffi.new('float[?]', n)
-    tPatched = ffi.new('uint8_t[?]', n)
-    tMat = ffi.new('uint8_t[?]', n)
+    tRest, tPatched, tMat = tnew(n + 1, 0), tnew(n + 1, 0), tnew(n + 1, 0)
+    for k = 0, n - 1 do tRest[k], tPatched[k], tMat[k] = 0, 0, 0 end
   end
 end
 
