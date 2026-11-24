@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+- Frame rate after BeamNG 0.40.6: the game's fix for CVE-2026-133528 stops LuaJIT compiling any loop
+  that indexes ffi arrays, and the mod's Lua ran about twice as long (8 Percherons 39 -> 29 fps). The
+  liquid flow window, tile arrays, tile emitter scratch, pre-rut offsets and overlay pools are now Lua
+  tables, which still compile: 30.6 -> 34.3 fps (Lua only), liquid 3.2 -> 0.4 ms, onMudReport 3.7 ->
+  1.5 ms. LuaGC +0.3 ms.
+
 ### Changed
 - Tread-print map (`#deepnode_rut`) is stamped by one compute pass in place
   (`rutStampC.cs.hlsl`) instead of a pixel stamp into a temp map plus a copy back. Only the
