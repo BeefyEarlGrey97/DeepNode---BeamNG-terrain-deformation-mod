@@ -1173,12 +1173,13 @@ end
 -------------------------------------------------------------------------------
 local bufN = 0
 local zbuf, vidx = nil, nil
+local zbase = nil -- heights before the berm smoothing (emitTileCells)
 local function ensure(n)
   if n > bufN then
     bufN = n
     -- Lua tables: ffi indexing no longer JIT-compiles (game 0.40.6, see main.lua arrN)
-    zbuf, vidx = tnew(n + 1, 0), tnew(n + 1, 0)
-    for k = 0, n - 1 do zbuf[k], vidx[k] = 0, -1 end
+    zbuf, vidx, zbase = tnew(n + 1, 0), tnew(n + 1, 0), tnew(n + 1, 0)
+    for k = 0, n - 1 do zbuf[k], vidx[k], zbase[k] = 0, -1, 0 end
   end
 end
 
@@ -1277,10 +1278,29 @@ function M.emitTileCells(b, t, zOff, rule, stride)
   -- stamp.rutCrumble x a two-scale clump noise (+-), at most rutCrumbleMax: sheared lumps
   -- instead of a smooth trough (SnowRunner reference)
   local rCrumble, rCrumbleMax = st.rutCrumble or 0, st.rutCrumbleMax or 0.06
+  -- berm smoothing (render only): a berm vertex moves bermSmooth of the way to the mean of its
+  -- 3 x 3 neighbourhood. Berm crests sit flat at the berm cap with single-cell notches and 2-6 cm
+  -- steps beside them, drawn as terraced facets on the steep walls (gridmap_v2 mud pit, 8 trucks).
+  -- Interior vertices only: a tile's edge vertices are shared with its neighbour and stay exact.
+  local smooth = st.bermSmooth or 0
+  if smooth > 0 then
+    for k = 0, W * W - 1 do zbase[k] = decodeZ(t, k) end
+  end
   for j = 0, N do
     for i = 0, N do
       local idx = j * W + i
-      local z = decodeZ(t, idx)
+      local z
+      if smooth > 0 then
+        z = zbase[idx]
+        if rut[idx] > 128 and i > 0 and i < N and j > 0 and j < N then
+          local a, c = idx - W, idx + W
+          local avg = (zbase[a - 1] + zbase[a] + zbase[a + 1] + zbase[idx - 1] + zbase[idx] + zbase[idx + 1]
+            + zbase[c - 1] + zbase[c] + zbase[c + 1]) / 9
+          z = z + (avg - z) * smooth
+        end
+      else
+        z = decodeZ(t, idx)
+      end
       local tr = track[idx]
       if tr > 0 then z = z + (hash01(gcx0 + i, gcy0 + j, 7) * 2 - 1) * jz * tr / 255 end
       if crumble > 0 and rut[idx] > 128 then
