@@ -9,6 +9,13 @@ Since the 11-21 BeamNG update every Lua loop over ffi arrays runs uncompiled (do
 Options: report it to BeamNG (repro: tools/benchmark/ge_extensions/dnJitBench.lua `run()`, ffi line);
 move hot ffi loops to C (DeepNode Exotic: tile build and slump scan already, liquid flow next); or
 plain Lua tables in the hottest Lua-only loops (test/main). Re-check after every game update.
+Cause found 2026-11-24: BeamNG 0.40.6 fixed CVE-2026-133528 (JIT traces skipped ffi bounds checks,
+sandbox escape); since then every cdata index aborts its trace (VLA, fixed array, struct field,
+pointer, constant index all tested). 1-based Lua tables and string.byte still compile.
+Done: liquid flow window on Lua tables (d121b72): liquid 3.1-3.3 -> 0.9-1.0 ms/frame, fps run 2
+29.0/29.0 -> 34.4/33.4, liquid writes equal within 1 %. Still on ffi in Lua: tile arrays (rest,
+floor, rut, track, peak*: stamping, decodeZ, slump body, tile emitter in the Lua edition), builder
+flat copies (exotic hands them to C), overlay. Old exe reference: 39 fps.
 
 ## 1. Frame rate with 8 trucks (goal 70–80 fps)
 
