@@ -274,6 +274,12 @@ Stage 0 tool: `tools/benchmark/ge_extensions/dntestNative.lua`
   Next by measured ms: liquid (3.2 ms/frame when the pits are wet), onMudReport writes (writeOne
   bookkeeping, berm 0.7), present/createMesh (engine).
 
+- 2026-11-24, **helper v8 reads Lua tables**: the mod's tile arrays moved from ffi arrays to 0-based Lua
+  tables (BeamNG 0.40.6 stopped JIT-compiling ffi indexing). tileCells / slumpScan read a table's array
+  part directly (LuaJIT GC64 GCtab: gct 11 at +9, array at +16, asize at +48; numbers are doubles), the
+  C zbuf is double like the Lua emitter's. Verify: 2.36 M slump vertices, 1968 tile builds, 0 misses.
+  8 Percherons run 2: 36.7-36.8 fps (Lua-only path 34.3, old ffi code 30.6, old game exe 39.0).
+
 ## Lua C API (from the existing Ghidra project, 2026-11-14, NOT re-analysed)
 Found in the already-decompiled sandbox output (`~/beamng-decomp/out_sbx2/`), no new Ghidra run.
 `FUN_14124e3f0` is LuaJIT's `ll_loadfunc` (lib_package.c): the strings `LOADLIB: %s`, `_LOADLIB`,

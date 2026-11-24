@@ -197,7 +197,7 @@ static int rd32(uintptr_t a, unsigned *out) { return readable((void *)a, 4) ? (*
 static int fail(lua_State *L, const char *msg) { lua.pushboolean(L, 0); lua.pushstring(L, msg); return 2; }
 
 static int l_buildOk(lua_State *L) { lua.pushboolean(L, g_buildOk); return 1; }
-static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 7"); return 1; }
+static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 8"); return 1; }
 
 // C++ object behind a Lua userdata: the payload itself, or a pointer in it (one or two hops)
 static uintptr_t findObject(uintptr_t pay, uintptr_t vt, const char **how)
@@ -501,11 +501,34 @@ static void *argArray(lua_State *L, int idx, size_t bytes)
     return p;
 }
 
+// Array part of a Lua table argument holding at least n values (0-based Lua tables built with
+// table.new: index 0 is array[0]), as doubles: LuaJIT GC64 on x64 keeps numbers as plain doubles.
+// The mod keeps its tile arrays in tables since BeamNG 0.40.6 stopped JIT-compiling ffi indexing.
+// GCtab (lj_obj.h, GC64): gct 11 at +9, MRef array at +16, uint32 asize at +48. A non-number slot
+// reads as a NaN-boxed double (never dereferenced). Checked with VirtualQuery once per table.
+static struct { BYTE *gc, *arr; uint32_t asize; } g_tabCache[64];
+static const double *argTable(lua_State *L, int idx, size_t n)
+{
+    uint64_t *s = argSlot(L, idx);
+    if (!s || (int32_t)((int64_t)*s >> 47) != -12) return NULL;
+    BYTE *gc = (BYTE *)(uintptr_t)(*s & ((1ull << 47) - 1));
+    unsigned h = (unsigned)((uintptr_t)gc >> 4) & 63;
+    if (g_tabCache[h].gc != gc && !(readable(gc, 56) && gc[9] == 11)) return NULL;
+    BYTE *arr = *(BYTE **)(gc + 16);
+    uint32_t asize = *(uint32_t *)(gc + 48);
+    if (asize < n) return NULL;
+    if (g_tabCache[h].gc != gc || g_tabCache[h].arr != arr || g_tabCache[h].asize < n) {
+        if (!readable(arr, n * 8)) return NULL;
+        g_tabCache[h].gc = gc, g_tabCache[h].arr = arr, g_tabCache[h].asize = (uint32_t)n;
+    }
+    return (const double *)arr;
+}
+
 // main.lua decodeZ in double, same operation order (bit-identical to the Lua path)
-static double decodeZ(const float *rest, const float *flo, const uint8_t *rut, int idx, double bermMax)
+static double decodeZ(const double *rest, const double *flo, const double *rut, int idx, double bermMax)
 {
     double r = rest[idx], fl = flo[idx], f = fl < r ? fl : r;
-    int c = rut[idx];
+    int c = (int)rut[idx];
     return f + (r - f) * (c < 128 ? c : 128) * 0.0078125 + (double)(c > 128 ? c - 128 : 0) / 127 * bermMax;
 }
 
@@ -522,8 +545,7 @@ static int l_slumpScan(lua_State *L)
     int W = N + 1;
     size_t n = (size_t)W * W;
     double *out = argArray(L, 1, 8);
-    const float *rest = argArray(L, 2, n * 4), *flo = argArray(L, 3, n * 4);
-    const uint8_t *rut = argArray(L, 4, n);
+    const double *rest = argTable(L, 2, n), *flo = argTable(L, 3, n), *rut = argTable(L, 4, n);
     if (!out || !rest || !flo || !rut) return fail(L, "dnNative.slumpScan: bad arrays");
     out[0] = -1;
     for (int i = i0; i <= i1; i++) {
@@ -587,13 +609,13 @@ enum { TP_N, TP_CPS, TP_TS, TP_CELL, TP_X0, TP_Y0, TP_GCX0, TP_GCY0, TP_JZ, TP_J
        TP_MAT = TP_RULE + 8, TP_UVOX, TP_UVOY, TP_UVSIZE, TP_UVFLIP, TP_NV, TP_NF, TP_FBCAP, TP_IBCAP, TP_COUNT };
 
 #define TILE_MAXW 129
-static float g_zbuf[TILE_MAXW * TILE_MAXW];
+static double g_zbuf[TILE_MAXW * TILE_MAXW]; // tileMesh.lua zbuf is a Lua table of doubles
 static int32_t g_vidx[TILE_MAXW * TILE_MAXW];
 static uint8_t g_plain[TILE_MAXW * TILE_MAXW];
 
 typedef struct {
     const double *p;
-    const uint8_t *track;
+    const double *track;
     double *fb;
     uint16_t *ib;
     int W, nv, nf, fbCap, ibCap, bad, full;
@@ -605,7 +627,7 @@ static int vtx(TileEmit *e, int i, int j)
     if (g_vidx[idx] >= 0) return g_vidx[idx];
     const double *p = e->p;
     double cell = p[TP_CELL], x = p[TP_X0] + i * cell, y = p[TP_Y0] + j * cell;
-    int tr = e->track[idx];
+    int tr = (int)e->track[idx];
     if (tr > 0) {
         double k = p[TP_JXY] * tr / 255;
         x = x + (hash01(p[TP_GCX0] + i, p[TP_GCY0] + j, 11) * 2 - 1) * k;
@@ -613,8 +635,8 @@ static int vtx(TileEmit *e, int i, int j)
     }
     // gridNormal(zbuf, W, W, i, j, cell)
     int il = i > 0 ? i - 1 : i, ir = i < W - 1 ? i + 1 : i, jd = j > 0 ? j - 1 : j, ju = j < W - 1 ? j + 1 : j;
-    double dzdx = ((double)g_zbuf[j * W + ir] - g_zbuf[j * W + il]) / ((ir - il) * cell);
-    double dzdy = ((double)g_zbuf[ju * W + i] - g_zbuf[jd * W + i]) / ((ju - jd) * cell);
+    double dzdx = (g_zbuf[j * W + ir] - g_zbuf[j * W + il]) / ((ir - il) * cell);
+    double dzdy = (g_zbuf[ju * W + i] - g_zbuf[jd * W + i]) / ((ju - jd) * cell);
     double l = 1 / sqrt(dzdx * dzdx + dzdy * dzdy + 1), nx = -dzdx * l, ny = -dzdy * l, nz = l;
     // main.uvOf for this material: base maps (x - ox) / size (flipped v), detail-only x / size (ox = oy = 0)
     double u = (x - p[TP_UVOX]) / p[TP_UVSIZE], v = (y - p[TP_UVOY]) / p[TP_UVSIZE];
@@ -650,11 +672,11 @@ static int l_tileCells(lua_State *L)
     if (N < 1 || W > TILE_MAXW || cps < 1 || ts < 1 || ts * cps != N) return fail(L, "dnNative.tileCells: bad tile size");
     size_t n = (size_t)W * W;
     int nv = (int)p[TP_NV], nf = (int)p[TP_NF], fbCap = (int)p[TP_FBCAP], ibCap = (int)p[TP_IBCAP];
-    const uint8_t *rut = argArray(L, 3, n), *track = argArray(L, 4, n), *soft = argArray(L, 7, (size_t)N * N),
-                  *sqMat = argArray(L, 8, (size_t)ts * ts);
-    const float *rest = argArray(L, 5, n * 4), *flo = argArray(L, 6, n * 4);
-    const uint8_t *flush = argSlot(L, 9) && (int32_t)((int64_t)*argSlot(L, 9) >> 47) == -11 ? argArray(L, 9, (size_t)ts * ts) : NULL;
-    const uint8_t *preSq = argSlot(L, 10) && (int32_t)((int64_t)*argSlot(L, 10) >> 47) == -11 ? argArray(L, 10, (size_t)ts * ts) : NULL;
+    const double *rut = argTable(L, 3, n), *track = argTable(L, 4, n), *soft = argTable(L, 7, (size_t)N * N),
+                 *sqMat = argTable(L, 8, (size_t)ts * ts), *rest = argTable(L, 5, n), *flo = argTable(L, 6, n);
+    // flush / preSq: a table, or false (none)
+    const double *flush = argSlot(L, 9) && (int32_t)((int64_t)*argSlot(L, 9) >> 47) == -12 ? argTable(L, 9, (size_t)ts * ts) : NULL;
+    const double *preSq = argSlot(L, 10) && (int32_t)((int64_t)*argSlot(L, 10) >> 47) == -12 ? argTable(L, 10, (size_t)ts * ts) : NULL;
     double *fb = argArray(L, 11, (size_t)fbCap * 64);
     uint16_t *ib = argArray(L, 12, (size_t)ibCap * 2);
     if (!rut || !track || !soft || !sqMat || !rest || !flo || !fb || !ib || nv < 0 || nf < 0 || nv > fbCap || nf > ibCap)
@@ -668,7 +690,7 @@ static int l_tileCells(lua_State *L)
         for (int i = 0; i <= N; i++) {
             int idx = j * W + i;
             double z = decodeZ(rest, flo, rut, idx, bermMax);
-            int tr = track[idx];
+            int tr = (int)track[idx];
             if (tr > 0) z = z + (hash01(gcx0 + i, gcy0 + j, 7) * 2 - 1) * jz * tr / 255;
             if (crumble > 0 && rut[idx] > 128) {
                 double bh = z - rest[idx];
@@ -701,7 +723,7 @@ static int l_tileCells(lua_State *L)
 #undef RMAX
                 if (c == 1) z = z - p[TP_DROP];
             }
-            g_zbuf[idx] = (float)(z + p[TP_ZOFF] + p[TP_TFLIFT]);
+            g_zbuf[idx] = z + p[TP_ZOFF] + p[TP_TFLIFT];
         }
     // untouched squares (one quad each)
     for (int sj = 0; sj < ts; sj++)
@@ -862,7 +884,7 @@ static void checkBuild(void)
     char exe[MAX_PATH], msg[512];
     GetModuleFileNameA(NULL, exe, MAX_PATH);
     _snprintf_s(msg, sizeof msg, _TRUNCATE,
-                "dnnative 7 loaded in %s pid=%lu base=%p ts=0x%08lx size=0x%lx sigs=%s (%lu ms)", exe,
+                "dnnative 8 loaded in %s pid=%lu base=%p ts=0x%08lx size=0x%lx sigs=%s (%lu ms)", exe,
                 GetCurrentProcessId(), (void *)base, ts, sz, g_buildOk ? "all found" : "MISSING (native features off)",
                 GetTickCount() - t0);
     dnlog(msg);

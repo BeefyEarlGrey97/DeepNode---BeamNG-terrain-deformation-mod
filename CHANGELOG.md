@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+- Frame rate after BeamNG 0.40.6: the game's fix for CVE-2026-133528 stops LuaJIT compiling any loop
+  that indexes ffi arrays, and the mod's Lua ran about twice as long (8 Percherons 39 -> 29 fps). The
+  liquid flow window, tile arrays, tile emitter scratch, pre-rut offsets and overlay pools are now Lua
+  tables, which still compile: 30.6 -> 34.3 fps (Lua only), liquid 3.2 -> 0.4 ms, onMudReport 3.7 ->
+  1.5 ms. LuaGC +0.3 ms.
+
 ### Added (DeepNode Exotic only)
 - Native tile build (`native.cTile`, on): rutted tiles without road copies are built in C
   (`dnNative.tileCells`: heights, jitter, crumble noise, normals, UVs, merged plain squares) straight into

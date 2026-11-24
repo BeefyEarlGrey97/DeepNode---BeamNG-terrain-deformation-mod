@@ -16,6 +16,11 @@ Done: liquid flow window on Lua tables (d121b72): liquid 3.1-3.3 -> 0.9-1.0 ms/f
 29.0/29.0 -> 34.4/33.4, liquid writes equal within 1 %. Still on ffi in Lua: tile arrays (rest,
 floor, rut, track, peak*: stamping, decodeZ, slump body, tile emitter in the Lua edition), builder
 flat copies (exotic hands them to C), overlay. Old exe reference: 39 fps.
+Done 2026-11-24 (b609701): tile arrays, tile emitter scratch, pre-rut offsets and overlay pools are
+0-based Lua tables made with table.new (index 0 stays in the array part: traces compile). 8 Percherons,
+run 2: Lua only 30.6 -> 34.3 fps (Lua 18.7 -> 11.5 ms, onMudReport 3.66 -> 1.47, Lua buildTile 0.82 ->
+0.43 ms/call); with Exotic's C 36.7-36.8 fps, rut lag 0.09 s. LuaGC 0.3 -> 0.64 ms (bigger tables).
+Left on ffi in Lua: sink / terrain-scan arrays, decals/roadCopy grids, builder flat copies.
 
 ## 1. Frame rate with 8 trucks (goal 70–80 fps)
 
