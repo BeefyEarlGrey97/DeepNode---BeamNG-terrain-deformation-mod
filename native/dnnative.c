@@ -197,7 +197,7 @@ static int rd32(uintptr_t a, unsigned *out) { return readable((void *)a, 4) ? (*
 static int fail(lua_State *L, const char *msg) { lua.pushboolean(L, 0); lua.pushstring(L, msg); return 2; }
 
 static int l_buildOk(lua_State *L) { lua.pushboolean(L, g_buildOk); return 1; }
-static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 8"); return 1; }
+static int l_version(lua_State *L) { lua.pushstring(L, "dnnative 9"); return 1; }
 
 // C++ object behind a Lua userdata: the payload itself, or a pointer in it (one or two hops)
 static uintptr_t findObject(uintptr_t pay, uintptr_t vt, const char **how)
@@ -606,10 +606,11 @@ static int isFiniteLua(double v) { return v == v && v > -1e7 && v < 1e7; }
 // params (double[]), filled by tileMesh.lua
 enum { TP_N, TP_CPS, TP_TS, TP_CELL, TP_X0, TP_Y0, TP_GCX0, TP_GCY0, TP_JZ, TP_JXY, TP_DROP, TP_CRUMBLE,
        TP_CRUMBLEMAX, TP_RCRUMBLE, TP_RCRUMBLEMAX, TP_TFLIFT, TP_ZOFF, TP_BERMMAX, TP_HASRULE, TP_RULE,
-       TP_MAT = TP_RULE + 8, TP_UVOX, TP_UVOY, TP_UVSIZE, TP_UVFLIP, TP_NV, TP_NF, TP_FBCAP, TP_IBCAP, TP_COUNT };
+       TP_MAT = TP_RULE + 8, TP_UVOX, TP_UVOY, TP_UVSIZE, TP_UVFLIP, TP_NV, TP_NF, TP_FBCAP, TP_IBCAP, TP_SMOOTH, TP_COUNT };
 
 #define TILE_MAXW 129
 static double g_zbuf[TILE_MAXW * TILE_MAXW]; // tileMesh.lua zbuf is a Lua table of doubles
+static double g_zbase[TILE_MAXW * TILE_MAXW]; // heights before the berm smoothing
 static int32_t g_vidx[TILE_MAXW * TILE_MAXW];
 static uint8_t g_plain[TILE_MAXW * TILE_MAXW];
 
@@ -685,11 +686,24 @@ static int l_tileCells(lua_State *L)
     double jz = p[TP_JZ], crumble = p[TP_CRUMBLE], crumbleMax = p[TP_CRUMBLEMAX];
     double rCrumble = p[TP_RCRUMBLE], rCrumbleMax = p[TP_RCRUMBLEMAX];
     int hasRule = p[TP_HASRULE] != 0;
+    double smooth = p[TP_SMOOTH]; // stamp.bermSmooth, as tileMesh.lua emitTileCells
+    if (smooth > 0)
+        for (int k = 0; k < (int)n; k++) g_zbase[k] = decodeZ(rest, flo, rut, k, bermMax);
     // heights (emitTileCells first loop)
     for (int j = 0; j <= N; j++)
         for (int i = 0; i <= N; i++) {
             int idx = j * W + i;
-            double z = decodeZ(rest, flo, rut, idx, bermMax);
+            double z;
+            if (smooth > 0) {
+                z = g_zbase[idx];
+                if (rut[idx] > 128 && i > 0 && i < N && j > 0 && j < N) {
+                    int a = idx - W, c = idx + W;
+                    double avg = (g_zbase[a - 1] + g_zbase[a] + g_zbase[a + 1] + g_zbase[idx - 1] + g_zbase[idx] +
+                                  g_zbase[idx + 1] + g_zbase[c - 1] + g_zbase[c] + g_zbase[c + 1]) / 9;
+                    z = z + (avg - z) * smooth;
+                }
+            } else
+                z = decodeZ(rest, flo, rut, idx, bermMax);
             int tr = (int)track[idx];
             if (tr > 0) z = z + (hash01(gcx0 + i, gcy0 + j, 7) * 2 - 1) * jz * tr / 255;
             if (crumble > 0 && rut[idx] > 128) {
@@ -884,7 +898,7 @@ static void checkBuild(void)
     char exe[MAX_PATH], msg[512];
     GetModuleFileNameA(NULL, exe, MAX_PATH);
     _snprintf_s(msg, sizeof msg, _TRUNCATE,
-                "dnnative 8 loaded in %s pid=%lu base=%p ts=0x%08lx size=0x%lx sigs=%s (%lu ms)", exe,
+                "dnnative 9 loaded in %s pid=%lu base=%p ts=0x%08lx size=0x%lx sigs=%s (%lu ms)", exe,
                 GetCurrentProcessId(), (void *)base, ts, sz, g_buildOk ? "all found" : "MISSING (native features off)",
                 GetTickCount() - t0);
     dnlog(msg);

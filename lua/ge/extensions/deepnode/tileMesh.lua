@@ -1694,7 +1694,7 @@ local function cellsNative(b, t, zOff, rule)
   local main = ctx
   local st, N, ts = main.cfg.stamp, t.N, t.ts
   local W = N + 1
-  tcParams = tcParams or ffi.new('double[36]')
+  tcParams = tcParams or ffi.new('double[37]')
   tcOut = tcOut or ffi.new('double[3]')
   local p = tcParams
   p[0], p[1], p[2], p[3], p[4], p[5] = N, t.cps, ts, t.cell, t.x0, t.y0
@@ -1716,6 +1716,7 @@ local function cellsNative(b, t, zOff, rule)
     s.ib, s.icap = growU(s.ib, s.icap or 0, s.nf + 6 * N * N)
     p[TP_MAT], p[28], p[29], p[30], p[31] = m, ox, oy, size, flip and 1 or 0
     p[32], p[33], p[34], p[35] = s.nv, s.nf, floor(s.fcap / 8), s.icap
+    p[36] = st.bermSmooth or 0
     if not native.tileCells(tcOut, p, t.rut, t.track, t.rest, t.floor, t.soft, t.sqMat, flush, preSq, s.fb, s.ib) then
       return false
     end
