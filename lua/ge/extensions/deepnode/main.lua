@@ -30,6 +30,7 @@ local M = {}
 local P = {} -- private functions and state (keeps the main chunk under LuaJIT's 200-local limit)
 
 local ffi = require('ffi')
+local tnew = (function() local ok, f = pcall(require, 'table.new') return ok and f or function() return {} end end)()
 
 local floor, ceil, min, max, abs, sqrt, huge = math.floor, math.ceil, math.min, math.max, math.abs, math.sqrt, math.huge
 local byte = string.byte
@@ -5908,17 +5909,19 @@ end
 -- window over [gx0, gx0 + Gx) x [gy0, gy0 + Gy); flow state of the old one carried over
 local function liqWindow(old, gx0, gy0, Gx, Gy)
   local n = Gx * Gy
+  -- plain 1-based Lua tables, not ffi arrays: since the 2026-11-21 game update (LuaJIT FFI
+  -- bounds fix, CVE-2026-133528) no trace that indexes cdata compiles, so ffi loops run in
+  -- the interpreter (this step: 0.37 -> 3.2 ms/frame, 8 trucks). Cell k (0-based) is [k + 1].
+  local function arr() local t = tnew(n, 0) for k = 1, n do t[k] = 0 end return t end
   local w = {
     gx0 = gx0, gy0 = gy0, Gx = Gx, Gy = Gy, kf = old and old.kf or 1, last = old and old.last or simTime,
-    h = ffi.new('float[?]', n), fl = ffi.new('float[?]', n), res = ffi.new('float[?]', n),
-    qx = ffi.new('float[?]', n), qy = ffi.new('float[?]', n), out = ffi.new('float[?]', n),
-    ok = ffi.new('uint8_t[?]', n), obs = ffi.new('uint8_t[?]', n), dist = ffi.new('uint8_t[?]', n),
+    h = arr(), fl = arr(), res = arr(), qx = arr(), qy = arr(), out = arr(), ok = arr(), obs = arr(), dist = arr(),
   }
   if old then
     for j = max(gy0, old.gy0), min(gy0 + Gy, old.gy0 + old.Gy) - 1 do
       for i = max(gx0, old.gx0), min(gx0 + Gx, old.gx0 + old.Gx) - 1 do
         local k, ko = (j - gy0) * Gx + (i - gx0), (j - old.gy0) * old.Gx + (i - old.gx0)
-        w.res[k], w.qx[k], w.qy[k] = old.res[ko], old.qx[ko], old.qy[ko]
+        w.res[k + 1], w.qx[k + 1], w.qy[k + 1] = old.res[ko + 1], old.qx[ko + 1], old.qy[ko + 1]
       end
     end
   end
@@ -5937,15 +5940,15 @@ local function liqStep(w, dt, lc)
       local k = j * Gx + i
       local t, idx = vertexRef(gx0 + i, gy0 + j)
       if t and t.state == 'active' and t.rest[idx] - t.floor[idx] > 0.002 then
-        h[k] = decodeZ(t, idx) + res[k]
-        fl[k] = min(t.floor[idx], t.rest[idx])
-        ok[k] = 1
-        dist[k] = (t.rut[idx] ~= 128 or t.track[idx] > 0) and 1 or 0
+        h[k + 1] = decodeZ(t, idx) + res[k + 1]
+        fl[k + 1] = min(t.floor[idx], t.rest[idx])
+        ok[k + 1] = 1
+        dist[k + 1] = (t.rut[idx] ~= 128 or t.track[idx] > 0) and 1 or 0
         any = true
       else
-        ok[k], res[k], qx[k], qy[k] = 0, 0, 0, 0
+        ok[k + 1], res[k + 1], qx[k + 1], qy[k + 1] = 0, 0, 0, 0
       end
-      obs[k] = 0
+      obs[k + 1] = 0
     end
   end
   if not any then return false end
@@ -5960,12 +5963,12 @@ local function liqStep(w, dt, lc)
     for j = j0, j1 do
       for i = i0, i1 do
         local k = j * Gx + i
-        if ok[k] == 1 then
+        if ok[k + 1] == 1 then
           local rx, ry = ter.ox + (gx0 + i) * CELL - px, ter.oy + (gy0 + j) * CELL - py
           local s = rx * axx + ry * axy
           local f = rx * fwx + ry * fwy
-          if s > lo - 0.03 and s < hi + 0.03 and f * f < R * R and h[k] > pz - sqrt(R * R - f * f) - 0.03 then
-            obs[k] = 1
+          if s > lo - 0.03 and s < hi + 0.03 and f * f < R * R and h[k + 1] > pz - sqrt(R * R - f * f) - 0.03 then
+            obs[k + 1] = 1
           end
         end
       end
@@ -5983,17 +5986,17 @@ local function liqStep(w, dt, lc)
         local k2 = e == 1 and k + 1 or k + Gx
         local q = e == 1 and qx or qy
         local inside = (e == 1 and i < Gx - 1) or (e == 2 and j < Gy - 1)
-        if inside and ok[k] == 1 and ok[k2] == 1 and obs[k] == 0 and obs[k2] == 0 and (dist[k] == 1 or dist[k2] == 1) then
-          local d = h[k] - h[k2]
-          local v = q[k]
+        if inside and ok[k + 1] == 1 and ok[k2 + 1] == 1 and obs[k + 1] == 0 and obs[k2 + 1] == 0 and (dist[k + 1] == 1 or dist[k2 + 1] == 1) then
+          local d = h[k + 1] - h[k2 + 1]
+          local v = q[k + 1]
           if d > yStep then v = v * damp + dt * g * (d - yStep)
           elseif d < -yStep then v = v * damp + dt * g * (d + yStep)
           else v = v * stop end
           -- undisturbed mud only receives
-          if (v > 0 and dist[k] == 0) or (v < 0 and dist[k2] == 0) then v = 0 end
-          q[k] = v
+          if (v > 0 and dist[k + 1] == 0) or (v < 0 and dist[k2 + 1] == 0) then v = 0 end
+          q[k + 1] = v
         else
-          q[k] = 0
+          q[k + 1] = 0
         end
       end
     end
@@ -6001,23 +6004,23 @@ local function liqStep(w, dt, lc)
   -- outflow per vertex at most its mud above the floor
   for k = 0, n - 1 do
     local o = 0
-    if ok[k] == 1 then
-      if qx[k] > 0 then o = o + qx[k] end
-      if qy[k] > 0 then o = o + qy[k] end
-      if k % Gx > 0 and qx[k - 1] < 0 then o = o - qx[k - 1] end
-      if k >= Gx and qy[k - Gx] < 0 then o = o - qy[k - Gx] end
+    if ok[k + 1] == 1 then
+      if qx[k + 1] > 0 then o = o + qx[k + 1] end
+      if qy[k + 1] > 0 then o = o + qy[k + 1] end
+      if k % Gx > 0 and qx[k] < 0 then o = o - qx[k] end
+      if k >= Gx and qy[k - Gx + 1] < 0 then o = o - qy[k - Gx + 1] end
     end
-    out[k] = o
+    out[k + 1] = o
   end
   for k = 0, n - 1 do
-    local o = out[k] * dt
-    local avail = h[k] - fl[k]
+    local o = out[k + 1] * dt
+    local avail = h[k + 1] - fl[k + 1]
     if o > 0 and o > avail then
       local s = max(0, avail) / o
-      if qx[k] > 0 then qx[k] = qx[k] * s end
-      if qy[k] > 0 then qy[k] = qy[k] * s end
-      if k % Gx > 0 and qx[k - 1] < 0 then qx[k - 1] = qx[k - 1] * s end
-      if k >= Gx and qy[k - Gx] < 0 then qy[k - Gx] = qy[k - Gx] * s end
+      if qx[k + 1] > 0 then qx[k + 1] = qx[k + 1] * s end
+      if qy[k + 1] > 0 then qy[k + 1] = qy[k + 1] * s end
+      if k % Gx > 0 and qx[k] < 0 then qx[k] = qx[k] * s end
+      if k >= Gx and qy[k - Gx + 1] < 0 then qy[k - Gx + 1] = qy[k - Gx + 1] * s end
     end
   end
   -- heights; a vertex is rewritten once its change passes minStep (the rest is carried)
@@ -6027,20 +6030,20 @@ local function liqStep(w, dt, lc)
   for j = 0, Gy - 1 do
     for i = 0, Gx - 1 do
       local k = j * Gx + i
-      if ok[k] == 1 and obs[k] == 0 then
-        local dh = -qx[k] - qy[k]
-        if i > 0 then dh = dh + qx[k - 1] end
-        if j > 0 then dh = dh + qy[k - Gx] end
+      if ok[k + 1] == 1 and obs[k + 1] == 0 then
+        local dh = -qx[k + 1] - qy[k + 1]
+        if i > 0 then dh = dh + qx[k] end
+        if j > 0 then dh = dh + qy[k - Gx + 1] end
         dh = dh * dt
-        local r = res[k] + dh
+        local r = res[k + 1] + dh
         if r > minStep or r < -minStep then
-          local nh = h[k] + dh
+          local nh = h[k + 1] + dh
           writeVertex(gx0 + i, gy0 + j, nh, 0)
           P.stats.liqWrites = (P.stats.liqWrites or 0) + 1
           local t, idx = vertexRef(gx0 + i, gy0 + j)
-          res[k] = t and (nh - decodeZ(t, idx)) or 0
+          res[k + 1] = t and (nh - decodeZ(t, idx)) or 0
         else
-          res[k] = r
+          res[k + 1] = r
         end
         if dh > 2e-4 or dh < -2e-4 then moving = true end
       end
