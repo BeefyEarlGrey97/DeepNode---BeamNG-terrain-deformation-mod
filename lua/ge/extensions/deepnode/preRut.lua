@@ -24,6 +24,7 @@
 local M = {}
 
 local ffi = require('ffi')
+local tnew = (function() local ok, f = pcall(require, 'table.new') return ok and f or function() return {} end end)()
 local bit = require('bit')
 local floor, ceil, min, max, abs, sqrt = math.floor, math.ceil, math.min, math.max, math.abs, math.sqrt
 local sfmt = string.format
@@ -187,7 +188,8 @@ function M.build(main, P)
     local key = ty * KEY + tx
     local a = off[key]
     if not a then
-      a = ffi.new('float[?]', NW * NW)
+      a = tnew(NW * NW + 1, 0) -- Lua table: ffi indexing no longer JIT-compiles (game 0.40.6)
+      for k = 0, NW * NW - 1 do a[k] = 0 end
       off[key] = a
       nTiles = nTiles + 1
     end
