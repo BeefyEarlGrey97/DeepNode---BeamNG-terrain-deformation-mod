@@ -22,11 +22,12 @@ run 2: Lua only 30.6 -> 34.3 fps (Lua 18.7 -> 11.5 ms, onMudReport 3.66 -> 1.47,
 0.43 ms/call); with Exotic's C 36.7-36.8 fps, rut lag 0.09 s. LuaGC 0.3 -> 0.64 ms (bigger tables).
 Left on ffi in Lua: sink / terrain-scan arrays, decals/roadCopy grids, builder flat copies.
 
-## 0b. Blocky steep berm walls (look, open, pre-existing)
-High berms between neighbouring ruts (8 Percherons, gridmap_v2 mud pit, centre lanes) show stepped
-flat facets with stretched texture on their steep faces: 0.2 m cells lit flat, UVs projected top-down.
-Checked 2026-11-24: same on the old ffi code (not the Lua-table change) and with stamp.rutCrumble 0
-(not the crumble noise). Ideas, untested: triplanar-ish UV on steep cells, slope limit on berm piles.
+## 0b. Blocky steep berm walls (fixed 2026-11-24, stamp.bermSmooth)
+Berm crests sat flat at the berm cap (+0.181 m) with single-cell notches every ~4 m and 2-6 cm steps
+beside them; the steep walls drew as terraced facets. Not caused by the Lua-table change (same on the
+old ffi code) nor by rutCrumble. Fix: render-only 3 x 3 berm smoothing in the tile emitter (interior
+vertices, tile edges exact), default 1. Physics floor unchanged. Remaining: the cap still flattens high
+crests in the data; walls are still 0.2 m facets.
 
 ## 1. Frame rate with 8 trucks (goal 70–80 fps)
 

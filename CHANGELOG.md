@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Blocky berm walls: berm crests capped flat with single-cell notches drew as terraced facets. Berm
+  vertices are now smoothed toward their 3 x 3 neighbourhood when drawn (`stamp.bermSmooth`, 1; render
+  only, tile edges exact, no measurable cost).
 - Frame rate after BeamNG 0.40.6: the game's fix for CVE-2026-133528 stops LuaJIT compiling any loop
   that indexes ffi arrays, and the mod's Lua ran about twice as long (8 Percherons 39 -> 29 fps). The
   liquid flow window, tile arrays, tile emitter scratch, pre-rut offsets and overlay pools are now Lua
