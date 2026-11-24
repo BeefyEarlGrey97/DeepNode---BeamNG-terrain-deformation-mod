@@ -747,6 +747,7 @@ the overlap keeps its ruts, tiles outside it are dropped and their terrain resto
 | `trackSpinGain` | 0.08 | Extra roughness per m/s of wheel spin |
 | `trackDepthGain` | 2.0 | Extra roughness per metre of depth |
 | `bermCrumble`, `bermCrumbleMax` | 0.9, 0.16 | Torn berm crests: berm vertices move by berm height x this x a clump noise (render only), capped (m) |
+| `bermSmooth` | 1 | Render only: each interior berm vertex moves this share of the way to the mean of its 3 x 3 neighbourhood before the crumble noise. Turns the flat capped crests, single-cell notches and terraced steep berm walls into continuous faces. 0 = off. No measurable cost |
 | `rutCrumble`, `rutCrumbleMax` | 0.6, 0.06 | Torn rut walls and floor: dug vertices move by depth x this x a +- clump noise (render only), capped (m) |
 | `jitterZ` | 0.015 | Height jitter of the roughest ruts |
 | `jitterXY` | 0.03 | Sideways jitter of the roughest ruts |

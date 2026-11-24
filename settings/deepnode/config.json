@@ -216,6 +216,7 @@
     "bermCrumbleMax": 0.16,
     "rutCrumble": 0.3,
     "rutCrumbleMax": 0.04,
+    "bermSmooth": 1,
     "bearing": false,
     "kinds": {
       "mud": {
